@@ -1,0 +1,18 @@
+#Python
+*.pyc
+__pycache__
+
+#Archives
+*.zip
+*.rar
+*.tar
+
+#Rich files
+*.docx
+*.mp4
+
+#Folders
+data/
+doc/
+junk/
+media/
