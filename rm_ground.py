@@ -12,12 +12,14 @@ Author: Gerald Baulig
 
 #Standard libs
 from argparse import ArgumentParser
+from time import sleep
 
 #3rd-Party libs
 import numpy as np
 import pykitti  # install using pip install pykitti
 from mayavi import mlab
 from scipy.spatial import Delaunay
+from sklearn.cluster import DBSCAN
 
 #Local libs
 from utils import *
@@ -110,7 +112,7 @@ def plot_mesh(X, T, Y, fig, plot=None):
             X[:,1],
             X[:,2],
             T,
-            #scalars=Y,
+            scalars=Y,
             colormap='spectral',  # 'bone', 'copper',
             line_width=10,        # Scale of the line, if any
             figure=fig,
@@ -120,6 +122,7 @@ def plot_mesh(X, T, Y, fig, plot=None):
             x = X[:,0],
             y = X[:,1],
             z = X[:,2],
+            triangles = T,
             scalars = Y
         )
     fig.render()
@@ -151,6 +154,7 @@ def main(args):
     files = ifile(args.data, args.sort)    
     frames = pykitti.utils.yield_velo_scans(files)
     fig = mlab.figure(bgcolor=(0, 0, 0), size=(640, 360))
+    db = DBSCAN(eps=0.3, n_jobs=10)
     plot = None
 
     for X in frames:
@@ -163,15 +167,27 @@ def main(args):
         Tx = X[Ti,:3]
         N = face_normals(Tx)
         
-        z_mean = Tx[:,0,2].mean()
-        G = Tx[:,0,2]<z_mean
+        mp = plot_mesh(X, Ti, None, fig, None)
+        input()
+        
+        G = Tx[:,0,2] < Tx[:,0,2].mean()-0.2
         Ti = Ti[G]
-        N = [G]
-        G = Ti[N[:,2]>0.98]
-        X = np.delete(X, G.flatten().unique())
+        N = N[G]
+        G = Ti[N[:,2]>0.9]
+        
+        mp = plot_mesh(X, G, None, fig, mp)
+        input()
+        
+        mask = np.ones_like(X[:,0], bool)
+        mask[G] = False
+        X = X[mask]
+        
+        print("Clustering...")
+        Y = db.fit(X[:,:3]).labels_
         
         print("Rendering...")
-        plot = plot_vertices(X, None, fig, plot)
+        mlab.clf(fig)
+        plot = plot_vertices(X, Y, fig, plot)
         inp = myinput(
             "Press to continue: ",
             default=1,
