@@ -17,11 +17,12 @@ from time import sleep
 #3rd-Party libs
 import numpy as np
 import pykitti  # install using pip install pykitti
-from mayavi import mlab
 from scipy.spatial import Delaunay
+from sklearn import svm
 from sklearn.cluster import DBSCAN
 
 #Local libs
+import viz
 from utils import *
 
 
@@ -75,72 +76,6 @@ def validate(args):
     return args
 
 
-def plot_vertices(X, Y, fig, plot=None):
-    if not len(X):
-        raise ValueError("Error: Empty frame!")
-
-    if plot == None:
-        plot = mlab.points3d(
-            X[:,0],
-            X[:,1],
-            X[:,2],
-            Y,
-            mode="point",         # How to render each point {'point', 'sphere' , 'cube' }
-            colormap='spectral',  # 'bone', 'copper',
-            scale_factor=100,     # scale of the points
-            line_width=10,        # Scale of the line, if any
-            figure=fig,
-            )
-    else:
-        plot.mlab_source.reset(
-            x = X[:, 0],
-            y = X[:, 1],
-            z = X[:, 2],
-            scalars = Y
-        )
-    fig.render()
-    return plot
-
-
-def plot_mesh(X, T, Y, fig, plot=None):
-    if not len(X):
-        raise ValueError("Error: Empty frame!")
-
-    if plot == None:
-        plot = mlab.triangular_mesh(
-            X[:,0],
-            X[:,1],
-            X[:,2],
-            T,
-            scalars=Y,
-            colormap='spectral',  # 'bone', 'copper',
-            line_width=10,        # Scale of the line, if any
-            figure=fig,
-            )
-    else:
-        plot.mlab_source.reset(
-            x = X[:,0],
-            y = X[:,1],
-            z = X[:,2],
-            triangles = T,
-            scalars = Y
-        )
-    fig.render()
-    return plot
-
-
-def plot_normals():
-    X = X[T[:,0]]
-    mlab.quiver3d(
-        X[:,0],
-        X[:,1],
-        X[:,2],
-        N[:,0],
-        N[:,1],
-        N[:,2],
-        scale_factor=0.1)
-
-
 def face_normals(T, normalize=True):
     N = np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])
     if normalize:
@@ -153,7 +88,7 @@ def main(args):
     # Load the data
     files = ifile(args.data, args.sort)    
     frames = pykitti.utils.yield_velo_scans(files)
-    fig = mlab.figure(bgcolor=(0, 0, 0), size=(640, 360))
+    fig = viz.create_figure()
     db = DBSCAN(eps=0.3, n_jobs=10)
     plot = None
 
@@ -161,33 +96,40 @@ def main(args):
         if not len(X):
             break
         
-        print("Get Ground Plane...")
+        print("Generate Surface...")
         mesh = Delaunay(X[:,:2])
         Ti = mesh.simplices
-        Tx = X[Ti,:3]
-        N = face_normals(Tx)
+        x = X[Ti,:3]
+        N = face_normals(x)
         
-        mp = plot_mesh(X, Ti, None, fig, None)
+        mp = viz.mesh(X, Ti, None, fig, None)
         input()
         
-        G = Tx[:,0,2] < Tx[:,0,2].mean()-0.2
+        print("Get Ground Plane...")
+        x = x[:,0]
+        mx = np.mean(x)
+        vx = np.var(x)
+        x = (x - mx) / vx
+        SVM = svm.LinearSVR() #SVC(gamma='scale', kernel='poly', degree=3)
+        print("    Fit SVM...")
+        SVM.fit(x, N[:,2]<0.9, -x[:,2])
+        print("    Classifiy...")
+        G = SVM.predict(x) > 0
         Ti = Ti[G]
-        N = N[G]
-        G = Ti[N[:,2]>0.9]
         
-        mp = plot_mesh(X, G, None, fig, mp)
+        mp = viz.mesh(X, Ti, None, fig, mp)
         input()
         
         mask = np.ones_like(X[:,0], bool)
-        mask[G] = False
-        X = X[mask]
+        mask[Ti] = False
+        x = X[mask]
         
         print("Clustering...")
-        Y = db.fit(X[:,:3]).labels_
+        Y = db.fit(x[:,:3]).labels_
         
         print("Rendering...")
-        mlab.clf(fig)
-        plot = plot_vertices(X, Y, fig, plot)
+        viz.clear_figure(fig)
+        plot = viz.vertices(x, Y, fig, plot)
         inp = myinput(
             "Press to continue: ",
             default=1,
@@ -196,7 +138,7 @@ def main(args):
         
         if inp <= 0:
             break
-
+        viz.clear_figure(fig)
     return 0
 
 if __name__ == '__main__':
