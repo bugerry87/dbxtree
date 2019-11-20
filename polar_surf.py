@@ -12,7 +12,6 @@ Author: Gerald Baulig
 
 #Standard libs
 from argparse import ArgumentParser
-from time import sleep
 
 #3rd-Party libs
 import numpy as np
@@ -84,70 +83,40 @@ def face_normals(T, normalize=True):
         return N
 
 
-def face_normals2(T, normalize=True):
-    A = T[:,1] - T[:,0]
-    B = T[:,2] - T[:,0]
-    if normalize:
-        A = A / np.linalg.norm(A, axis=1)[:, None]
-        B = B / np.linalg.norm(B, axis=1)[:, None]
-    return np.cross(A, B)
-
-
 def main(args):
     # Load the data
     files = ifile(args.data, args.sort)    
     frames = pykitti.utils.yield_velo_scans(files)
     fig = viz.create_figure()
-    db = DBSCAN(eps=0.3, n_jobs=10)
     plot = None
 
     for X in frames:
         if not len(X):
             break
         
-        print("Generate Surface...")
-        mesh = Delaunay(X[:,:2])
-        Ti = mesh.simplices
-        x = X[Ti,:3]
-        N = face_normals(x)
+        P = X.copy()
+        P[:,0] = np.arccos(X[:,0] / np.linalg.norm(X[:,(0,1)], axis=1)) * (1*(X[:,1] >= 0) - (X[:,1] < 0))
+        P[:,1] = np.linalg.norm(X[:,:2], axis=1)
+        P[:,2] = np.arcsin(P[:,2] / P[:,1]) * 10
+        P[:,3] = 1*(X[:,1] >= 0) + 2*(X[:,1] < 0) + 4*(X[:,2] >= 0) + 8*(X[:,2] < 0)
+        P[0,3] = 0
+        P[:,0] *= 10
         
-        mp = viz.mesh(X, Ti, None, fig, None)
-        input()
-        
-        print("Get Ground Plane...")
-        x = x[:,0]
-        mx = np.mean(x)
-        vx = np.var(x)
-        x = (x - mx) / vx #Normalize the dataset
-        svr = SVR(kernel='rbf', C=100, gamma=0.1, epsilon=0.1) #SVC(gamma='scale', kernel='poly', degree=3)
-        print("    Fit SVR...")
-        svr.fit(x, N[:,2]<0.9, x[:,2] / np.min(x[:,2]))
-        print("    Classifiy...")
-        G = svr.predict(x) > 0
-        Ti = Ti[G]
-        
-        mp = viz.mesh(X, Ti, None, fig, mp)
-        input()
-        
-        mask = np.ones_like(X[:,0], bool)
-        mask[Ti] = False
-        x = X[mask]
-        
-        print("Clustering...")
-        Y = db.fit(x[:,:3]).labels_
-        
-        print("Rendering...")
-        viz.clear_figure(fig)
-        plot = viz.vertices(x, Y, fig, plot)
-        inp = myinput(
-            "Press to continue: ",
-            default=1,
-            cast=int
-            )
-        
-        if inp <= 0:
+        print("Plot polar...")
+        viz.vertices(P[:,(1,0,2)], P[:,3], fig, None)
+        if input():
             break
         viz.clear_figure(fig)
+        
+        print("Generate Surface...")
+        mesh = Delaunay(P[:,(0,2)])
+        Ti = mesh.simplices
+        
+        viz.mesh(P[:,(2,0,1)], Ti, None, fig, None)
+        if input():
+            break
+        viz.clear_figure(fig)
+        break
     return 0
 
 if __name__ == '__main__':
