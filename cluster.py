@@ -45,16 +45,16 @@ def kernel_trick(gram, C):
     return W
 
 
-KMEANS_INIT_MODES = ('select', 'mean', 'uniform', 'normal', 'kmeans++')
+KMEANS_INIT_MODES = ('select', 'mean', 'uniform', 'normal', 'kmeans++', 'limits')
 def init_kmeans(X, K, mode='mean'):
-    ''' init_kmeans(X, K, mode='free') -> means
-    Initialize K cluster means on dataset X.
+    ''' init_kmeans(X, K, mode='free') -> centroids
+    Initialize K cluster centroids on dataset X.
     
     Args:
         X: The dataset.
-        K: The number of cluster means.
-        mode: The mode how to initialize the cluster means.
-            mean = All means start (almost) at the mean of the dataset.
+        K: The number of cluster centroids.
+        mode: The mode how to initialize the cluster centroids.
+            mean = All centroids start (almost) at the mean of the dataset.
                 Pro: The result is determenistic.
                 Con: Needs more iterations.
             uniform = Uniform random distributed.
@@ -72,7 +72,7 @@ def init_kmeans(X, K, mode='mean'):
                 Pro: May have an appropriate distributed of Ks.
                 Con: Great effort for a negligible improvment.
     Returns:
-        means: The cluster means.
+        centroids: The cluster centroids.
     '''
     N = X.shape[0]
     d = X.shape[1]
@@ -80,33 +80,39 @@ def init_kmeans(X, K, mode='mean'):
     if mode=='mean':
         #One can not take the absolute mean.
         #The first K would claim all points and the algo stuck.
-        #Get the means and add a small portion of the variance.
+        #Get the centroids and add a small portion of the variance.
         #This ensures a small error and the Ks will swarm out.
         #Pro: The result is determenistic.
         #Con: Needs more iterations.
-        means = np.tile(np.mean(X, axis=0), (K,1)) + np.var(X, axis=0) * 1e-10
+        centroids = np.tile(np.mean(X, axis=0), (K,1)) + np.var(X, axis=0) * 1e-10
     elif mode=='select':
-        means = X[np.random.choice(range(N), K),:]
+        centroids = X[np.random.choice(range(N), K),:]
     elif mode=='uniform':
-        means = np.random.rand(K,d) * np.var(X, axis=0) + np.mean(X, axis=0)
+        centroids = np.random.rand(K,d) * np.var(X, axis=0) + np.mean(X, axis=0)
     elif mode=='normal':
-        means = np.random.randn(K,d) * np.var(X, axis=0) + np.mean(X, axis=0)
+        centroids = np.random.randn(K,d) * np.var(X, axis=0) + np.mean(X, axis=0)
     elif mode=='kmeans++':
         #guided by https://stackoverflow.com/questions/5466323/how-exactly-does-k-means-work
-        means = np.zeros((K,d))
-        means[0,:] = X[np.random.choice(range(N), 1),:] #pick one
+        centroids = np.zeros((K,d))
+        centroids[0,:] = X[np.random.choice(range(N), 1),:] #pick one
         for k in range(1,K):
-            W = square_mag(X, means[k-1]) #get the distances
+            W = square_mag(X, centroids[k-1]) #get the distances
             p = np.cumsum(W/np.sum(W)) #spread probabillities from 0 to 1
             i = p.searchsorted(np.random.rand(), 'right') #pick next center to random distance
-            means[k,:] = X[i,:]
+            centroids[k,:] = X[i,:]
+    elif mode=='limits':
+        centroids = np.zeros((d*2,d))
+        mins = np.argmin(X, axis=0)
+        maxs = np.argmax(X, axis=0)
+        centroids[d:] = X[mins,:]
+        centroids[:d] = X[maxs,:]
     else:
         raise ValueError("Unknown mode!")
-    return means
+    return centroids
 
 
-def kmeans(X, means, epsilon=0.0, max_it=1000, is_kernel=False):
-    ''' kmeans(X, means, epsilon=0.0, max_it=1000, isKernel=False) -> yields Y,  means, delta, step
+def kmeans(X, centroids, epsilon=0.0, max_it=1000, is_kernel=False):
+    ''' kmeans(X, centroids, epsilon=0.0, max_it=1000, isKernel=False) -> yields Y, centroids, delta, step
     A generator for simple KMeans clustering.
     
     Usage:
@@ -115,25 +121,25 @@ def kmeans(X, means, epsilon=0.0, max_it=1000, is_kernel=False):
         X: The data N-by-d, where
             N=num datapoints
             d=dimensions
-        means: The cluster centers.
+        centroids: The cluster centers.
         epsilon: Convergence threshold.
             (default=0)
         max_it: 
         isKernel: 
     Yields:
         Y: The labels or cluster association.
-        means: The updated cluster centers.
+        centroids: The updated cluster centers.
         delta: The distance to the update step.
         step: The iteration step.
     '''
     N = X.shape[0]      #N: Size of the dataset
-    K = means.shape[0]  #K: Number of clusters
+    K = centroids.shape[0]  #K: Number of clusters
     W = np.zeros((N,K)) #W: Distance (Weight) matrix
     C = np.zeros((N,K)) #C: Accosiation matrix
     delta = None
     
     if is_kernel:
-        for k, m in enumerate(means):
+        for k, m in enumerate(centroids):
             W[:,k] = square_mag(X, m) #calc square distances
         Y = np.argmin(W, axis=1) #find closest
         C[:,Y] = 1
@@ -142,19 +148,19 @@ def kmeans(X, means, epsilon=0.0, max_it=1000, is_kernel=False):
         if is_kernel:
             W = kernel_trick(X,C)
         else:
-            for k, m in enumerate(means):
+            for k, m in enumerate(centroids):
                 W[:,k] = square_mag(X, m) #calc square distances
         
         Y = np.argmin(W, axis=1) #find closest
         
-        tmp = means.copy()
+        tmp = centroids.copy()
         for k in range(K):
             C[:,k] = Y==k
             if any(C[:,k]):
-                means[k,:] = np.mean(X[Y==k,:], axis=0) #calc the means
+                centroids[k,:] = np.mean(X[Y==k,:], axis=0) #calc the centroids
         
-        delta = np.sum((tmp - means)**2) #calc the delta of change
-        yield Y, means, delta, step #yield for mean update
+        delta = np.sum((tmp - centroids)**2) #calc the delta of change
+        yield Y, centroids, delta, step #yield for mean update
         
         if delta <= epsilon:
             break #converge if change event is lower-equal than epsilon
