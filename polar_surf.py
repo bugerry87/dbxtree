@@ -17,8 +17,6 @@ from argparse import ArgumentParser
 import numpy as np
 import pykitti  # install using pip install pykitti
 from scipy.spatial import Delaunay
-from sklearn.svm import SVR
-from sklearn.cluster import DBSCAN
 
 #Local libs
 import viz
@@ -76,11 +74,34 @@ def validate(args):
 
 
 def face_normals(T, normalize=True):
-    N = np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])
+    fN = np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])
     if normalize:
-        return N / np.linalg.norm(N, axis=1)[:, None]
+        return fN / np.linalg.norm(fN, axis=1)[:, None]
     else:
-        return N
+        return fN
+
+
+def edge_normals(fN, Ti_flat, normalize=True):
+    fN = fN.repeat(3, axis=0)
+    eN = np.zeros((Ti_flat.max()+1, 3))
+    for fn, i in zip(fN, Ti_flat):
+        eN[i] += fn
+    if normalize:
+        return eN / np.linalg.norm(eN, axis=1)[:, None]
+    else:
+        return eN
+
+
+def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
+    fN = fN.repeat(3, axis=0)
+    if mask is None:
+        mask = np.ones(Ti_flat.max()+1, dtype=bool)
+    for fn, i in zip(fN, Ti_flat):
+        if mask[i]:
+            mask[i] &= np.dot(eN[i], fn) <= min_dot
+        else:
+            pass
+    return mask
 
 
 def main(args):
@@ -93,6 +114,8 @@ def main(args):
     for X in frames:
         if not len(X):
             break
+        
+        print("Input size:", X.shape)
         
         P = X.copy()
         P[:,0] = np.arccos(X[:,0] / np.linalg.norm(X[:,(0,1)], axis=1)) * (1*(X[:,1] >= 0) - (X[:,1] < 0))
@@ -116,6 +139,39 @@ def main(args):
         if input():
             break
         viz.clear_figure(fig)
+        
+        print("Remove planars...")
+        fN = face_normals(X[Ti,:3])
+        eN = edge_normals(fN, Ti.flatten())
+        Mask = mask_planar(eN, fN, Ti.flatten(), 0.9)
+        P = P[Mask]
+        X = X[Mask]
+        mesh = Delaunay(P[:,(0,2)])
+        Ti = mesh.simplices
+        
+        viz.mesh(X, Ti, None, fig, None)
+        if input():
+            break
+        viz.clear_figure(fig)
+        
+        print("Remove Narrow Z-faces...")
+        fN = face_normals(P[Ti,:3])
+        Mask = np.abs(fN[:,1]) > 0.2
+        Ti = Ti[Mask]
+        
+        viz.mesh(P[:,(2,0,1)], Ti, None, fig, None)
+        if input():
+            break
+        viz.clear_figure(fig)
+        
+        print("Unfold View...")
+        viz.mesh(X, Ti, None, fig, None)
+        if input():
+            break
+        viz.clear_figure(fig)
+        
+        print("Final shape:", (np.unique(Ti.flatten())).shape)
+        
         break
     return 0
 
