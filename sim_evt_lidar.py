@@ -80,11 +80,30 @@ def polarize(X, scale=(10,10)):
     P[:,2] = np.arcsin(P[:,2] / P[:,1]) * scale[1]
     return P
 
-def sort_XZ(P, ):
-    x_arg = np.argsort(P[:,0])
-    z_arg = np.argsort(P[:,2])
-    xz_arg = np.argsort(x_arg + z_arg)
-    return P[xz_arg], xz_arg
+
+def quantirize(P, t):
+    k = P[0]
+    Q = [k]
+    
+    for p0, p1 in zip(P[1:-1], P[2:]):
+        pp = p1 - p0
+        pk = p0 - k
+        pp = pp / np.linalg.norm(pp)
+        pk = pk / np.linalg.norm(pk)
+        np.dot(pp, pk)
+        
+        if pk[0] < 0:
+            #new line
+            Q.append(p)
+        elif pk[1] > g + b and pk[1] < g - b:
+            #new keypoint found
+            k = p
+            a = pk[0] / pk[1]
+            Q.append(k)
+        else:
+            continue
+    return np.array(Q)
+
 
 def main(args):
     # Load the data
@@ -99,11 +118,11 @@ def main(args):
         
         print("Input size:", X.shape)
         P = polarize(X)
-        P, xz_arg = sort_XZ(P)
         P[:, 1] = 0
+        Y = np.arange(P.shape[0])
         
         print("Plot polar...")
-        viz.vertices(P, xz_arg, fig, None)
+        viz.vertices(X, Y, fig, None)
         if input():
             break
         viz.clear_figure(fig)
