@@ -81,27 +81,32 @@ def polarize(X, scale=(10,10)):
     return P
 
 
-def quantirize(P, t):
+def quantirize(P, t=0.9, m=0):
     k = P[0]
+    p0 = P[1]
     Q = [k]
     
-    for p0, p1 in zip(P[1:-1], P[2:]):
+    for p1 in P[2:]:
         pp = p1 - p0
-        pk = p0 - k
-        pp = pp / np.linalg.norm(pp)
-        pk = pk / np.linalg.norm(pk)
-        np.dot(pp, pk)
-        
-        if pk[0] < 0:
-            #new line
-            Q.append(p)
-        elif pk[1] > g + b and pk[1] < g - b:
-            #new keypoint found
-            k = p
-            a = pk[0] / pk[1]
-            Q.append(k)
-        else:
+        ppm = np.linalg.norm(pp)
+        if ppm <= m:
             continue
+        
+        p0 = p1
+        pk = p0 - k
+        pp = pp / ppm
+        pk = pk / np.linalg.norm(pk)
+        dot = np.dot(pp, pk)
+        
+        if dot >= t:
+            #reject point
+            p0 = p1
+            continue
+        
+        #else new line
+        k = p0
+        p0 = p1
+        Q.append(k)
     return np.array(Q)
 
 
@@ -117,12 +122,20 @@ def main(args):
             break
         
         print("Input size:", X.shape)
-        P = polarize(X)
-        P[:, 1] = 0
-        Y = np.arange(P.shape[0])
         
-        print("Plot polar...")
-        viz.vertices(X, Y, fig, None)
+        print("Org plot...")
+        Y = np.arange(X.shape[0])
+        plot = viz.lines(X, Y, fig, None)
+        if input():
+            break
+        #viz.clear_figure(fig)
+        
+        print("Plot quantirized...")
+        Q = quantirize(X, 0.9, 0.05)
+        Y = np.arange(Q.shape[0])
+        
+        viz.lines(Q, Y, fig, plot)
+        print("Output size:", Q.shape)
         if input():
             break
         viz.clear_figure(fig)

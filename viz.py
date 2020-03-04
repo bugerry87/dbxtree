@@ -88,8 +88,30 @@ def vertices(X, Y, fig, plot=None):
             Y,
             mode="point",         # How to render each point {'point', 'sphere' , 'cube' }
             colormap='spectral',  # 'bone', 'copper',
-            scale_factor=100,     # scale of the points
-            line_width=10,        # Scale of the line, if any
+            figure=fig,
+            )
+    else:
+        plot.mlab_source.reset(
+            x = X[:, 0],
+            y = X[:, 1],
+            z = X[:, 2],
+            scalars = Y
+        )
+    return plot
+
+
+def lines(X, Y, fig, plot=None):
+    if not len(X):
+        raise ValueError("Error: Empty frame!")
+
+    if plot == None:
+        plot = mlab.plot3d(
+            X[:,0],
+            X[:,1],
+            X[:,2],
+            Y,
+            colormap='spectral',  # 'bone', 'copper',
+            tube_radius=None,
             figure=fig,
             )
     else:
