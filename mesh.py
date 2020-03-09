@@ -5,7 +5,7 @@ Author: Gerald Baulig
 '''
 
 import numpy as np
-from scipy.statial import KDTree
+from scipy.spatial import KDTree
 from scipy.spatial import Delaunay
 
 
@@ -33,14 +33,31 @@ def nn_point2point(X, Y):
 
 
 def nn_point2line(X, Xi, P):
-    Dnn, Di = KDTree(X).query(P)
-    AB = X[Xi[:,1]] - X[Xi[:,0]]
-    
-    
-    
+    dist = np.zeros(P.shape)
+    nn = -np.ones(P.shape[0])
+    A = X[Xi[:,0]]
+    B = X[Xi[:,1]]
+    AB = B - A
     AB_norm = np.linalg.norm(AB, axis=1)[:, None]
-    D = np.cross(AP, AB) / AB_norm
-    return D
+    ABi = list(range(AB.shape[0]))
+    for i, p in enumerate(P):
+        Ap = p - A
+        Bp = p - B
+        a = np.sum(AB * Ap, axis=1)
+        b = np.sum(-AB * Bp, axis=1)
+        m = (a * b) > 0
+        if any(m):
+            L = np.cross(Ap[m], AB[m]) / AB_norm[m]
+            Larg = np.argmin(L)
+            print(m)
+            nn[i] = ABi[m][Larg]
+            dist[i] = L[Larg]
+    
+    m = nn > 0
+    mnn, mdist = KDTree(X[m]).query(P[m])
+    nn[m] = ABi[m][mnn]
+    dist[m] = mdist[nn[m]]
+    return nn, dist
 
 
 def polarize(X, scale=(10,10)):
@@ -49,3 +66,14 @@ def polarize(X, scale=(10,10)):
     P[:,1] = np.linalg.norm(X[:,:2], axis=1)
     P[:,2] = np.arcsin(P[:,2] / P[:,1]) * scale[1]
     return P
+
+
+#TEST
+if __name__ == '__main__':
+    X = np.random.rand(20,3)
+    P = np.random.rand(15,3)
+    Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
+    nn, dist = nn_point2line(X, Xi, P)
+    print(nn)
+    print(dist)
+    
