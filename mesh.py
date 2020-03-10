@@ -42,20 +42,61 @@ def nn_point2point(X, Y):
     return KDTree(Y).query(X)
 
 
+class PlaneTree:
+    class Node:
+        def __init__(self, a, b, ai, bi):
+            self.a, self.b, self.ai, self.bi = (a, b, ai, bi)
+            self.n = b - a
+            self.left, self.right = (None, None)
+        
+        def add_node(self, a, b, ai, bi):
+            aa = a - self.a
+            an = np.sum(n * aa)
+            if an < 0:
+                if self.left:
+                    self.left.add_node(a, b, ai, bi)
+                else:
+                    self.left = PlaneTree.Node(a, b, ai, bi)
+            else:
+                if self.right:
+                    self.right.add_node(a, b, ai, bi)
+                else:
+                    self.right = PlaneTree.Node(a, b, ai, bi)
+
+    def __init__(self, X, Xi, i=0):
+        self.root = None
+        for ai, bi in zip(Xi[:,0], Xi[:,1]):
+            a, b = (X[ai], X[bi])
+            self.add_node(a, b, ai, bi)
+    
+    def add_node(self, a, b, ai, bi):
+        if self.root:
+            self.root.add_node(a, b, ai, bi)
+            self.root.add_node(b, a, bi, ai)
+        else:
+            self.root = PlaneTree.Node(a,b, ai, bi)
+            self.root.add_node(b, a, bi, ai)
+
+
 def nn_point2line(X, Xi, P):
+    total = time_delta(time())
+    delta = time_delta(time())
     nn = -np.ones((P.shape[0],2), dtype=int)
     dist, nn[:,0] = KDTree(X).query(P)
-    mp = X[nn[:,0]]
+    print("KDTree", next(delta))
     
+    mp = X[nn[:,0]]
     A = X[Xi[:,0]]
     B = X[Xi[:,1]]
     AB, ABn = norm(B - A, True)
+    print("AB normals", next(delta))
     for i, p in enumerate(P):
         Ap = p - A
         Bp = p - B
         a = np.sum(AB * Ap, axis=1)
         b = np.sum(-AB * Bp, axis=1)
         m = (a * b) > 0
+        print("Points to process:", np.sum(m))
         if any(m):
             n, L = norm(AB[m] * a[m][:,None] + A[m] - p, True)
             Larg = np.argmin(L)
@@ -64,6 +105,7 @@ def nn_point2line(X, Xi, P):
                 nn[i] = Xi[m][Larg]
                 dist[i] = Lmin
                 mp[i] = p + n[Larg] * Lmin
+    print("Total", next(total)) 
     return dist, mp, nn
 
 
@@ -79,10 +121,11 @@ def polarize(X, scale=(10,10)):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
+    from utils import *
     
     np.random.seed(2)
-    X = np.random.randn(5,3)
-    P = np.random.randn(4,3)
+    X = np.random.randn(10000,3)
+    P = np.random.randn(9999,3)
     Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
     dist, mp, nn = nn_point2line(X, Xi, P)
     

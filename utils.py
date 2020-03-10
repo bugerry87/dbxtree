@@ -59,14 +59,15 @@ def ifile(wildcards, sort=False, recursive=True):
         raise TypeError("wildecards must be string or list.")
 
 
-last_call = 0
-def time_delta():
+def time_delta(start):
     ''' time_delta() -> delta
     Captures time delta from last call.
     
-    Returns:
+    Yields:
         delta: Past time in seconds.
     '''
-    global last_call
-    delta = time() - last_call
-    return delta
+    while True:
+        curr = time()
+        delta = curr - start
+        start = curr
+        yield delta
