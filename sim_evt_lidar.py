@@ -16,11 +16,11 @@ from argparse import ArgumentParser
 #3rd-Party libs
 import numpy as np
 import pykitti  # install using pip install pykitti
-from scipy.spatial import Delaunay
 
 #Local libs
 import viz
 from utils import *
+from mesh import *
 
 
 def init_argparse(parents=[]):
@@ -89,24 +89,20 @@ def quantirize(P, m=1):
     k = P[0]
     p0 = P[1]
     Q = [k]
-    p0k = p0 - k
-    mag = np.linalg.norm(p0k)
-    p0k = p0k / mag
+    p0k, mag = norm(p0 - k, True)
     
     for p1 in P[2:]:
-        pp = p1 - p0
-        ppm = np.linalg.norm(pp)
+        pp, ppm = norm(p1 - p0, True)
         mag += ppm
         
-        p1k = p1 - k
-        p1k = p1k / np.linalg.norm(p1k)
+        p1k = norm(p1 - k)
         dot = np.dot(p0k, p1k)
         
         if dot < 1 - np.exp(-mag/m):
             #new keypoint detected
             k = p0
             p0 = p1
-            p0k = pp / ppm
+            p0k = pp
             mag = ppm
             Q.append(k)
         else:
@@ -146,9 +142,15 @@ def main(args):
             print("Magnitude:", m)
             Q = quantirize(X, m)
             Y = np.arange(Q.shape[0])
+            Qi = np.array((range(Q.shape[0]-1), range(1,Q.shape[0]))).T
             
             viz.lines(Q, Y, fig, plot)
             print("Output size:", Q.shape)
+            
+            print("Compute loss...")
+            L, mp, nn = nn_point2line(Q, Qi, X)
+            print("Loss mean:", L.mean())
+            
             if input():
                 break
             viz.clear_figure(fig)

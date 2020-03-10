@@ -8,22 +8,32 @@ import numpy as np
 from scipy.spatial import KDTree
 from scipy.spatial import Delaunay
 
+def norm(X, magnitude=False):
+    if len(X.shape) == 2:
+        m = np.linalg.norm(X, axis=1)[:, None]
+    else:
+        m = np.linalg.norm(X)
+    n = X / m
+    if magnitude:
+        return n, m
+    else:
+        return n
 
-def face_normals(T, normalize=True):
+def face_normals(T, normalize=True, magnitude=False):
     fN = np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])
     if normalize:
-        return fN / np.linalg.norm(fN, axis=1)[:, None]
+        return norm(fN, magnitude)
     else:
         return fN
 
 
-def edge_normals(fN, Ti_flat, normalize=True):
+def edge_normals(fN, Ti_flat, normalize=True, magnitude=False):
     fN = fN.repeat(3, axis=0)
     eN = np.zeros((Ti_flat.max()+1, 3))
     for fn, i in zip(fN, Ti_flat):
         eN[i] += fn
     if normalize:
-        return eN / np.linalg.norm(eN, axis=1)[:, None]
+        return norm(eN, magnitude)
     else:
         return eN
 
@@ -33,13 +43,13 @@ def nn_point2point(X, Y):
 
 
 def nn_point2line(X, Xi, P):
-    dist = np.zeros(P.shape)
-    nn = -np.ones(P.shape[0])
+    nn = -np.ones((P.shape[0],2), dtype=int)
+    dist, nn[:,0] = KDTree(X).query(P)
+    mp = X[nn[:,0]]
+    
     A = X[Xi[:,0]]
     B = X[Xi[:,1]]
-    AB = B - A
-    AB_norm = np.linalg.norm(AB, axis=1)[:, None]
-    ABi = list(range(AB.shape[0]))
+    AB, ABn = norm(B - A, True)
     for i, p in enumerate(P):
         Ap = p - A
         Bp = p - B
@@ -47,17 +57,14 @@ def nn_point2line(X, Xi, P):
         b = np.sum(-AB * Bp, axis=1)
         m = (a * b) > 0
         if any(m):
-            L = np.cross(Ap[m], AB[m]) / AB_norm[m]
+            n, L = norm(AB[m] * a[m][:,None] + A[m] - p, True)
             Larg = np.argmin(L)
-            print(m)
-            nn[i] = ABi[m][Larg]
-            dist[i] = L[Larg]
-    
-    m = nn > 0
-    mnn, mdist = KDTree(X[m]).query(P[m])
-    nn[m] = ABi[m][mnn]
-    dist[m] = mdist[nn[m]]
-    return nn, dist
+            Lmin = L[Larg]
+            if Lmin < dist[i]:
+                nn[i] = Xi[m][Larg]
+                dist[i] = Lmin
+                mp[i] = p + n[Larg] * Lmin
+    return dist, mp, nn
 
 
 def polarize(X, scale=(10,10)):
@@ -68,12 +75,28 @@ def polarize(X, scale=(10,10)):
     return P
 
 
-#TEST
+###TEST
 if __name__ == '__main__':
-    X = np.random.rand(20,3)
-    P = np.random.rand(15,3)
-    Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
-    nn, dist = nn_point2line(X, Xi, P)
-    print(nn)
-    print(dist)
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
     
+    np.random.seed(2)
+    X = np.random.randn(5,3)
+    P = np.random.randn(4,3)
+    Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
+    dist, mp, nn = nn_point2line(X, Xi, P)
+    
+    fig = plt.figure()
+    ax = fig.add_subplot((111), projection='3d')
+    seg = np.hstack((X[Xi[:,0]], X[Xi[:,1]]-X[Xi[:,0]]))
+    x, y, z, u, v, w = zip(*seg)
+    mp -= P
+    
+    ax.quiver(x, y, z, u, v, w)
+    ax.scatter(P[:,0],P[:,1],P[:,2], color='r')
+    ax.quiver(P[:,0],P[:,1],P[:,2],mp[:,0],mp[:,1],mp[:,2], color='g')
+    
+    ax.set_xlim3d(-3, 3)
+    ax.set_ylim3d(-3, 3)
+    ax.set_zlim3d(-3, 3)
+    plt.show()
