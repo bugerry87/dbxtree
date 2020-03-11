@@ -71,6 +71,11 @@ class PlaneTree:
                     tree.nn[left_Lmin] = (self.i[0], self.i[0])
                 if self.left:
                     self.left.query(P[lm], tree, left)
+                
+                m = np.linalg.norm(b / self.m, axis=1)
+                Lmin = np.min((tree.L[left], m))
+                if self.right and any(Lmin):
+                    self.right.query(P[lm], tree, left)
             
             right = mask & False
             right[mask] = b >= 0.0
@@ -99,8 +104,8 @@ class PlaneTree:
                     tree.L[center_Lmin] = m[Lmin,0]
                     tree.mp[center_Lmin] = P[cm][Lmin] + n[Lmin] * m[Lmin]
                     tree.nn[center_Lmin] = self.i
-                if self.right:
-                    self.right.query(P[cm], tree, center)
+                if self.center:
+                    self.center.query(P[cm], tree, center)
 
     def __init__(self, X, Xi):
         self.root = None
