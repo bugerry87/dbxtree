@@ -9,13 +9,21 @@ from scipy.spatial import KDTree
 from scipy.spatial import Delaunay
 
 
-def norm(X, magnitude=False):
-    if len(X.shape) == 2:
-        m = np.linalg.norm(X, axis=1)[:,None]
+def magnitude(X, sqrt=False):
+    if len(X.shape) == 1:
+        m = np.sum(X**2)
     else:
+        m = np.sum(X**2, axis=-1)[:,None]
+    return np.sqrt(m) if sqrt else m
+
+
+def norm(X, mgni=False):
+    if len(X.shape) == 1:
         m = np.linalg.norm(X)
+    else:
+        m = np.linalg.norm(X, axis=-1)[:,None]
     n = X / m
-    if magnitude:
+    if mgni:
         return n, m
     else:
         return n
@@ -25,85 +33,106 @@ class PlaneTree:
     class Node:
         def __init__(self, a, b, i):
             self.a, self.b, self.n, self.i, = (a, b, b-a, i)
-            self.m = np.linalg.norm(self.n)
+            self.m = magnitude(self.n)
+            self.m_sqrt = np.sqrt(self.m)
+            self.n /= self.m_sqrt if self.m != 0.0 else 1.0
             self.left, self.center, self.right = (None, None, None)
+            self.depth = 0
         
-        def add_node(self, a, b, i):
-            aa = np.sum(self.n * a - self.a)
-            ab = np.sum(self.n * b - self.a)
-            ba = np.sum(-self.n * a - self.b)
-            bb = np.sum(-self.n * b - self.b)
+        def add_node(self, node):
+            if node is self:
+                return
+            else:
+                node.depth +=1
+        
+            aa = np.sum(self.n * node.a - self.a)
+            ab = np.sum(self.n * node.b - self.a)
+            ba = np.sum(-self.n * node.a - self.b)
+            bb = np.sum(-self.n * node.b - self.b)
             
             if aa <= 0.0 or ab <= 0.0:
                 if self.left:
-                    self.left.add_node(a, b, i)
+                    self.left.add_node(node)
                 else:
-                    self.left = PlaneTree.Node(a, b, i)
+                    self.left = node
+                    print(node.depth)
               
             if ba <= 0.0 or bb <= 0.0:
                 if self.right:
-                    self.right.add_node(a, b, i)
+                    if self.left != self.right:
+                        self.right.add_node(node)
                 else:
-                    self.right = PlaneTree.Node(a, b, i)
+                    self.right = node
+                    print(node.depth)
                 
             if aa * ab > 0.0 and ba * bb > 0.0:
                 if self.center:
-                    self.center.add_node(a, b, i)
+                    if self.right != self.center:
+                        self.center.add_node(node)
                 else:
-                    self.center = PlaneTree.Node(a, b, i)
+                    self.center = node
+                    print(node.depth)
         
         def query(self, P, tree, mask):
             aP = P - self.a
             bP = P - self.b
             a = np.sum(self.n * aP, axis=1)
-            b = np.sum(self.n * bP, axis=1)
-            left = mask & False
-            left[mask] = a <= 0.0
-            lm = left[mask]
-            if any(left):
-                m = np.linalg.norm(aP[lm], axis=1)
-                Lmin = np.min((tree.L[left], m), axis=0).astype(bool)
-                left_Lmin = left & False
-                left_Lmin[left] = Lmin
-                if any(Lmin):
-                    tree.L[left_Lmin] = m[Lmin]
-                    tree.mp[left_Lmin] = self.a
-                    tree.nn[left_Lmin] = (self.i[0], self.i[0])
-                if self.left:
-                    self.left.query(P[lm], tree, left)
-                
-                m = np.linalg.norm(b / self.m, axis=1)
-                Lmin = np.min((tree.L[left], m))
-                if self.right and any(Lmin):
-                    self.right.query(P[lm], tree, left)
+            b = np.sum(-self.n * bP, axis=1)
             
-            right = mask & False
-            right[mask] = b >= 0.0
-            rm = right[mask]
-            if any(right):
-                m = np.linalg.norm(bP[rm], axis=1)
-                Lmin = np.min((tree.L[right], m), axis=0).astype(bool)
-                right_Lmin = right & False
-                right_Lmin[right] = Lmin
-                if any(Lmin):
-                    tree.L[right_Lmin] = m[Lmin]
-                    tree.mp[right_Lmin] = self.b
-                    tree.nn[right_Lmin] = (self.i[1], self.i[1])
-                if self.right:
-                    self.right.query(P[rm], tree, right)
+            def query_border(a, b, p, x, anode, bnode):
+                border = mask & False
+                border_Lmin = border.copy()
+                border[mask] = a <= 0.0
+                bm = border[mask]
+                if any(border):
+                    m = magnitude(p[bm]).flatten()
+                    Lmin = np.argmin((tree.L[border], m), axis=0).astype(bool)
+                    if any(Lmin):
+                        border_Lmin[:] = False
+                        border_Lmin[border] = Lmin
+                        tree.L[border_Lmin] = m[Lmin]
+                        tree.mp[border_Lmin] = x
+                        tree.nn[border_Lmin] = (self.i[0], self.i[0])
+                        if self.center:
+                            self.center.query(P[bm][Lmin], tree, border_Lmin)
+                    if anode:
+                        anode.query(P[bm], tree, border)
+                    if bnode:
+                        m = b[bm]**2
+                        Lmin = np.argmin((tree.L[border], m), axis=0).astype(bool)
+                        if any(Lmin):
+                            border_Lmin[:] = False
+                            border_Lmin[border] = Lmin
+                            bnode.query(P[bm][Lmin], tree, border_Lmin)
+                return bm
+            
+            lm = query_border(a, b, aP, self.a, self.left, self.right)
+            rm = query_border(b, a, bP, self.b, self.right, self.left)
             
             center = mask & False
             center[mask] = ~lm & ~rm
             cm = center[mask]
             if any(center):
-                n, m = norm((self.n/self.m)[None,:] * a[cm][:,None] + self.a - P[cm], True)
-                Lmin = np.min((tree.L[center], m[:,0]), axis=0).astype(bool)
+                n, m = norm(self.n[None,:] * a[cm][:,None] + self.a - P[cm], True)
+                m_2 = m.flatten()**2
+                Lmin = np.argmin((tree.L[center], m_2), axis=0).astype(bool)
                 if any(Lmin):
                     center_Lmin = center & False
                     center_Lmin[center] = Lmin
-                    tree.L[center_Lmin] = m[Lmin,0]
+                    tree.L[center_Lmin] = m_2[Lmin]
                     tree.mp[center_Lmin] = P[cm][Lmin] + n[Lmin] * m[Lmin]
                     tree.nn[center_Lmin] = self.i
+                    if self.left:
+                        left = Lmin & (m.flatten() > a[cm])
+                        if any(Lmin):
+                            center_Lmin[center] = left
+                            self.left.query(P[cm][left], tree, center_Lmin)
+                    if self.right:
+                        right = Lmin & (m.flatten() > b[cm])
+                        if any(Lmin):
+                            center_Lmin[:] = False
+                            center_Lmin[center] = right
+                            self.right.query(P[cm][right], tree, center_Lmin)
                 if self.center:
                     self.center.query(P[cm], tree, center)
 
@@ -111,13 +140,14 @@ class PlaneTree:
         self.root = None
         for ai, bi in zip(Xi[:,0], Xi[:,1]):
             a, b = (X[ai], X[bi])
-            self.add_node(a, b, (ai, bi))
+            node = PlaneTree.Node(a, b, (ai, bi))
+            self.add_node(node)
     
-    def add_node(self, a, b, i):
+    def add_node(self, node):
         if self.root:
-            self.root.add_node(a, b, i)
+            self.root.add_node(node)
         else:
-            self.root = PlaneTree.Node(a, b, i)
+            self.root = node
     
     def query(self, P):
         self.mp = np.zeros(P.shape)
@@ -196,8 +226,8 @@ if __name__ == '__main__':
     from utils import *
     
     np.random.seed(5)
-    X = np.random.randn(5,3)
-    P = np.random.randn(4,3)
+    X = np.random.randn(10000,3)
+    P = np.random.randn(10000,3)
     Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
     
     #print("Brute force")
