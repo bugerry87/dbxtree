@@ -43,31 +43,34 @@ class PlaneTree:
             if node is self:
                 return
             else:
-                node.depth +=1
+                node.depth += 1
         
             aa = np.sum(self.n * node.a - self.a)
             ab = np.sum(self.n * node.b - self.a)
             ba = np.sum(-self.n * node.a - self.b)
             bb = np.sum(-self.n * node.b - self.b)
+            assign = True
             
             if aa <= 0.0 or ab <= 0.0:
                 if self.left:
                     self.left.add_node(node)
+                    assign = False
                 else:
                     self.left = node
                     print(node.depth)
               
             if ba <= 0.0 or bb <= 0.0:
                 if self.right:
-                    if self.left != self.right:
+                    if self.left != self.right and assign:
                         self.right.add_node(node)
+                        assign = False
                 else:
                     self.right = node
                     print(node.depth)
                 
             if aa * ab > 0.0 and ba * bb > 0.0:
                 if self.center:
-                    if self.right != self.center:
+                    if self.right != self.center and assign:
                         self.center.add_node(node)
                 else:
                     self.center = node
@@ -229,17 +232,20 @@ if __name__ == '__main__':
     X = np.random.randn(10000,3)
     P = np.random.randn(10000,3)
     Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
+    AB = np.sum((X[Xi[:,1]] - X[Xi[:,0]])**2, axis=-1)
+    AB = np.argsort(-AB)
+    Xi = Xi[AB]
     
-    #print("Brute force")
-    #dist, mp, nn = nn_point2line(X, Xi, P)
-    #print("Mean loss:", dist.mean())
-    
-    delta = time_delta(time())
-    tree = PlaneTree(X, Xi)
-    print("Tree setup:", next(delta))
-    dist, mp, nn = tree.query(P)
-    print("Inference time:", next(delta))
+    print("Brute force")
+    dist, mp, nn = nn_point2line(X, Xi, P)
     print("Mean loss:", dist.mean())
+    
+    #delta = time_delta(time())
+    #tree = PlaneTree(X, Xi)
+    #print("Tree setup:", next(delta))
+    #dist, mp, nn = tree.query(P)
+    #print("Inference time:", next(delta))
+    #print("Mean loss:", dist.mean())
     
     fig = plt.figure()
     ax = fig.add_subplot((111), projection='3d')
