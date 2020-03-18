@@ -1,5 +1,5 @@
 '''
-Mesh operation functions for this project.
+Spatial operation functions for 3D.
 
 Author: Gerald Baulig
 '''
@@ -52,17 +52,12 @@ def nn_point2point(X, P):
 
 
 def nn_point2line(X, Xi, P):
-    total = time_delta(time())
-    delta = time_delta(time())
     nn = -np.ones((P.shape[0],2), dtype=int)
     dist, nn[:,0] = nn_point2point(X, P)
-    print("KDTree", next(delta))
-    
     mp = X[nn[:,0]]
     A = X[Xi[:,0]]
     B = X[Xi[:,1]]
     AB, ABn = norm(B - A, True)
-    print("AB normals", next(delta))
     for i, p in enumerate(P):
         Ap = p - A
         Bp = p - B
@@ -77,7 +72,6 @@ def nn_point2line(X, Xi, P):
                 nn[i] = Xi[m][Larg]
                 dist[i] = Lmin
                 mp[i] = p + n[Larg] * Lmin
-    print("Total", next(total)) 
     return dist, mp, nn
 
 
@@ -89,7 +83,7 @@ def polarize(X, scale=(10,10)):
     return P
 
 
-###TEST
+###TEST nn_point2line
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
@@ -100,11 +94,12 @@ if __name__ == '__main__':
     P = np.random.randn(10000,3)
     Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
     
-    print("Brute force")
+    print("Brute force test of nn_point2line")
+    delta = time_delta(time())
     dist, mp, nn = nn_point2line(X, Xi, P)
+    print("Time", next(delta)) 
     print("Mean loss:", dist.mean())
     mp -= P
-    
     
     fig = plt.figure()
     ax = fig.add_subplot((111), projection='3d')
