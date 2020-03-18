@@ -96,14 +96,9 @@ if __name__ == '__main__':
     from utils import *
     
     np.random.seed(10)
-    X = np.random.randn(7,3)
-    P = np.random.randn(5,3)
+    X = np.random.randn(10000,3)
+    P = np.random.randn(10000,3)
     Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
-    
-    #PP = np.hstack((P, P))
-    #AB = np.hstack((X[Xi[:,0]], X[Xi[:,1]]))
-    #dist, nn = nn_point2point(AB, PP)
-    #mp = X[Xi[nn, 0]] + (X[Xi[nn, 1]] - X[Xi[nn, 0]]) * 0.5 - P
     
     print("Brute force")
     dist, mp, nn = nn_point2line(X, Xi, P)
