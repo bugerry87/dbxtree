@@ -37,31 +37,31 @@ class KDNTree:
                 L = spatial.magnitude(xp).min(axis=-1)
                 Lmin = L < tree.L[L_mask]
                 if np.any(Lmin):
-                    print(Lmin)
-                    L_mask[sub_mask] = Lmin
+                    L_mask[L_mask] = Lmin
                     tree.L[L_mask] = L[Lmin]
                     tree.nn[L_mask] = Xi
                     tree.mp[L_mask] = X[Lmin]
             
-            def query_line(PX, x, Xi, a, m, sub_mask):
+            def query_line(PX, x, Xi, a, sub_mask):
                 L_mask = mask.copy()
                 L_mask[mask] = sub_mask
-                mp = PX + x * np.abs(a) / m
+                mp = PX + x * np.abs(a)
                 L = spatial.magnitude(mp)
                 Larg = L.argmin(axis=-1)
                 L = L.min(axis=-1)
                 Lmin = L < tree.L[L_mask]
                 if np.any(Lmin):
-                    L_mask[sub_mask] = Lmin
+                    L_mask[L_mask] = Lmin
                     tree.L[L_mask] = L[Lmin]
                     tree.nn[L_mask] = Xi
-                    tree.mp[L_mask] = P[sub_mask][Lmin] + mp[Lmin][Larg]
+                    tree.mp[L_mask] = P[sub_mask][Lmin] + mp[Larg][Lmin]
         
             for X, Xi, x, m in self.center:
                 XP = P - X[0]
-                a = np.sum(XP * x, axis=-1)
+                a = np.sum(XP * x, axis=-1) / m
+                a = a.T
                 
-                point = (1 - (a > 0) + (a >= m)).T
+                point = 1 - (a > 0) + (a >= 1)
                 line = point == 0
                 face = line.prod(axis=-1).astype(bool)
                 
@@ -73,13 +73,13 @@ class KDNTree:
                 if np.any(line):
                     i = np.where(line)[1]
                     line = np.any(line, axis=-1)
-                    query_line(-XP[line], x[i], Xi, a[line], m[i], line)
+                    query_line(-XP[line], x[i], Xi, a[line], line)
                     
                 if np.any(face):
                     pass
                 
             a = np.dot(P - self.mean, self.norm)
-            both = np.abs(a) < tree.L[mask]
+            both = np.abs(a) > tree.L[mask]
             left = a < 0
             right = ~left | both
             left |= both
@@ -117,8 +117,8 @@ if __name__ == '__main__':
     from mpl_toolkits.mplot3d import Axes3D
     from utils import *
     
-    np.random.seed(5)
-    X = np.random.randn(10,3)
+    np.random.seed(10)
+    X = np.random.randn(4,3)
     P = np.random.randn(8,3)
     Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
     AB = np.sum((X[Xi[:,1]] - X[Xi[:,0]])**2, axis=-1)
