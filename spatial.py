@@ -89,10 +89,12 @@ if __name__ == '__main__':
     from mpl_toolkits.mplot3d import Axes3D
     from utils import *
     
-    np.random.seed(10)
-    X = np.random.randn(100000,3)
-    P = np.random.randn(100000,3)
-    Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
+    np.random.seed(5)
+    X = np.random.randn(10,3)
+    P = np.random.randn(10,3)
+    Xi = np.arange(X.shape[0]).reshape(-1,2)
+    X[Xi[:,1]] *= 0.5
+    X[Xi[:,1]] += X[Xi[:,0]]
     
     print("Brute force test of nn_point2line")
     delta = time_delta(time())
