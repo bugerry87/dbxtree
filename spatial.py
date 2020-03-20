@@ -90,8 +90,8 @@ if __name__ == '__main__':
     from utils import *
     
     np.random.seed(10)
-    X = np.random.randn(10000,3)
-    P = np.random.randn(10000,3)
+    X = np.random.randn(100000,3)
+    P = np.random.randn(100000,3)
     Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
     
     print("Brute force test of nn_point2line")

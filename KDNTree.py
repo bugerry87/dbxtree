@@ -3,32 +3,18 @@ import spatial
 
 
 class KDNTree:
-    class Node:
-        def __init__(self, tree, Xi, norm):
-            self.norm = norm
-            self.left = None
-            self.right = None
-            self.center = []
-        
+    class Leaf:
+        def __init__(self, tree, Xi):
             X = tree.X[Xi]
-            self.mean = X.reshape(-1, 3).mean(axis=0)
-            a = np.sum(np.dot(X - self.mean, self.norm) >= 0.0, axis=-1)
-            
-            if Xi.shape[0] > tree.leaf_size:
-                left = Xi[a==0]
-                right = Xi[a==2]
-                X = X[a==1]
-                Xi = Xi[a==1]
-                
-                if len(left):
-                    self.left = KDNTree.Node(tree, left, np.roll(self.norm, 1))
-                
-                if len(right):
-                    self.right = KDNTree.Node(tree, right, np.roll(self.norm, 1))
-                    
-            if len(X):
-                x = X[:,np.zeros(X.shape[1]-1, dtype=int)] - X[:,range(1,X.shape[1])]
-                self.center = zip(X, Xi, x, spatial.magnitude(x))
+            x = X[:,range(1,X.shape[1])] - X[:,np.zeros(X.shape[1]-1, dtype=int)]
+            self.data = zip(X, Xi, x, spatial.magnitude(x))
+            self.leaf_size = Xi.shape[0]
+        
+        def __len__(self):
+            return self.leaf_size
+        
+        def __str__(self):
+            return str(len(self))
         
         def query(self, tree, P, mask):
             def query_point(X, Xi, xp, sub_mask):
@@ -39,36 +25,35 @@ class KDNTree:
                 if np.any(Lmin):
                     L_mask[L_mask] = Lmin
                     tree.L[L_mask] = L[Lmin]
-                    tree.nn[L_mask] = Xi
+                    tree.nn[L_mask, 0] = Xi[Lmin]
+                    tree.nn[L_mask, 1:] = -1 
                     tree.mp[L_mask] = X[Lmin]
             
             def query_line(PX, x, Xi, a, sub_mask):
                 L_mask = mask.copy()
                 L_mask[mask] = sub_mask
-                mp = PX + x * np.abs(a)
+                mp = PX + x * a
                 L = spatial.magnitude(mp)
-                Larg = L.argmin(axis=-1)
                 L = L.min(axis=-1)
                 Lmin = L < tree.L[L_mask]
                 if np.any(Lmin):
                     L_mask[L_mask] = Lmin
                     tree.L[L_mask] = L[Lmin]
                     tree.nn[L_mask] = Xi
-                    tree.mp[L_mask] = P[sub_mask][Lmin] + mp[Larg][Lmin]
+                    tree.mp[L_mask] = P[sub_mask][Lmin] + mp[Lmin]
         
-            for X, Xi, x, m in self.center:
+            for X, Xi, x, m in self.data:
                 XP = P - X[0]
-                a = np.sum(XP * x, axis=-1) / m
-                a = a.T
+                a = (np.sum(XP * x, axis=-1) / m).T
                 
-                point = 1 - (a > 0) + (a >= 1)
+                point = (a <= 0).astype(int) + (a >= 1)*2
                 line = point == 0
                 face = line.prod(axis=-1).astype(bool)
                 
                 if np.any(point):
-                    i = point[point > 0] - 1
+                    i = point[point != 0] - 1
                     point = np.any(point, axis=-1)
-                    query_point(X[i], Xi, XP[point], point)
+                    query_point(X[i], Xi[i], XP[point], point)
                 
                 if np.any(line):
                     i = np.where(line)[1]
@@ -77,37 +62,114 @@ class KDNTree:
                     
                 if np.any(face):
                     pass
+
+    class Node:
+        def __init__(self, Xi, norm, depth):
+            self.Xi = Xi
+            self.norm = norm
+            self.depth = depth
+        
+        def __len__(self):
+            return self.depth
+        
+        def __str__(self):
+            return "{:-<3}-+---Left:{}\
+                \n          {}  \\_Center:{}\
+                \n          {}  \\__Right:{}".format(
+                self.depth,
+                self.left,
+                "  |            " * self.depth,
+                self.center,
+                "  |            " * self.depth,
+                self.right)
+        
+        def unflod(self, tree):
+            X = tree.X[self.Xi]
+            self.mean = X.reshape(-1, 3).mean(axis=0)
+            a = np.sum(np.dot(X - self.mean, self.norm) >= 0.0, axis=-1)
+            
+            left = Xi[a==0]
+            center = Xi[a==1]
+            right = Xi[a==2]
                 
+            if left.shape[0] > tree.leaf_size:
+                yield KDNTree.Node(tree, left, np.roll(self.norm, 1), depth+1)
+            else:
+                yield KDNTree.Leaf(tree, left)
+            
+            if center.shape[0] > tree.leaf_size:
+                yield KDNTree.Node(tree, center, np.roll(self.norm, 1), depth+1)
+            else:
+                yield KDNTree.Leaf(tree, center)
+            
+            if right.shape[0] > tree.leaf_size:
+                yield KDNTree.Node(tree, right, np.roll(self.norm, 1), depth+1)
+            else:
+                yield KDNTree.Leaf(tree, right)
+            
+            yield None
+        
+        def query(self, tree, P, mask):
             a = np.dot(P - self.mean, self.norm)
-            both = np.abs(a) > tree.L[mask]
+            both = a**2 > tree.L[mask]
             left = a < 0
             right = ~left | both
             left |= both
             
-            if np.any(left) and self.left:
+            X = tree.X[self.Xi]
+            self.mean = X.reshape(-1, 3).mean(axis=0)
+            a = np.sum(np.dot(X - self.mean, self.norm) >= 0.0, axis=-1)
+            
+            left = Xi[a==0]
+            center = Xi[a==1]
+            right = Xi[a==2]
+            
+            if self.center:
+                yield self.center.query(tree, P, mask)
+            
+            if np.any(left):
                 L_mask = mask.copy()
                 L_mask[mask] = left
-                self.left.query(tree, P[left], L_mask)
+                yield self.left.query(tree, P[left], L_mask)
             
-            if np.any(right) and self.right:
+            if np.any(right):
                 L_mask = mask.copy()
                 L_mask[mask] = right
-                self.right.query(tree, P[right], L_mask)
+                yield self.right.query(tree, P[right], L_mask)
 
 
-    def __init__(self, X, Xi, leaf_size=10):
+    def __init__(self, X, Xi, leaf_size=None):
         self.X = X
         self.Xi = Xi
-        self.leaf_size = leaf_size
+        self.leaf_size = leaf_size if leaf_size else 1 + X.shape[0] / 100
         norm = np.eye(X.shape[1])[0]
-        self.root = KDNTree.Node(self, Xi, norm)
+        self.root = KDNTree.Node(self, Xi, norm, 0)
+        self.N = Xi.shape[-1]
+    
+    def __str__(self):
+        return "**KDNtree**\n  Leaf Size: {}\n   Root:{}".format(self.leaf_size, str(self.root))
     
     def query(self, P):
         self.mp = np.zeros(P.shape)
-        self.nn = -np.ones((P.shape[0], self.Xi.shape[-1]), dtype=int)
+        self.nn = -np.ones((P.shape[0], self.N), dtype=int)
         self.L = np.zeros(P.shape[0]) + np.inf
         mask = np.ones(P.shape[0], dtype=bool)
-        self.root.query(self, P, mask)
+        
+        stack = [None]
+        stack.append(self.root)
+        while True:
+            node = stack.pop()
+            if node:
+                node.unfold(self)
+            
+            else:
+                break
+            node = next(stack)
+            if node:
+                node.
+        for node in stack:
+            
+            
         return self.L, self.mp, self.nn
 
 
@@ -118,17 +180,23 @@ if __name__ == '__main__':
     from utils import *
     
     np.random.seed(10)
-    X = np.random.randn(4,3)
-    P = np.random.randn(8,3)
-    Xi = np.array((range(X.shape[0]-1), range(1,X.shape[0]))).T
-    AB = np.sum((X[Xi[:,1]] - X[Xi[:,0]])**2, axis=-1)
-    AB = np.argsort(-AB)
-    Xi = Xi[AB]
+    X = np.random.randn(100000,3)
+    P = np.random.randn(100000,3)
+    Xi = np.arange(X.shape[0]).reshape(-1,2)
+    X[Xi[:,1]] *= 0.5
+    X[Xi[:,1]] += X[Xi[:,0]]
     
     print("KDNTree")
+    total = time_delta(time())
     delta = time_delta(time())
-    dist, mp, nn = KDNTree(X, Xi, leaf_size=1).query(P)
-    print("Time", next(delta)) 
+    
+    tree = KDNTree(X, Xi, leaf_size=100)
+    print("Tree setup:", next(delta)) 
+    
+    dist, mp, nn = tree.query(P)
+    print("Query time:", next(delta))
+    
+    print("Total Time:", next(total)) 
     print("Mean loss:", dist.mean())
     
     fig = plt.figure()
@@ -145,3 +213,4 @@ if __name__ == '__main__':
     ax.set_ylim3d(-3, 3)
     ax.set_zlim3d(-3, 3)
     plt.show()
+    print(tree)
