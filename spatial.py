@@ -54,24 +54,25 @@ def nn_point2point(X, P):
 def nn_point2line(X, Xi, P):
     nn = -np.ones((P.shape[0],2), dtype=int)
     dist, nn[:,0] = nn_point2point(X, P)
+    dist = dist**2
     mp = X[nn[:,0]]
     A = X[Xi[:,0]]
     B = X[Xi[:,1]]
-    AB, ABn = norm(B - A, True)
+    AB = B - A
+    ABm = magnitude(AB)
     for i, p in enumerate(P):
         Ap = p - A
-        Bp = p - B
-        a = np.sum(AB * Ap, axis=1)
-        b = np.sum(-AB * Bp, axis=1)
-        m = (a * b) > 0
+        a = np.sum(AB * Ap, axis=1) / ABm.flatten()
+        m = ((a > 0) * (a < 1)).astype(bool)
         if any(m):
-            n, L = norm(AB[m] * a[m][:,None] + A[m] - p, True)
+            ap = AB[m] * a[m][:,None] - Ap[m]
+            L = magnitude(ap)
             Larg = np.argmin(L)
             Lmin = L[Larg]
             if Lmin < dist[i]:
                 nn[i] = Xi[m][Larg]
                 dist[i] = Lmin
-                mp[i] = p + n[Larg] * Lmin
+                mp[i] = p + ap[Larg]
     return dist, mp, nn
 
 
@@ -90,8 +91,8 @@ if __name__ == '__main__':
     from utils import *
     
     np.random.seed(5)
-    X = np.random.randn(10,3)
-    P = np.random.randn(10,3)
+    X = np.random.randn(10000,3)
+    P = np.random.randn(10000,3)
     Xi = np.arange(X.shape[0]).reshape(-1,2)
     X[Xi[:,1]] *= 0.5
     X[Xi[:,1]] += X[Xi[:,0]]
