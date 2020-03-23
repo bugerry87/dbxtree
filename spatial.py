@@ -86,6 +86,7 @@ def polarize(X, scale=(10,10)):
 
 ###TEST nn_point2line
 if __name__ == '__main__':
+    from argparse import ArgumentParser
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     from utils import *

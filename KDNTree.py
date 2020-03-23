@@ -16,7 +16,7 @@ class KDNTree:
         def __init__(self, tree, Xi):
             X = tree.X[Xi]
             x = X[:,range(1,X.shape[1])] - X[:,np.zeros(X.shape[1]-1, dtype=int)]
-            self.data = (X, Xi, x, spatial.magnitude(x))
+            self.data = (Xi, x, spatial.magnitude(x))
             self.leaf_size = Xi.shape[0]
         
         def __len__(self):
@@ -25,31 +25,32 @@ class KDNTree:
         def __str__(self):
             return str(len(self))
         
-        def query(self, tree, Pi):
+        def query(self, tree, jid, Pi):
             def query_point(X, Xi, xp, Pi):
                 L = spatial.magnitude(xp).min(axis=-1)
-                Lmin = L < tree.L[Pi]
+                Lmin = L < tree.L[jid, Pi]
                 if np.any(Lmin):
                     Pi = Pi[Lmin]
-                    tree.L[Pi] = L[Lmin]
-                    tree.nn[Pi, 0] = Xi[Lmin]
-                    tree.nn[Pi, 1:] = -1 
-                    tree.mp[Pi] = X[Lmin]
+                    tree.L[jid,Pi] = L[Lmin]
+                    tree.nn[jid, Pi, 0] = Xi[Lmin]
+                    tree.nn[jid, Pi, 1:] = -1 
+                    tree.mp[jid, Pi] = X[Lmin]
                     tree.done[Xi[Lmin]] = True
             
             def query_line(PX, x, Xi, a, Pi):
                 mp = PX + x * a
                 L = spatial.magnitude(mp)
                 L = L.min(axis=-1)
-                Lmin = L < tree.L[Pi]
+                Lmin = L < tree.L[jid, Pi]
                 if np.any(Lmin):
                     Pi = Pi[Lmin]
-                    tree.L[Pi] = L[Lmin]
-                    tree.nn[Pi] = Xi
-                    tree.mp[Pi] = tree.P[Pi] + mp[Lmin]
+                    tree.L[jid, Pi] = L[Lmin]
+                    tree.nn[jid, Pi] = Xi
+                    tree.mp[jid, Pi] = tree.P[Pi] + mp[Lmin]
                     tree.done[Xi] = True
         
-            for X, Xi, x, m in zip(*self.data):
+            for Xi, x, m in zip(*self.data):
+                X = tree.X[Xi]
                 XP = tree.P[Pi] - X[0]
                 a = (np.sum(XP * x, axis=-1) / m).T
                 
@@ -80,7 +81,6 @@ class KDNTree:
             self.center = None
             self.right = None
             self.__expanded = False
-            self.__lock_expand = Lock()
         
         def __len__(self):
             return self.depth
@@ -99,6 +99,7 @@ class KDNTree:
         def __expand__(self, tree):
             if self.__expanded:
                 return
+            
             X = tree.X[self.Xi]
             self.mean = X.reshape(-1, 3).mean(axis=0)
             a = np.sum(np.dot(X - self.mean, self.norm) >= 0.0, axis=-1)
@@ -133,56 +134,55 @@ class KDNTree:
                 self.right = KDNTree.Leaf(tree, right)
             else:
                 self.right = None
-            self.__expanded = True
-        
-        def query(self, tree, Pi):
-            if not self.__expanded:
-                self.__lock_expand.acquire()
-                self.__expand__(tree)
-                self.__lock_expand.release()
             
+            self.__expanded = True
+            
+        
+        def query(self, tree, jid, Pi):
+            self.__expand__(tree)
             a = np.dot(tree.P[Pi] - self.mean, self.norm)
-            both = a**2 < tree.L[Pi]
+            both = a**2 < tree.L[jid, Pi]
             left = a < 0
             right = ~left | both
             left |= both
             
             if self.center:
-                yield self.center.query(tree, Pi)
+                yield self.center.query(tree, jid, Pi)
             
             if self.left and np.any(left):
-                yield self.left.query(tree, Pi[left])
+                yield self.left.query(tree, jid, Pi[left])
             
             if self.right and np.any(right):
-                yield self.right.query(tree, Pi[right])
+                yield self.right.query(tree, jid, Pi[right])
 
 
-    def __init__(self, X, Xi, leaf_size=None):
+    def __init__(self, X, Xi, j=1, leaf_size=None):
         self.X = X
-        self.Xi = Xi
         self.leaf_size = leaf_size if leaf_size else 1 + X.shape[0] / 100
         norm = np.eye(X.shape[1])[0]
-        self.root = KDNTree.Node(Xi, norm, 0)
+        self.roots = [KDNTree.Node(xi, norm, 0) for xi in np.array_split(Xi, j)]
         self.N = Xi.shape[-1]
         self.done = np.zeros(X.shape[0], dtype=bool)
     
     def __str__(self):
-        return "**KDNtree**\n  Leaf Size: {}\n  Root:{}".format(self.leaf_size, str(self.root))
+        return "**KDNtree**\n  Leaf Size: {}\n".format(self.leaf_size) + \
+            "\n".join(["  Root:{}".format(str(root)) for root in self.roots])
     
-    def query(self, P, j=1, batch_size=None, callback=None):
-        self.P = P
-        self.mp = np.zeros(P.shape)
-        self.nn = -np.ones((P.shape[0], self.N), dtype=int)
-        self.L = np.zeros(P.shape[0]) + np.inf
+    def query(self, P, batch_size=None, callback=None):
+        j = len(self.roots)
         self.run = True
+        self.P = P
+        self.mp = np.zeros((j, *P.shape))
+        self.nn = -np.ones((j, P.shape[0], self.N), dtype=int)
+        self.L = np.zeros((j, P.shape[0])) + np.inf
         Pi = np.arange(P.shape[0])
-        Pi = np.split(Pi, j)
         
-        def job(Pi):
-            Pi = np.split(Pi, Pi.shape[0]/batch_size if batch_size else 1)
-            for pi in Pi:
+        def job(jid):
+            _Pi = np.split(Pi, Pi.shape[0]/batch_size if batch_size else 1)
+            
+            for pi in _Pi:
                 stack = deque([None])
-                stack.append(self.root.query(self, pi))
+                stack.append(self.roots[jid].query(tree, jid, pi))
                 node = stack.pop()
                 while node and self.run:
                     for n in node:
@@ -192,7 +192,7 @@ class KDNTree:
                         callback(self)
                     node = stack.pop()
         
-        jobs = [Thread(target=job, args=[pi]) for pi in Pi]
+        jobs = [Thread(target=job, args=[jid]) for jid, _ in enumerate(self.roots)]
         for j in jobs:
             j.start()
         
@@ -204,14 +204,80 @@ class KDNTree:
             self.run = False
             raise e
         
+        Larg = self.L.argmin(axis=0)
+        self.L = self.L[Larg, Pi]
+        self.mp = self.mp[Larg, Pi]
+        self.nn = self.nn[Larg, Pi]
+        
         return self.L, self.mp, self.nn
 
 ###TEST
 if __name__ == '__main__':
+    from argparse import ArgumentParser
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     from utils import *
     
+    def init_argparse(parents=[]):
+        ''' init_argparse(parents=[]) -> parser
+        Initialize an ArgumentParser for this module.
+        
+        Args:
+            parents: A list of ArgumentParsers of other scripts, if there are any.
+            
+        Returns:
+            parser: The ArgumentParsers.
+        '''
+        parser = ArgumentParser(
+            #description="Demo for embedding data via LDA",
+            parents=parents
+            )
+        
+        parser.add_argument(
+            '--model_size', '-m',
+            metavar='INT',
+            type=int,
+            default=10000
+            )
+        
+        parser.add_argument(
+            '--query_size', '-q',
+            metavar='INT',
+            type=int,
+            default=10000
+            )
+        
+        parser.add_argument(
+            '--batch_size', '-b',
+            metavar='INT',
+            type=int,
+            default=0
+            )
+        
+        parser.add_argument(
+            '--leaf_size', '-l',
+            metavar='INT',
+            type=int,
+            default=100
+            )
+        
+        parser.add_argument(
+            '--jobs', '-j',
+            metavar='INT',
+            type=int,
+            default=1
+            )
+        
+        parser.add_argument(
+            '--seed', '-s',
+            metavar='INT',
+            type=int,
+            default=0
+            )
+        
+        return parser
+    
+    args, _ = init_argparse().parse_known_args()
     print_lock = Lock()
     last = 0
     def callback(tree):
@@ -219,13 +285,14 @@ if __name__ == '__main__':
         print_lock.acquire()
         curr = int(tree.done.mean() * 50)
         dif = curr - last
-        print(u"\u2588" * dif, end='', flush=dif)
+        if curr > last:
+            print('#' * dif, end='', flush=True)
         last = curr
         print_lock.release()
     
-    np.random.seed(20)
-    X = np.random.randn(10000,3)
-    P = np.random.randn(100000,3)
+    np.random.seed(args.seed)
+    X = np.random.randn(args.model_size,3)
+    P = np.random.randn(args.query_size,3)
     Xi = np.arange(X.shape[0]).reshape(-1,2)
     X[Xi[:,1]] *= 0.5
     X[Xi[:,1]] += X[Xi[:,0]]
@@ -235,10 +302,10 @@ if __name__ == '__main__':
     print("Query size:", P.shape)
     
     delta = time_delta(time())
-    tree = KDNTree(X, Xi, leaf_size=10)
+    tree = KDNTree(X, Xi, j=args.jobs, leaf_size=args.leaf_size)
     
     print("\n0%                      |50%                     |100%")
-    dist, mp, nn = tree.query(P, j=1, batch_size=None, callback=callback)
+    dist, mp, nn = tree.query(P, batch_size=args.batch_size, callback=callback)
     
     print("\nQuery time:", next(delta))
     print("Mean loss:", dist.mean())
