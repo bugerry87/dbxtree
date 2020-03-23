@@ -10,7 +10,6 @@ import numpy as np
 #Local
 import spatial
 
-
 class KDNTree:
     class Leaf:
         def __init__(self, tree, Xi):
@@ -99,10 +98,11 @@ class KDNTree:
         def __expand__(self, tree):
             if self.__expanded:
                 return
+            self.__expanded = True
             
             X = tree.X[self.Xi]
-            self.mean = X.reshape(-1, 3).mean(axis=0)
-            a = np.sum(np.dot(X - self.mean, self.norm) >= 0.0, axis=-1)
+            self.mean = X.reshape(-1, X.shape[-1]).mean(axis=0)
+            a = np.sum(np.dot(X - self.mean, self.norm) > 0.0, axis=-1)
             
             left = self.Xi[a==0]
             center = self.Xi[a==1]
@@ -114,17 +114,13 @@ class KDNTree:
                 self.left = KDNTree.Node(left, np.roll(self.norm, 1), self.depth+1)
             elif len(left):
                 self.left = KDNTree.Leaf(tree, left)
-            else:
-                self.left = None
             
             if self.center:
                 pass
-            elif center.shape[0] > tree.leaf_size:
+            elif center.shape[0] > tree.leaf_size and center.shape[0] != self.Xi.shape[0]:
                 self.center = KDNTree.Node(center, np.roll(self.norm, 1), self.depth+1)
             elif len(center):
                 self.center = KDNTree.Leaf(tree, center)
-            else:
-                self.center = None
             
             if self.right:
                 pass
@@ -132,10 +128,6 @@ class KDNTree:
                 self.right = KDNTree.Node(right, np.roll(self.norm, 1), self.depth+1)
             elif len(right):
                 self.right = KDNTree.Leaf(tree, right)
-            else:
-                self.right = None
-            
-            self.__expanded = True
             
         
         def query(self, tree, jid, Pi):
@@ -182,7 +174,7 @@ class KDNTree:
             
             for pi in _Pi:
                 stack = deque([None])
-                stack.append(self.roots[jid].query(tree, jid, pi))
+                stack.append(self.roots[jid].query(self, jid, pi))
                 node = stack.pop()
                 while node and self.run:
                     for n in node:

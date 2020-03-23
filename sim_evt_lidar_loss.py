@@ -15,12 +15,11 @@ from argparse import ArgumentParser
 from threading import Lock
 
 #3rd-Party libs
+import matplotlib.pyplot as plt
 import numpy as np
 import pykitti  # install using pip install pykitti
-from scipy.spatial import Delaunay
 
 #Local libs
-import viz
 from utils import *
 from spatial import *
 from KDNTree import KDNTree
@@ -76,18 +75,6 @@ def validate(args):
     return args
 
 
-def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
-    fN = fN.repeat(3, axis=0)
-    if mask is None:
-        mask = np.ones(Ti_flat.max()+1, dtype=bool)
-    for fn, i in zip(fN, Ti_flat):
-        if mask[i]:
-            mask[i] &= np.dot(eN[i], fn) <= min_dot
-        else:
-            pass
-    return mask
-
-
 def quantirize(P, m=1):
     k = P[0]
     p0 = P[1]
@@ -119,9 +106,11 @@ def main(args):
     # Load the data
     files = ifile(args.data, args.sort)    
     frames = pykitti.utils.yield_velo_scans(files)
-    fig = viz.create_figure()
-    plot = None
     
+    logs = {'L_mean':{}, 'ACC05':{}, 'ACC01':{}, 'Compress':{}}
+    magnitudes = [0.01, 0.05, 0.1, 0.5, 1, 2]
+    
+    np.random.seed(0)
     print_lock = Lock()
     main.last = 0
     def callback(tree):
@@ -133,95 +122,61 @@ def main(args):
         main.last = curr
         print_lock.release()
 
+    frames = [next(frames) for i in range(1)]
+
     for X in frames:
         if not len(X):
             break
         
-        m = 1
-        while m > 0:
-            print("Input size:", X.shape)
-            print("Org plot...")
-            Y = np.arange(X.shape[0])
-            plot = viz.lines(X, Y, fig, None)
-            
-            m = myinput(
-                    "Set the magnitude: ",
-                    cast=float,
-                    default=False
-                )
-            
-            if m <= 0:
-                break
+        print("Input size:", X.shape)
+        P = X.copy()[:,:3]
+        np.random.shuffle(P)
+        P = np.array_split(P, 10)[0]
+        print("Query size:", P.shape)
         
-            print("Magnitude:", m)
+        for m in magnitudes:
+            logs['L_mean'][m] = []
+            logs['ACC01'][m] = []
+            logs['ACC05'][m] = []
+            logs['Compress'][m] = []
+        
+        for m in magnitudes:
+            print("\nMagnitude:", m)
             Q = quantirize(X[:,:3], m)
             Y = np.arange(Q.shape[0])
             Qi = np.array((range(Q.shape[0]-1), range(1,Q.shape[0]))).T
-            
-            viz.lines(Q, Y, fig, plot)
-            print("Output size:", Q.shape)
+            print("Model size:", Q.shape)
             
             print("Compute loss...")
-            #L, mp, nn = nn_point2line(Q, Qi, X)
             tree = KDNTree(Q, Qi, j=8, leaf_size=100)
             print("\n0%                      |50%                     |100%")
-            L, mp, nn = tree.query(X[:,:3], callback=callback)
+            L, mp, nn = tree.query(P, callback=callback)
             
-            print("\nLoss mean:", L.mean())
+            L_mean = np.sqrt(L.mean())
+            print("\nLoss mean:", L_mean)
             
-            if input():
-                break
-            viz.clear_figure(fig)
-            
-            print("Plot polar...")
-            P = polarize(Q)
-            viz.vertices(P[:,(1,0,2)], P[:,3], fig, None)
-            if input():
-                break
-            viz.clear_figure(fig)
-            
-            print("Generate Surface...")
-            mesh = Delaunay(P[:,(0,2)])
-            Ti = mesh.simplices
-            viz.mesh(P[:,(2,0,1)], Ti, None, fig, None)
-            if input():
-                break
-            viz.clear_figure(fig)
-            
-            print("Remove planars...")
-            fN = face_normals(Q[Ti,:3])
-            eN = edge_normals(fN, Ti.flatten())
-            Mask = mask_planar(eN, fN, Ti.flatten(), 0.9)
-            P = P[Mask]
-            Q = Q[Mask]
-            mesh = Delaunay(P[:,(0,2)])
-            Ti = mesh.simplices
-            viz.mesh(Q, Ti, None, fig, None)
-            print("New size:", Q.shape)
-            if input():
-                break
-            viz.clear_figure(fig)
-            
-            print("Remove Narrow Z-faces...")
-            fN = face_normals(P[Ti,:3])
-            Mask = np.abs(fN[:,1]) > 0.1
-            Ti = Ti[Mask]
-            viz.mesh(P[:,(2,0,1)], Ti, None, fig, None)
-            print("Final size:", np.unique(Ti.flatten()).shape)
-            if input():
-                break
-            viz.clear_figure(fig)
-            
-            print("Unfold View...")
-            viz.mesh(Q, Ti, None, fig, None)
-            
-            if input():
-                break
-            viz.clear_figure(fig)
-            
-        viz.clear_figure(fig)  
-        if m < 0:
-            break
+            logs['L_mean'][m].append(L_mean)
+            logs['ACC01'][m].append(np.mean(L<=0.1**2))
+            logs['ACC05'][m].append(np.mean(L<=0.5**2))
+            logs['Compress'][m].append(Q.shape[0] / X.shape[0])
+    
+    L_mean = [np.mean(logs['L_mean'][m]) for m in magnitudes]
+    ACC01 = [np.mean(logs['ACC01'][m]) for m in magnitudes]
+    ACC05 = [np.mean(logs['ACC05'][m]) for m in magnitudes]
+    Compress = [np.mean(logs['Compress'][m]) for m in magnitudes]
+    
+    fig = plt.figure()
+    fig.subplots_adjust(top=0.8)
+    ax = fig.add_subplot(111)
+    ax.set_xlabel('magnitude (m)')
+    
+    ax.plot(magnitudes, L_mean, label='L_mean')
+    ax.plot(magnitudes, ACC01, label='ACC01')
+    ax.plot(magnitudes, ACC05, label='ACC05')
+    ax.plot(magnitudes, Compress, label='Compress')
+    
+    plt.legend()
+    plt.show()
     return 0
 
 if __name__ == '__main__':
