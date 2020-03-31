@@ -106,8 +106,9 @@ def main(args):
     # Load the data
     files = ifile(args.data, args.sort)    
     frames = pykitti.utils.yield_velo_scans(files)
+    delta = time_delta()
     
-    logs = {'L_mean':{}, 'ACC05':{}, 'ACC01':{}, 'Compress':{}}
+    logs = {'L_mean':{}, 'ACC05':{}, 'ACC01':{}, 'Compress':{}, 'ProcessTime':{}}
     magnitudes = [0.01, 0.05, 0.1, 0.5, 1, 2]
     
     np.random.seed(0)
@@ -139,6 +140,7 @@ def main(args):
             logs['ACC01'][m] = []
             logs['ACC05'][m] = []
             logs['Compress'][m] = []
+            logs['ProcessTime'][m] = []
         
         for m in magnitudes:
             print("\nMagnitude:", m)
@@ -150,20 +152,24 @@ def main(args):
             print("Compute loss...")
             tree = KDNTree(Q, Qi, j=8, leaf_size=100)
             print("\n0%                      |50%                     |100%")
+            next(delta)
             L, mp, nn = tree.query(P, callback=callback)
-            
             L_mean = np.sqrt(L.mean())
+            t = next(delta)
             print("\nLoss mean:", L_mean)
+            print("Time delta:", t)
             
             logs['L_mean'][m].append(L_mean)
             logs['ACC01'][m].append(np.mean(L<=0.1**2))
             logs['ACC05'][m].append(np.mean(L<=0.5**2))
             logs['Compress'][m].append(Q.shape[0] / X.shape[0])
+            logs['ProcessTime'][m].append(t)
     
     L_mean = [np.mean(logs['L_mean'][m]) for m in magnitudes]
     ACC01 = [np.mean(logs['ACC01'][m]) for m in magnitudes]
     ACC05 = [np.mean(logs['ACC05'][m]) for m in magnitudes]
     Compress = [np.mean(logs['Compress'][m]) for m in magnitudes]
+    ProcessTime = [np.mean(logs['ProcessTime'][m]) for m in magnitudes]
     
     fig = plt.figure()
     fig.subplots_adjust(top=0.8)
@@ -175,7 +181,12 @@ def main(args):
     ax.plot(magnitudes, ACC05, label='ACC05')
     ax.plot(magnitudes, Compress, label='Compress')
     
-    plt.legend()
+    axr = ax.twinx()
+    axr.plot(magnitudes, ProcessTime, label='ProcessTime', color='m')
+    
+    ax.legend(loc="upper left")
+    axr.legend(loc="upper right")
+    
     plt.show()
     return 0
 

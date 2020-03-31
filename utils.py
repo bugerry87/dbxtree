@@ -59,13 +59,16 @@ def ifile(wildcards, sort=False, recursive=True):
         raise TypeError("wildecards must be string or list.")
 
 
-def time_delta(start):
+def time_delta(start=None):
     ''' time_delta() -> delta
     Captures time delta from last call.
     
     Yields:
         delta: Past time in seconds.
     '''
+    if not start:
+        start = time()
+    
     while True:
         curr = time()
         delta = curr - start

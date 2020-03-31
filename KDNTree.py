@@ -72,9 +72,8 @@ class KDNTree:
                 #    pass
 
     class Node:
-        def __init__(self, Xi, norm, depth):
+        def __init__(self, Xi, depth):
             self.Xi = Xi
-            self.norm = norm
             self.depth = depth
             self.left = None
             self.center = None
@@ -102,7 +101,15 @@ class KDNTree:
             
             X = tree.X[self.Xi]
             self.mean = X.reshape(-1, X.shape[-1]).mean(axis=0)
-            a = np.sum(np.dot(X - self.mean, self.norm) > 0.0, axis=-1)
+            X = X - self.mean
+            
+            self.mag = 0.0
+            while self.mag == 0.0:
+                i = np.random.choice(X.shape[0], 2)
+                c = np.cross(X[i[0],0], X[i[1],1])
+                self.mag = spatial.magnitude(c)
+            self.norm = c
+            a = np.sum(np.dot(X, self.norm) > 0.0, axis=-1)
             
             left = self.Xi[a==0]
             center = self.Xi[a==1]
@@ -111,28 +118,27 @@ class KDNTree:
             if self.left:
                 pass
             elif left.shape[0] > tree.leaf_size:
-                self.left = KDNTree.Node(left, np.roll(self.norm, 1), self.depth+1)
+                self.left = KDNTree.Node(left, self.depth+1)
             elif len(left):
                 self.left = KDNTree.Leaf(tree, left)
             
             if self.center:
                 pass
-            elif center.shape[0] > tree.leaf_size and center.shape[0] != self.Xi.shape[0]:
-                self.center = KDNTree.Node(center, np.roll(self.norm, 1), self.depth+1)
+            elif center.shape[0] > tree.leaf_size:
+                self.center = KDNTree.Node(center, self.depth+1)
             elif len(center):
                 self.center = KDNTree.Leaf(tree, center)
             
             if self.right:
                 pass
             elif right.shape[0] > tree.leaf_size:
-                self.right = KDNTree.Node(right, np.roll(self.norm, 1), self.depth+1)
+                self.right = KDNTree.Node(right, self.depth+1)
             elif len(right):
                 self.right = KDNTree.Leaf(tree, right)
-            
         
         def query(self, tree, jid, Pi):
             self.__expand__(tree)
-            a = np.dot(tree.P[Pi] - self.mean, self.norm)
+            a = np.dot(tree.P[Pi] - self.mean, self.norm) / self.mag
             both = a**2 < tree.L[jid, Pi]
             left = a < 0
             right = ~left | both
@@ -151,8 +157,7 @@ class KDNTree:
     def __init__(self, X, Xi, j=1, leaf_size=None):
         self.X = X
         self.leaf_size = leaf_size if leaf_size else 1 + X.shape[0] / 100
-        norm = np.eye(X.shape[1])[0]
-        self.roots = [KDNTree.Node(xi, norm, 0) for xi in np.array_split(Xi, j)]
+        self.roots = [KDNTree.Node(xi, 0) for xi in np.array_split(Xi, j)]
         self.N = Xi.shape[-1]
         self.done = np.zeros(X.shape[0], dtype=bool)
     
