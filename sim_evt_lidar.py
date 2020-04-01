@@ -88,13 +88,13 @@ def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
     return mask
 
 
-def quantirize(P, m=1):
+def quantirize_old(P, m=1):
     k = P[0]
     p0 = P[1]
-    Q = [k]
     p0k, mag = norm(p0 - k, True)
+    mask = np.zeros(P.shape[0], dtype=bool)
     
-    for p1 in P[2:]:
+    for i, p1 in enumerate(P[2:]):
         pp, ppm = norm(p1 - p0, True)
         mag += ppm
         
@@ -107,12 +107,45 @@ def quantirize(P, m=1):
             p0 = p1
             p0k = pp
             mag = ppm
-            Q.append(k)
+            mask[i] = True
         else:
             #update
             p0 = p1
             p0k = p1k
-    return np.array(Q)
+    return P[mask]
+
+def quantirize(P, m=1):
+    k = P[0]
+    p0 = P[1]
+    p0k = p0 - k
+    p0km = magnitude(p0k)
+    mag = p0km
+    mask = np.zeros(P.shape[0], dtype=bool)
+    m = m**2
+    
+    for i, p1 in enumerate(P[2:]):
+        pp = p1 - p0
+        ppm = magnitude(pp)
+        mag += ppm
+        
+        p1k = p1 - k
+        p1km = magnitude(p1k)
+        dot = np.dot(p0k, p1k)**2 / (p0km * p1km) 
+        
+        if dot < 1 - np.exp(-mag/m)**4:
+            #new keypoint detected
+            k = p0
+            p0 = p1
+            p0k = pp
+            p0km = ppm
+            mag = ppm
+            mask[i] = True
+        else:
+            #update
+            p0 = p1
+            p0k = p1k
+            p0km = p1km
+    return P[mask]
 
 
 def main(args):
@@ -161,13 +194,13 @@ def main(args):
             viz.lines(Q, Y, fig, plot)
             print("Output size:", Q.shape)
             
-            print("Compute loss...")
+            #print("Compute loss...")
             #L, mp, nn = nn_point2line(Q, Qi, X)
             tree = KDNTree(Q, Qi, j=8, leaf_size=100)
-            print("\n0%                      |50%                     |100%")
-            L, mp, nn = tree.query(X[:,:3], callback=callback)
+            #print("\n0%                      |50%                     |100%")
+            #L, mp, nn = tree.query(X[:,:3], callback=callback)
             
-            print("\nLoss mean:", L.mean())
+            #print("\nLoss mean:", L.mean())
             
             if input():
                 break
@@ -175,7 +208,7 @@ def main(args):
             
             print("Plot polar...")
             P = polarize(Q)
-            viz.vertices(P[:,(1,0,2)], P[:,3], fig, None)
+            viz.vertices(P[:,(1,0,2)], P[:,2], fig, None)
             if input():
                 break
             viz.clear_figure(fig)
@@ -189,8 +222,8 @@ def main(args):
             viz.clear_figure(fig)
             
             print("Remove planars...")
-            fN = face_normals(Q[Ti,:3])
-            eN = edge_normals(fN, Ti.flatten())
+            fN = face_normals(Q[Ti], True)
+            eN = edge_normals(fN, Ti.flatten(), True)
             Mask = mask_planar(eN, fN, Ti.flatten(), 0.9)
             P = P[Mask]
             Q = Q[Mask]
@@ -203,17 +236,19 @@ def main(args):
             viz.clear_figure(fig)
             
             print("Remove Narrow Z-faces...")
-            fN = face_normals(P[Ti,:3])
-            Mask = np.abs(fN[:,1]) > 0.1
-            Ti = Ti[Mask]
-            viz.mesh(P[:,(2,0,1)], Ti, None, fig, None)
+            fN = face_normals(P[Ti], True)
+            #Mask = (fN[:,2] > -0.8) #& (np.abs(fN[:,1]) > 0.05)
+            #Ti = Ti[Mask]
+            viz.mesh(P, Ti, None, fig, None)
             print("Final size:", np.unique(Ti.flatten()).shape)
             if input():
                 break
             viz.clear_figure(fig)
             
             print("Unfold View...")
-            viz.mesh(Q, Ti, None, fig, None)
+            fN = face_normals(Q[Ti], True)
+            eN = edge_normals(fN, Ti.flatten(), True)
+            viz.mesh(Q, Ti, eN[:,2], fig, None)
             
             if input():
                 break
