@@ -1,14 +1,35 @@
 
 #BuildIn
-from threading import Thread, Lock
+from multiprocessing import Pool, Lock
 from collections import deque
 import time
+import signal
 
 #Installed
 import numpy as np
 
 #Local
 import spatial
+
+
+def __job__(data):
+    tree, root = data
+    tree.root = root
+    _Pi = np.split(tree.Pi, tree.Pi.shape[0]/tree.batch_size if tree.batch_size else 1)
+    
+    for pi in _Pi:
+        stack = deque([None])
+        stack.append(root.query(tree, pi))
+        node = stack.pop()
+        while node:
+            for n in node:
+                if n:
+                    stack.append(n)
+            #if self.callback:
+            #    self.callback(self)
+            node = stack.pop()
+    return tree
+
 
 class KDNTree:
     class Leaf:
@@ -24,28 +45,28 @@ class KDNTree:
         def __str__(self):
             return str(len(self))
         
-        def query(self, tree, jid, Pi):
+        def query(self, tree, Pi):
             def query_point(X, Xi, xp, Pi):
                 L = spatial.magnitude(xp).min(axis=-1)
-                Lmin = L < tree.L[jid, Pi]
+                Lmin = L < tree.L[Pi]
                 if np.any(Lmin):
                     Pi = Pi[Lmin]
-                    tree.L[jid,Pi] = L[Lmin]
-                    tree.nn[jid, Pi, 0] = Xi[Lmin]
-                    tree.nn[jid, Pi, 1:] = -1 
-                    tree.mp[jid, Pi] = X[Lmin]
+                    tree.L[Pi] = L[Lmin]
+                    tree.nn[Pi, 0] = Xi[Lmin]
+                    tree.nn[Pi, 1:] = -1 
+                    tree.mp[Pi] = X[Lmin]
                     tree.done[Xi[Lmin]] = True
             
             def query_line(PX, x, Xi, a, Pi):
                 mp = PX + x * a
                 L = spatial.magnitude(mp)
                 L = L.min(axis=-1)
-                Lmin = L < tree.L[jid, Pi]
+                Lmin = L < tree.L[Pi]
                 if np.any(Lmin):
                     Pi = Pi[Lmin]
-                    tree.L[jid, Pi] = L[Lmin]
-                    tree.nn[jid, Pi] = Xi
-                    tree.mp[jid, Pi] = tree.P[Pi] + mp[Lmin]
+                    tree.L[Pi] = L[Lmin]
+                    tree.nn[Pi] = Xi
+                    tree.mp[Pi] = tree.P[Pi] + mp[Lmin]
                     tree.done[Xi] = True
         
             for Xi, x, m in zip(*self.data):
@@ -136,28 +157,30 @@ class KDNTree:
             elif len(right):
                 self.right = KDNTree.Leaf(tree, right)
         
-        def query(self, tree, jid, Pi):
+        def query(self, tree, Pi):
             self.__expand__(tree)
             a = np.dot(tree.P[Pi] - self.mean, self.norm) / self.mag
-            both = a**2 < tree.L[jid, Pi]
+            both = a**2 < tree.L[Pi]
             left = a < 0
             right = ~left | both
             left |= both
             
             if self.center:
-                yield self.center.query(tree, jid, Pi)
+                yield self.center.query(tree, Pi)
             
             if self.left and np.any(left):
-                yield self.left.query(tree, jid, Pi[left])
+                yield self.left.query(tree, Pi[left])
             
             if self.right and np.any(right):
-                yield self.right.query(tree, jid, Pi[right])
+                yield self.right.query(tree, Pi[right])
 
 
-    def __init__(self, X, Xi, j=1, leaf_size=None):
+    def __init__(self, X, Xi, j=1, leaf_size=None, batch_size=None, callback=None):
         self.X = X
-        self.leaf_size = leaf_size if leaf_size else 1 + X.shape[0] / 100
         self.roots = [KDNTree.Node(xi, 0) for xi in np.array_split(Xi, j)]
+        self.batch_size = batch_size
+        #self.callback = callback
+        self.leaf_size = leaf_size if leaf_size else 1 + X.shape[0] / 100
         self.N = Xi.shape[-1]
         self.done = np.zeros(X.shape[0], dtype=bool)
     
@@ -165,46 +188,26 @@ class KDNTree:
         return "**KDNtree**\n  Leaf Size: {}\n".format(self.leaf_size) + \
             "\n".join(["  Root:{}".format(str(root)) for root in self.roots])
     
-    def query(self, P, batch_size=None, callback=None):
+    def query(self, P):
         j = len(self.roots)
-        self.run = True
         self.P = P
-        self.mp = np.zeros((j, *P.shape))
-        self.nn = -np.ones((j, P.shape[0], self.N), dtype=int)
-        self.L = np.zeros((j, P.shape[0])) + np.inf
-        Pi = np.arange(P.shape[0])
+        self.mp = np.zeros(P.shape)
+        self.nn = -np.ones((P.shape[0], self.N), dtype=int)
+        self.L = np.zeros(P.shape[0]) + np.inf
+        self.Pi = np.arange(P.shape[0])
         
-        def job(jid):
-            _Pi = np.split(Pi, Pi.shape[0]/batch_size if batch_size else 1)
-            
-            for pi in _Pi:
-                stack = deque([None])
-                stack.append(self.roots[jid].query(self, jid, pi))
-                node = stack.pop()
-                while node and self.run:
-                    for n in node:
-                        if n:
-                            stack.append(n)
-                    if callback:
-                        callback(self)
-                    node = stack.pop()
+        pool = Pool(j)
+        trees = pool.map(__job__, zip([self]*j, self.roots))
         
-        jobs = [Thread(target=job, args=[jid]) for jid, _ in enumerate(self.roots)]
-        for j in jobs:
-            j.start()
+        self.roots = [t.root for t in trees]
+        L = np.array([t.L for t in trees])
+        mp = np.array([t.mp for t in trees])
+        nn = np.array([t.nn for t in trees])
         
-        try:
-            for j in jobs:
-                while j.is_alive():
-                    j.join(0.1)
-        except KeyboardInterrupt as e:
-            self.run = False
-            raise e
-        
-        Larg = self.L.argmin(axis=0)
-        self.L = self.L[Larg, Pi]
-        self.mp = self.mp[Larg, Pi]
-        self.nn = self.nn[Larg, Pi]
+        Larg = L.argmin(axis=0)
+        self.L = L[Larg, self.Pi]
+        self.mp = mp[Larg, self.Pi]
+        self.nn = nn[Larg, self.Pi]
         
         return self.L, self.mp, self.nn
 
@@ -299,10 +302,16 @@ if __name__ == '__main__':
     print("Query size:", P.shape)
     
     delta = time_delta(time())
-    tree = KDNTree(X, Xi, j=args.jobs, leaf_size=args.leaf_size)
+    tree = KDNTree(
+        X, Xi,
+        args.jobs,
+        args.leaf_size,
+        args.batch_size,
+        callback=callback
+        )
     
     print("\n0%                      |50%                     |100%")
-    dist, mp, nn = tree.query(P, batch_size=args.batch_size, callback=callback)
+    dist, mp, nn = tree.query(P)
     
     print("\nQuery time:", next(delta))
     print("Mean loss:", dist.mean())
