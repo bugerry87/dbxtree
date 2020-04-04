@@ -16,3 +16,6 @@ data/
 doc/
 junk/
 media/
+
+#VC
+.vs/
