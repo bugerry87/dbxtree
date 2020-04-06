@@ -17,6 +17,9 @@ def __job__(data):
     tree.root = root
     _Pi = np.split(tree.Pi, tree.Pi.shape[0]/tree.batch_size if tree.batch_size else 1)
     
+    if tree.callback:
+        callback = tree.callback(tree)
+    
     for pi in _Pi:
         stack = deque([None])
         stack.append(root.query(tree, pi))
@@ -25,8 +28,8 @@ def __job__(data):
             for n in node:
                 if n:
                     stack.append(n)
-            #if self.callback:
-            #    self.callback(self)
+            if tree.callback:
+                next(callback)
             node = stack.pop()
     return tree
 
@@ -179,7 +182,7 @@ class KDNTree:
         self.X = X
         self.roots = [KDNTree.Node(xi, 0) for xi in np.array_split(Xi, j)]
         self.batch_size = batch_size
-        #self.callback = callback
+        self.callback = callback
         self.leaf_size = leaf_size if leaf_size else 1 + X.shape[0] / 100
         self.N = Xi.shape[-1]
         self.done = np.zeros(X.shape[0], dtype=bool)
@@ -210,6 +213,17 @@ class KDNTree:
         self.nn = nn[Larg, self.Pi]
         
         return self.L, self.mp, self.nn
+
+
+def callback(tree):
+    last = 0
+    while last <= 50:
+        curr = int(tree.done.mean() * 50)
+        dif = curr - last
+        if curr > last:
+            print('#' * dif, end='', flush=True)
+        last = curr
+        yield
 
 ###TEST
 if __name__ == '__main__':
@@ -278,17 +292,6 @@ if __name__ == '__main__':
         return parser
     
     args, _ = init_argparse().parse_known_args()
-    print_lock = Lock()
-    last = 0
-    def callback(tree):
-        global last
-        print_lock.acquire()
-        curr = int(tree.done.mean() * 50)
-        dif = curr - last
-        if curr > last:
-            print('#' * dif, end='', flush=True)
-        last = curr
-        print_lock.release()
     
     np.random.seed(args.seed)
     X = np.random.randn(args.model_size,3)
