@@ -47,6 +47,40 @@ def edge_normals(fN, Ti_flat, normalize=True, magnitude=False):
         return eN
 
 
+def quantirize(P, m=1):
+    k = P[0]
+    p0 = P[1]
+    p0k = p0 - k
+    p0km = magnitude(p0k)
+    mag = p0km
+    mask = np.zeros(P.shape[0], dtype=bool)
+    m = m**2
+    
+    for i, p1 in enumerate(P[2:]):
+        pp = p1 - p0
+        ppm = magnitude(pp)
+        mag += ppm
+        
+        p1k = p1 - k
+        p1km = magnitude(p1k)
+        dot = np.dot(p0k, p1k)**2 / (p0km * p1km) 
+        
+        if dot < 1 - np.exp(-mag/m)**4:
+            #new keypoint detected
+            k = p0
+            p0 = p1
+            p0k = pp
+            p0km = ppm
+            mag = ppm
+            mask[i] = True
+        else:
+            #update
+            p0 = p1
+            p0k = p1k
+            p0km = p1km
+    return P[mask]
+
+
 def nn_point2point(X, P):
     return KDTree(X).query(P)
 
@@ -76,12 +110,63 @@ def nn_point2line(X, Xi, P):
     return dist, mp, nn
 
 
-def polarize(X, scale=(10,10)):
-    P = X.copy()
-    P[:,0] = np.arccos(X[:,0] / np.linalg.norm(X[:,(0,1)], axis=1)) * (1*(X[:,1] >= 0) - (X[:,1] < 0)) * scale[0]
-    P[:,1] = np.linalg.norm(X[:,:2], axis=1)
-    P[:,2] = np.arcsin(P[:,2] / P[:,1]) * scale[1]
-    return P
+def sphere_uvd(X, norm=False):
+    uvd = X.copy()
+    uvd[:,0] = np.arccos(X[:,0] / np.linalg.norm(X[:,(0,1)], axis=1)) \
+        * (1*(X[:,1] >= 0) - (X[:,1] < 0))
+    uvd[:,1] = np.linalg.norm(X[:,:2], axis=1)
+    uvd[:,2] = np.arcsin(uvd[:,2] / uvd[:,1])
+    
+    print(np.any(np.isnan(uvd)))
+    
+    if norm is False:
+        pass
+    elif norm is True:
+        uvd -= uvd.min(axis=0)
+        uvd /= uvd.max(axis=0)
+    else:
+        uvd[:,norm] -= uvd[:,norm].min(axis=0)
+        uvd[:,norm] /= uvd[:,norm].max(axis=0)
+    return uvd
+
+
+def quantirize(P, m=1):
+    k = P[0]
+    p0 = P[1]
+    Q = [k]
+    p0k, mag = norm(p0 - k, True)
+    
+    for p1 in P[2:]:
+        pp, ppm = norm(p1 - p0, True)
+        mag += ppm
+        
+        p1k = norm(p1 - k)
+        dot = np.dot(p0k, p1k)
+        
+        if dot < 1 - np.exp(-mag/m):
+            #new keypoint detected
+            k = p0
+            p0 = p1
+            p0k = pp
+            mag = ppm
+            Q.append(k)
+        else:
+            #update
+            p0 = p1
+            p0k = p1k
+    return np.array(Q)
+
+
+def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
+    fN = fN.repeat(3, axis=0)
+    if mask is None:
+        mask = np.ones(Ti_flat.max()+1, dtype=bool)
+    for fn, i in zip(fN, Ti_flat):
+        if mask[i]:
+            mask[i] &= np.dot(eN[i], fn) <= min_dot
+        else:
+            pass
+    return mask
 
 
 ###TEST nn_point2line

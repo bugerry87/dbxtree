@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>mesh_gen</name>
+  <version>0.0.1</version>
+  <description>Converts PointCloud2 to TriangleMesh</description>
+
+  <maintainer email="gerald.baulig@gmail.com">Gerry</maintainer>
+  <license>UNLICENSE</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>sys</exec_depend>
+  <exec_depend>argparse</exec_depend>
+  <exec_depend>numpy</exec_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+
+  <export>
+  </export>
+</package>
