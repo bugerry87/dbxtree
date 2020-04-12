@@ -38,8 +38,10 @@ class KDNTree:
     class Leaf:
         def __init__(self, tree, Xi):
             X = tree.X[Xi]
-            x = X[:,range(1,X.shape[1])] - X[:,np.zeros(X.shape[1]-1, dtype=int)]
-            self.data = (Xi, x, spatial.magnitude(x))
+            x = X[:,range(X.shape[1]-1)] - X[:,range(1,X.shape[1])]
+            m = spatial.magnitude(x)
+            m[m==0] = 1 #fix for zero div
+            self.data = (Xi, x, m)
             self.leaf_size = Xi.shape[0]
         
         def __len__(self):
@@ -49,8 +51,8 @@ class KDNTree:
             return str(len(self))
         
         def query(self, tree, Pi):
-            def query_point(X, Xi, xp, Pi):
-                L = spatial.magnitude(xp).min(axis=-1)
+            def query_point(X, Xi, XP, Pi):
+                L = spatial.magnitude(XP).min(axis=-1)
                 Lmin = L < tree.L[Pi]
                 if np.any(Lmin):
                     Pi = Pi[Lmin]
@@ -60,40 +62,43 @@ class KDNTree:
                     tree.mp[Pi] = X[Lmin]
                     tree.done[Xi[Lmin]] = True
             
-            def query_line(PX, x, Xi, a, Pi):
-                mp = PX + x * a
+            def query_line(Xi, Pi, mp):
                 L = spatial.magnitude(mp)
                 L = L.min(axis=-1)
                 Lmin = L < tree.L[Pi]
                 if np.any(Lmin):
+                    mp = tree.P[Pi] + mp[Lmin]
                     Pi = Pi[Lmin]
                     tree.L[Pi] = L[Lmin]
                     tree.nn[Pi] = Xi
-                    tree.mp[Pi] = tree.P[Pi] + mp[Lmin]
+                    tree.mp[Pi] = mp
                     tree.done[Xi] = True
+                    return mp
+                else:
+                    return None
+                    
+            def query_face():
+                pass
         
             for Xi, x, m in zip(*self.data):
                 X = tree.X[Xi]
-                XP = tree.P[Pi] - X[0]
+                XP = tree.P[Pi] - X[range(1,X.shape[1])]
                 a = (np.sum(XP * x, axis=-1) / m).T
                 
-                point = np.nonzero((a <= 0, a >= 1))
-                line = np.nonzero((a > 0) * (a < 1))
-                #face = line.prod(axis=-1).astype(bool)
+                ispoint = (a <= 0, a >= 1)
+                point = np.nonzero(ispoint)
+                line = np.nonzero(~(ispoint[0] + ispoint[1]))
+                #face = np.nonzero(np.any(line, axis=-1))
                 
-                if len(point[0]):
+                if point[0].size:
                     i = point[0] * (1+point[2])
-                    point = Pi[point[1]]
-                    xp = tree.P[point] - X[i]
-                    query_point(X[i], Xi[i], xp, point)
+                    query_point(X[i], Xi[i], XP[i], Pi[point[1]])
                 
-                if len(line[0]):
-                    i = line[1]
-                    pi = Pi[line[0]]
-                    query_line(-XP[line[0]], x[i], Xi, a[line[0]], pi)
-                        
-                #if len(face):
-                #    pass
+                if line[0].size:
+                    query_line(XP[line[0]], x[line[1]], Xi, a[line[0]], Pi[line[0]])
+                
+                if face.size:
+                    pass
 
     class Node:
         def __init__(self, Xi, depth):
