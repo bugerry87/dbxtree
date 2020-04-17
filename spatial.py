@@ -27,6 +27,11 @@ def norm(X, mgni=False):
     else:
         return n
 
+def prob(X):
+    X = X.copy()
+    X -= X.min(axis=0)
+    X /= X.max(axis=0)
+    return X
 
 def face_normals(T, normalize=True, magnitude=False):
     fN = np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])
@@ -111,50 +116,22 @@ def nn_point2line(X, Xi, P):
 
 
 def sphere_uvd(X, norm=False):
-    uvd = X.copy()
-    uvd[:,0] = np.arccos(X[:,0] / np.linalg.norm(X[:,(0,1)], axis=1)) \
-        * (1*(X[:,1] >= 0) - (X[:,1] < 0))
-    uvd[:,1] = np.linalg.norm(X[:,:2], axis=1)
-    uvd[:,2] = np.arcsin(uvd[:,2] / uvd[:,1])
-    
-    print(np.any(np.isnan(uvd)))
+    xz = X[:,(0,2)]
+    y = X[:,1].reshape(-1,1)
+
+    pi = (xz > 0.0) * np.pi - np.pi/2.0
+    uvd = np.zeros(X.shape)
+    with np.errstate(divide='ignore', over='ignore'):
+        uvd[:,:2] = np.arctan(xz / np.abs(y)) + (y < 0.0) * pi
+    uvd[:,2] = np.linalg.norm(X, axis=-1)
     
     if norm is False:
         pass
     elif norm is True:
-        uvd -= uvd.min(axis=0)
-        uvd /= uvd.max(axis=0)
+        uvd = prob(uvd)
     else:
-        uvd[:,norm] -= uvd[:,norm].min(axis=0)
-        uvd[:,norm] /= uvd[:,norm].max(axis=0)
+        uvd[:,norm] = prob(uvd[:,norm])
     return uvd
-
-
-def quantirize(P, m=1):
-    k = P[0]
-    p0 = P[1]
-    Q = [k]
-    p0k, mag = norm(p0 - k, True)
-    
-    for p1 in P[2:]:
-        pp, ppm = norm(p1 - p0, True)
-        mag += ppm
-        
-        p1k = norm(p1 - k)
-        dot = np.dot(p0k, p1k)
-        
-        if dot < 1 - np.exp(-mag/m):
-            #new keypoint detected
-            k = p0
-            p0 = p1
-            p0k = pp
-            mag = ppm
-            Q.append(k)
-        else:
-            #update
-            p0 = p1
-            p0k = p1k
-    return np.array(Q)
 
 
 def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
@@ -174,7 +151,8 @@ if __name__ == '__main__':
     from argparse import ArgumentParser
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
-    from utils import *
+    from utils import time_delta
+    from time import time
     
     np.random.seed(5)
     X = np.random.randn(10000,3)

@@ -6,47 +6,41 @@ import sys
 #installed
 import numpy as np
 from scipy.spatial import Delaunay
+from matplotlib import cm
 
 #ros
 import rospy
 from std_msgs.msg import ColorRGBA
-from mesh_msgs.msg import TriangleMesh
+from mesh_msgs.msg import TriangleMeshStamped, TriangleIndices
 from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import Point
+from ros_numpy import numpify
+from utils import *
 
 #local
 import spatial
 
 
-def pointcloud2_to_numpy(cloud_msg, min_dist=0.0):
-    '''
-    Converts a rospy PointCloud2 message to a numpy array
-    Reshapes the returned array to have shape (height, width), even if the height is 1.
-    The reason for using np.fromstring rather than struct.unpack is speed... especially
-    for large point clouds, this will be <much> faster.
-    
-    Args:
-        cloud_msg [PointCloud2]
-    Returns:
-        np.ndarray
-    '''
-    
-    cloud_arr = np.fromstring(cloud_msg.data, np.float32, cloud_msg.width*4)
-    cloud_arr = cloud_arr.reshape(cloud_msg.width, -1)
-    return cloud_arr[np.sum(cloud_arr[:,:3]**2, axis=1) > min_dist**2]
-
-
-def numpy_to_trianglemesh(verts, trids, norms, uvds=None):
-    mesh = TriangleMesh()
-    mesh.vertices = (Point(*p) for p in verts)
-    mesh.vertex_normals = (Point(*n) for n in norms)
-    mesh.triangles = (TriangleIndices(*t) for t in trids)
-    if not uvs is None:
-        mesh.vertex_texture_coords = (Point(*uvd) for uvd in uvds)
+def numpy_to_trianglemesh(verts, trids, norms, uvds=None, colors=None):
+    mesh = TriangleMeshStamped()
+    mesh.mesh.vertices = [Point(*p) for p in verts]
+    mesh.mesh.vertex_normals = [Point(*n) for n in norms]
+    mesh.mesh.triangles = [TriangleIndices(t) for t in trids.tolist()]
+    if not uvds is None:
+        mesh.mesh.vertex_texture_coords = [Point(*uvd) for uvd in uvds]
+    if not colors is None:
+        mesh.mesh.vertex_colors = [ColorRGBA(*colors) for colors in colors]
     return mesh
 
 
 class MeshGen:
-    def __init__(self, name='MeshGen', topic='~/velodyne_points', frame_id='map'):
+    def __init__(self, 
+        name='MeshGen', 
+        topic='~/velodyne_points', 
+        frame_id='map', 
+        fields=('x','y','z','intensity'), 
+        cmap='Spectral'
+        ):
         '''
         Initialize an MeshGen node.
         Subscribes velodyne_point cloud data.
@@ -60,17 +54,13 @@ class MeshGen:
         self.name = name
         self.topic = topic
         self.frame_id = frame_id
-        self.reset()
+        self.fields = fields
+        self.cmap = cm.get_cmap(cmap)
+        self.delta = time_delta(time())
         
         ## init the node
-        self.pub = rospy.Publisher('{}/mesh'.format(self.name), TriangleMesh, queue_size=100)
+        self.pub = rospy.Publisher('{}/mesh'.format(self.name), TriangleMeshStamped, queue_size=10)
         rospy.Subscriber(self.topic, PointCloud2, self.__update__)
-    
-    def reset(self):
-        '''
-        Resets the assumed IMU state.
-        '''
-        pass
 
     def __update__(self, cloud_msg):
         '''
@@ -82,33 +72,43 @@ class MeshGen:
             TriangleMesh
         '''
         
-        Q = pointcloud2_to_numpy(cloud_msg)
-        Q, Y = Q[:,:3], Q[:,3]
-        print(np.any(np.isnan(Q)))
-        P = spatial.sphere_uvd(Q, True)
-        print(np.any(np.isnan(P)))
+        next(self.delta)
+        X = numpify(cloud_msg)
+        x, y, z, i = self.fields
+        Q = np.array((X[x], X[y], X[z])).T
+        Y = spatial.prob(X[i])
+        print('numpify:', next(self.delta), 'shape:', Q.shape)
         
+        P = spatial.sphere_uvd(Q)
         surf = Delaunay(P[:,(0,1)])
+        print('Delaunay:', next(self.delta))
         Ti = surf.simplices
-        fN = spatial.face_normals(Q[Ti], True)
-        eN = spatial.edge_normals(fN, Ti.flatten(), True)
+        fN = spatial.face_normals(Q[Ti])
+        eN = spatial.edge_normals(fN, Ti.flatten())
+        print('normals:', next(self.delta))
         Mask = spatial.mask_planar(eN, fN, Ti.flatten(), 0.95)
-        
         P = P[Mask]
         Q = Q[Mask]
+        Y = Y[Mask]
+        print('surf plannar:', next(self.delta), 'shape:', Q.shape)
+        
         surf = Delaunay(P[:,(0,1)])
         Ti = surf.simplices
         fN = spatial.face_normals(Q[Ti])
         eN = spatial.edge_normals(fN, Ti.flatten())
+        print('meshed:', next(self.delta))
 
-        mesh = numpy_to_trianglemesh(Q, Ti, eN, uvd)
+        mesh = numpy_to_trianglemesh(P, Ti, eN, P, self.cmap(Y))
+        mesh.header = cloud_msg.header
+        mesh.header.frame_id = self.frame_id
+        print('message:', next(self.delta))
         self.pub.publish(mesh)
+        input()
         
  
 if __name__ == '__main__':
     from argparse import ArgumentParser
-    import matplotlib.pyplot as plt
-    
+
     def init_argparse(parents=[]):
         ''' init_argparse(parents=[]) -> parser
         Initialize an ArgumentParser for this module.
@@ -153,13 +153,4 @@ if __name__ == '__main__':
     rospy.loginfo("Init node '{}' on topic '{}'".format(args.base_name, args.topic))
     mesh_gen = MeshGen(args.base_name, args.topic, args.frame_id)
     rospy.loginfo("Node '{}' ready!".format(args.base_name))
-    
-    while True:
-        inp = input("\n".join((
-            "Press 'r' to reset MeshGen state,",
-            "  or 'q' for quit (q): ")))
-        if inp == 'r':
-            mesh_gen.reset()
-            rospy.loginfo("Reset node: '{}'!".format(args.base_name))
-        else:
-            break
+    rospy.spin()
