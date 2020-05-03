@@ -14,6 +14,8 @@ from mayavi import mlab
 from mayavi.core.ui.api import MlabSceneModel, SceneEditor
 from traits.api import HasTraits
 from traitsui.api import View, Item, Group
+from scipy.spatial.transform import Rotation as R
+from sklearn.decomposition import PCA
 
 class GUI(HasTraits):
     def __init__(self, items=None):
@@ -192,19 +194,29 @@ if __name__ == '__main__' or 'PLOT_MAIN' in globals():
         files = ifile(args.data, args.sort)    
         frames = pykitti.utils.yield_velo_scans(files)
         fig = create_figure()
+        pca = PCA(3)
 
         @mlab.animate(delay=10)
         def animation():
-            plot = None
+            p1 = None
+            p2 = None
             X = next(frames, [])
             while len(X):
-                plot = vertices(X, X[:,3], fig, plot)
+                pca.fit(X[:,(1,0,3)])
+                twist = pca.components_
+                Xtwist = pca.transform(X[:,:3])
+                p1 = vertices(X, X[:,3], fig, p1)
+                p2 = vertices(Xtwist, -X[:,3], fig, p2)
+                r = R.from_matrix(pca.components_)
+                print(r.as_rotvec())
+                
+                
                 fig.render() 
                 yield
                 X = next(frames, [])
 
         animator = animation()
-        mlab.show(stop)
+        mlab.show(stop=False)
         return 0
 
 

@@ -38,10 +38,11 @@ class KDNTree:
     class Leaf:
         def __init__(self, tree, Xi):
             X = tree.X[Xi]
-            x = X[:,range(X.shape[1]-1)] - X[:,range(1,X.shape[1])]
+            x = X[:,range(-1,X.shape[1]-1)] - X[:,range(X.shape[1])]
+            y = X[:,range(-2,X.shape[1]-2)] - X[:,range(X.shape[1])]
             m = spatial.magnitude(x)
             m[m==0] = 1 #fix for zero div
-            self.data = (Xi, x, m)
+            self.data = (Xi, x, y, m)
             self.leaf_size = Xi.shape[0]
         
         def __len__(self):
@@ -57,48 +58,45 @@ class KDNTree:
                 if np.any(Lmin):
                     Pi = Pi[Lmin]
                     tree.L[Pi] = L[Lmin]
+                    tree.nn[Pi] = -1 
                     tree.nn[Pi, 0] = Xi[Lmin]
-                    tree.nn[Pi, 1:] = -1 
                     tree.mp[Pi] = X[Lmin]
-                    tree.done[Xi[Lmin]] = True
+                    tree.done[Xi] = True
             
             def query_line(Xi, Pi, mp):
                 L = spatial.magnitude(mp)
                 L = L.min(axis=-1)
                 Lmin = L < tree.L[Pi]
                 if np.any(Lmin):
-                    mp = tree.P[Pi] + mp[Lmin]
                     Pi = Pi[Lmin]
                     tree.L[Pi] = L[Lmin]
-                    tree.nn[Pi] = Xi
-                    tree.mp[Pi] = mp
+                    tree.nn[Pi] = -1 
+                    tree.nn[Pi, :2] = Xi[Lmin]
+                    tree.mp[Pi] = tree.P[Pi] + mp[Lmin]
                     tree.done[Xi] = True
-                    return mp
-                else:
-                    return None
                     
-            def query_face():
+            def query_face(Xi, Pi, mp):
                 pass
         
-            for Xi, x, m in zip(*self.data):
+            for Xi, x, y, m in zip(*self.data):
                 X = tree.X[Xi]
-                XP = tree.P[Pi] - X[range(1,X.shape[1])]
-                a = (np.sum(XP * x, axis=-1) / m).T
+                XP = tree.P[Pi] - X
+                a = np.sum(XP * x, axis=-1) / m
                 
-                ispoint = (a <= 0, a >= 1)
-                point = np.nonzero(ispoint)
-                line = np.nonzero(~(ispoint[0] + ispoint[1]))
-                #face = np.nonzero(np.any(line, axis=-1))
+                is_line = (a > 0) & (a < 1)
+                point = np.nonzero(~is_line)
+                line = np.nonzero(is_line)
                 
                 if point[0].size:
-                    i = point[0] * (1+point[2])
-                    query_point(X[i], Xi[i], XP[i], Pi[point[1]])
+                    query_point(X[point[1]], Xi[point[1]], XP[point[1]], Pi[point[0]])
                 
                 if line[0].size:
-                    query_line(XP[line[0]], x[line[1]], Xi, a[line[0]], Pi[line[0]])
+                    mp = x - XP[line[0]] * a[line[0]]
+                    query_line(Xi[line[1]], Pi[line[0]], mp[:,line[1]])
+                    a = np.sum(mp * y[line[1]], axis=-1)
                 
-                if face.size:
-                    pass
+                    if face[0].size:
+                        query_face(Xi[face[1]], Pi, mp[face[0]])
 
     class Node:
         def __init__(self, Xi, depth):
@@ -235,7 +233,8 @@ if __name__ == '__main__':
     from argparse import ArgumentParser
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
-    from utils import *
+    from utils import time_delta
+    from time import time
     
     def init_argparse(parents=[]):
         ''' init_argparse(parents=[]) -> parser
