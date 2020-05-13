@@ -76,7 +76,7 @@ def normals():
         scale_factor=0.1)
 
 
-def vertices(X, Y, fig, plot=None):
+def vertices(X, Y, fig, plot=None, **kvargs):
     if not len(X):
         raise ValueError("Error: Empty frame!")
 
@@ -86,8 +86,8 @@ def vertices(X, Y, fig, plot=None):
             X[:,1],
             X[:,2],
             Y,
-            mode="point",         # How to render each point {'point', 'sphere' , 'cube' }
-            colormap='spectral',  # 'bone', 'copper',
+            mode=kvargs['mode'] if 'mode' in kvargs else "point",         # How to render each point {'point', 'sphere' , 'cube' }
+            colormap=kvargs['colormap'] if 'colormap' in kvargs else 'spectral',  # 'bone', 'copper',
             figure=fig,
             )
     else:
@@ -193,18 +193,18 @@ if __name__ == '__main__' or 'PLOT_MAIN' in globals():
         frames = pykitti.utils.yield_velo_scans(files)
         fig = create_figure()
 
-        @mlab.animate(delay=10)
+        @mlab.animate(delay=10000)
         def animation():
             plot = None
             X = next(frames, [])
             while len(X):
-                plot = vertices(X, X[:,3], fig, plot)
+                plot = vertices(X, X[:,3], fig, plot, mode='cube')
                 fig.render() 
                 yield
                 X = next(frames, [])
 
         animator = animation()
-        mlab.show(stop)
+        mlab.show()
         return 0
 
 
