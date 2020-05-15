@@ -169,6 +169,14 @@ if __name__ == '__main__' or 'PLOT_MAIN' in globals():
             const=True
             )
         
+        parser.add_argument(
+            '--delay', '-t',
+            metavar='INT',
+            type=int,
+            help="Animation delay",
+            default=1000
+            )
+        
         return parser
 
 
@@ -193,7 +201,7 @@ if __name__ == '__main__' or 'PLOT_MAIN' in globals():
         frames = pykitti.utils.yield_velo_scans(files)
         fig = create_figure()
 
-        @mlab.animate(delay=10000)
+        @mlab.animate(delay=args.delay)
         def animation():
             plot = None
             X = next(frames, [])
