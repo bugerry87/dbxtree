@@ -33,23 +33,24 @@ def numpy_to_trianglemesh(verts, trids, norms, uvds=None, colors=None):
     return mesh
 
 
-class MeshGen:
+class MeshMerge:
     def __init__(self, 
-        name='MeshGen', 
+        name='MeshMerge', 
         topic='~/velodyne_points', 
         frame_id='base_link', 
+        map_id='map',
         fields=('x','y','z','intensity'), 
         cmap='Spectral'
         ):
         '''
-        Initialize an MeshGen node.
-        Subscribes velodyne_point cloud data.
+        Initialize an MeshMerge node.
+        Subscribes TriangleMesh cloud data.
         Publishes mesh_tool.msgs.
         
         Args:
             name [str]:     Base name of the node.
             topic [str]:    The topic to be subscribed.
-            frame_id [str]: The frame_id in rviz where the markers get plotted at.
+            frame_id [str]: The frame_id where the mesh came from.
         '''
         self.name = name
         self.topic = topic
@@ -60,13 +61,14 @@ class MeshGen:
         self.worker = Thread(target=self.__job__)
         self.ready = Condition()
         self.new_msg = False
+        self.mesh_map = None
         
         ## init the node
         self.pub = rospy.Publisher('{}/mesh'.format(self.name), TriangleMeshStamped, queue_size=5)
-        rospy.Subscriber(self.topic, PointCloud2, self.__update__, queue_size=5)
+        rospy.Subscriber(self.topic, TriangleMeshStamped, self.__update__, queue_size=5)
         self.worker.start()
 
-    def __update__(self, cloud_msg):
+    def __update__(self, mesh_msg):
         '''
         Update routine, to be called by subscribers.
         
@@ -76,7 +78,7 @@ class MeshGen:
             TriangleMesh
         '''
         if self.ready.acquire(False):
-            self.cloud_msg = cloud_msg
+            self.mesh_msg = mesh_msg
             self.new_msg = True
             self.ready.notify()
             self.ready.release()
@@ -146,14 +148,14 @@ if __name__ == '__main__':
         parser.add_argument(
             '--base_name', '-n',
             metavar='STRING',
-            default='MeshGen',
+            default='MeshMerge',
             help='Base name of the node.'
             )
         
         parser.add_argument(
             '--topic', '-t',
             metavar='TOPIC',
-            default='~/velodyne_points',
+            default='/MeshGen/mesh',
             help='The topic to be subscribed.'
             )
         
@@ -161,7 +163,14 @@ if __name__ == '__main__':
             '--frame_id', '-f',
             metavar='STRING',
             default='base_link',
-            help='The frame_id for rviz to plot the markers at.'
+            help='The frame_id where the mesh came from.'
+            )
+        
+        parser.add_argument(
+            '--map_id', '-m',
+            metavar='STRING',
+            default='map',
+            help='The frame_id where the map is to plot at.'
             )
         
         return parser
@@ -170,6 +179,6 @@ if __name__ == '__main__':
     args, _ = init_argparse().parse_known_args()
     rospy.init_node(args.base_name, anonymous=False)
     rospy.loginfo("Init node '{}' on topic '{}'".format(args.base_name, args.topic))
-    mesh_gen = MeshGen(args.base_name, args.topic, args.frame_id)
+    mesh_merge = MeshMerge(args.base_name, args.topic, args.frame_id)
     rospy.loginfo("Node '{}' ready!".format(args.base_name))
     rospy.spin()

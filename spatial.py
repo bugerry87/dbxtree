@@ -1,11 +1,11 @@
-'''
-Spatial operation functions for 3D.
+"""
+Spatial operations for 3D.
 
 Author: Gerald Baulig
-'''
-
+"""
 import numpy as np
 from scipy.spatial import KDTree
+
 
 
 def magnitude(X, sqrt=False):
@@ -27,11 +27,13 @@ def norm(X, mgni=False):
     else:
         return n
 
+
 def prob(X):
     X = X.copy()
     X -= X.min(axis=0)
     X /= X.max(axis=0)
     return X
+
 
 def face_normals(T, normalize=True, magnitude=False):
     fN = np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])
@@ -115,6 +117,14 @@ def nn_point2line(X, Xi, P):
     return dist, mp, nn
 
 
+def raycast(mesh, rays, skin, fN=None):
+    x = mesh[:,range(-1,mesh.shape[1]-1)] - mesh[:,range(mesh.shape[1])]
+    y = mesh[:,range(-2,mesh.shape[1]-2)] - mesh[:,range(mesh.shape[1])]
+    if fN is None:
+        fN = face_normals
+    pass
+
+
 def sphere_uvd(X, norm=False):
     x, y, z = X.T
     pi = np.where(x > 0.0, np.pi, -np.pi)
@@ -147,7 +157,6 @@ def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
 
 ###TEST nn_point2line
 if __name__ == '__main__':
-    from argparse import ArgumentParser
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
     from utils import time_delta
