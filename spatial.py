@@ -43,15 +43,26 @@ def face_normals(T, normalize=True, magnitude=False):
         return fN
 
 
-def edge_normals(fN, Ti_flat, normalize=True, magnitude=False):
-    fN = fN.repeat(3, axis=0)
-    eN = np.zeros((Ti_flat.max()+1, 3))
-    for fn, i in zip(fN, Ti_flat):
-        eN[i] += fn
-    if normalize:
+def edge_normals(T, fN, normalize=True, magnitude=False)
+	fN = fN.repeat(3, axis=0)
+	xN = T[:,(1,2,0)] - T
+	xN = xN.reshape(-1,3)
+	eN = np.cross(xN, fN).reshape(-1,3,3)
+	if normalize:
         return norm(eN, magnitude)
     else:
         return eN
+
+
+def vec_normals(fN, Ti_flat, normalize=True, magnitude=False):
+    fN = fN.repeat(3, axis=0)
+    vN = np.zeros((Ti_flat.max()+1, 3))
+    for fn, i in zip(fN, Ti_flat):
+        vN[i] += fn
+    if normalize:
+        return norm(vN, magnitude)
+    else:
+        return vN
 
 
 def quantirize(P, m=1):
@@ -117,11 +128,21 @@ def nn_point2line(X, Xi, P):
     return dist, mp, nn
 
 
-def raycast(mesh, rays, skin, fN=None):
-    x = mesh[:,range(-1,mesh.shape[1]-1)] - mesh[:,range(mesh.shape[1])]
-    y = mesh[:,range(-2,mesh.shape[1]-2)] - mesh[:,range(mesh.shape[1])]
+def raycast(T, rays, fN=None, eN=None):
+	xn, xm = norm(T[:,(1,2,0)] - T, True)
+	rn, rm = norm(rays[:,1] - rays[:,0], True)
     if fN is None:
-        fN = face_normals
+        fN = face_normals(T, True)
+	if eN is None:
+        eN = edge_normals(T, fN, True)
+	
+	for (a, b), n, m in zip(rays, rn, rm):
+		m = magnitude((b - a) * fN, True)
+		an = (a - T[:,0]) * fN
+		bn = (b - T[:,0]) * fN
+		am = np.sum(an, axis=-1)
+		bm = np.sum(bn, axis=-1)
+		mask = (am >= 0 and bm =< 0) or (am =< 0 and bm >= 0) #intersects
     pass
 
 
@@ -143,13 +164,13 @@ def sphere_uvd(X, norm=False):
     return uvd
 
 
-def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
+def mask_planar(vN, fN, Ti_flat, min_dot=0.9, mask=None):
     fN = fN.repeat(3, axis=0)
     if mask is None:
         mask = np.ones(Ti_flat.max()+1, dtype=bool)
     for fn, i in zip(fN, Ti_flat):
         if mask[i]:
-            mask[i] &= np.dot(eN[i], fn) <= min_dot
+            mask[i] &= np.dot(vN[i], fn) <= min_dot
         else:
             pass
     return mask
@@ -157,35 +178,4 @@ def mask_planar(eN, fN, Ti_flat, min_dot=0.9, mask=None):
 
 ###TEST nn_point2line
 if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    from utils import time_delta
-    from time import time
-    
-    np.random.seed(5)
-    X = np.random.randn(10000,3)
-    P = np.random.randn(10000,3)
-    Xi = np.arange(X.shape[0]).reshape(-1,2)
-    X[Xi[:,1]] *= 0.5
-    X[Xi[:,1]] += X[Xi[:,0]]
-    
-    print("Brute force test of nn_point2line")
-    delta = time_delta(time())
-    dist, mp, nn = nn_point2line(X, Xi, P)
-    print("Time", next(delta)) 
-    print("Mean loss:", dist.mean())
-    mp -= P
-    
-    fig = plt.figure()
-    ax = fig.add_subplot((111), projection='3d')
-    seg = np.hstack((X[Xi[:,0]], X[Xi[:,1]]-X[Xi[:,0]]))
-    x, y, z, u, v, w = zip(*seg)
-    
-    ax.quiver(x, y, z, u, v, w)
-    ax.scatter(P[:,0],P[:,1],P[:,2], color='r')
-    ax.quiver(P[:,0],P[:,1],P[:,2],mp[:,0],mp[:,1],mp[:,2], color='g')
-    
-    ax.set_xlim3d(-3, 3)
-    ax.set_ylim3d(-3, 3)
-    ax.set_zlim3d(-3, 3)
-    plt.show()
+    pass

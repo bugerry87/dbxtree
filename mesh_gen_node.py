@@ -103,9 +103,9 @@ class MeshGen:
             print('Delaunay:', next(self.delta))
             Ti = surf.simplices
             fN = spatial.face_normals(Q[Ti])
-            eN = spatial.edge_normals(fN, Ti.flatten())
+            vN = spatial.vec_normals(fN, Ti.flatten())
             print('normals:', next(self.delta))
-            Mask = spatial.mask_planar(eN, fN, Ti.flatten(), 0.95)
+            Mask = spatial.mask_planar(vN, fN, Ti.flatten(), 0.95)
             P = P[Mask]
             Q = Q[Mask]
             Y = Y[Mask]
@@ -114,10 +114,10 @@ class MeshGen:
             surf = Delaunay(P[:,(0,1)])
             Ti = surf.simplices
             fN = spatial.face_normals(Q[Ti])
-            eN = spatial.edge_normals(fN, Ti.flatten())
+            vN = spatial.vec_normals(fN, Ti.flatten())
             print('meshed:', next(self.delta))
 
-            mesh = numpy_to_trianglemesh(Q, Ti, eN, P, self.cmap(Y))
+            mesh = numpy_to_trianglemesh(Q, Ti, vN, P, self.cmap(Y))
             mesh.header = self.cloud_msg.header
             print('seq', mesh.header.seq)
             mesh.header.frame_id = self.frame_id
