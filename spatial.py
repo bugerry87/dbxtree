@@ -118,7 +118,7 @@ def nn_point2line(X, Xi, P):
 def sphere_uvd(X, norm=False):
     x, y, z = X.T
     pi = np.where(x > 0.0, np.pi, -np.pi)
-    uvd = np.zeros(X.shape)
+    uvd = np.empty(X.shape)
     with np.errstate(divide='ignore', over='ignore'):
         uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
         uvd[:,2] = np.linalg.norm(X, axis=-1)
