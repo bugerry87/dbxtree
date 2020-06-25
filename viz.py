@@ -1,12 +1,5 @@
 #!/usr/bin/env python
 """
-VISUALISE THE LIDAR DATA FROM THE ANY DATASET
-
-Based on the sample code from
-    https://github.com/utiasSTARS/pykitti/blob/master/demos/demo_raw.py
-And:
-    http://stackoverflow.com/a/37863912
-    
 Author: Gerald Baulig
 """
 
