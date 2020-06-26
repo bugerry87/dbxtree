@@ -137,31 +137,50 @@ def raycast(T, rays, fN=None, eN=None):
 		eN = edge_normals(T, fN, True)
 	
 	idx = []
-	intrsc = []
+	intrp = []
+	hit = np.zeros(len(T), dtype=bool)
 	for (a, b), n, m in zip(rays, rn, rm):
 		m = magnitude((b - a) * fN, True)
 		an = (a - T[:,0]) * fN
 		bn = (b - T[:,0]) * fN
 		am = np.sum(an, axis=-1)
 		bm = np.sum(bn, axis=-1)
-		mask = ((am >= 0) & (bm <= 0)) | ((am <= 0) & (bm >= 0)) #intersects
-		mp = n * magnitude(an[mask], True) / m[mask]
+		on_plane = ((am >= 0) & (bm <= 0)) | ((am <= 0) & (bm >= 0)) #on hyper plane
+		mp = n * magnitude(an[on_plane], True) / m[on_plane]
 		mp = mp.repeat(3, axis=0).reshape(-1,3,3)
-		mp_mask = np.all(np.sum((mp - T[mask]) * eN[mask], axis=-1) <= 0, axis=-1)
-		mask[mask] = mp_mask
-		idx.append(np.nonzero(mask)[0])
-		intrsc.append(mp[mp_mask, 0])
-	return idx, intrsc
+		in_trid = np.all(np.sum((mp - T[on_plane]) * eN[on_plane], axis=-1) <= 0, axis=-1)
+		hit[on_plane] |= in_trid
+		idx.append(np.nonzero(in_trid)[0])
+		intrp.append(mp[in_trid, 0])
+	return hit, idx, intrp
 
 
-def sphere_uvd(X, norm=False):
+def sphere_uvd(X, norm=False, offset=0.0):
 	x, y, z = X.T
 	pi = np.where(x > 0.0, np.pi, -np.pi)
 	uvd = np.empty(X.shape)
 	with np.errstate(divide='ignore', over='ignore'):
 		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
 		uvd[:,2] = np.linalg.norm(X, axis=-1)
-		uvd[:,1] = np.arctan(z / np.abs(uvd[:,2]))
+		uvd[:,1] = np.arcsin((z-offset) / uvd[:,2])
+	
+	if norm is False:
+		pass
+	elif norm is True:
+		uvd = prob(uvd)
+	else:
+		uvd[:,norm] = prob(uvd[:,norm])
+	return uvd
+
+
+def cone_uvd(X, norm=False, z_off=0.0, r_off=0.0):
+	x, y, z = X.T
+	pi = np.where(x > 0.0, np.pi, -np.pi)
+	uvd = np.empty(X.shape)
+	with np.errstate(divide='ignore', over='ignore'):
+		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
+		uvd[:,2] = np.linalg.norm(X, axis=-1)
+		uvd[:,1] = (z - z_off) / (np.linalg.norm(X[:,:2], axis=-1) - r_off)
 	
 	if norm is False:
 		pass
@@ -182,16 +201,3 @@ def mask_planar(vN, fN, Ti_flat, min_dot=0.9, mask=None):
 		else:
 			pass
 	return mask
-
-
-###TEST
-if __name__ == '__main__':
-	np.random.seed(0)
-	T = np.random.randn(5,3,3)
-	rays = np.random.randn(4,2,3)
-	idx, mp = raycast(T, rays)
-	print('T\n', T)
-	print('rays\n', rays)
-	print('idx\n', idx)
-	print('mp\n', mp)
-	pass
