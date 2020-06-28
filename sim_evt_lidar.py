@@ -201,7 +201,9 @@ def main(args):
 			Q = Q[Mask]
 			mesh = Delaunay(P[:,(0,1)])
 			Ti = mesh.simplices
+			fN = face_normals(Q[Ti], True)
 			viz.mesh(Q, Ti, None, fig)
+			viz.normals(Q, Ti, fN)
 			print("New size:", Q.shape)
 			if input():
 				break
@@ -209,7 +211,7 @@ def main(args):
 			
 			print("Raycast...")
 			rays = np.zeros((1,2,3))
-			rays[0,0,0] = 100
+			rays[0,0,0] = 1000
 			Mask, idx, mp = raycast(Q[Ti], rays)
 			Ti = Ti[Mask]
 			viz.mesh(Q, Ti, None, fig)

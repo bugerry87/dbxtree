@@ -128,41 +128,45 @@ def nn_point2line(X, Xi, P):
 	return dist, mp, nn
 
 
-def raycast(T, rays, fN=None, eN=None):
-	xn, xm = norm(T[:,(1,2,0)] - T, True)
-	rn, rm = norm(rays[:,1] - rays[:,0], True)
+def raycast(T, rays, fN=None, eN=None, back=False):
+	r = rays[:,1] - rays[:,0]
 	if fN is None:
 		fN = face_normals(T, True)
 	if eN is None:
-		eN = edge_normals(T, fN, True)
+		eN = edge_normals(T, fN, False)
 	
 	idx = []
 	intrp = []
 	hit = np.zeros(len(T), dtype=bool)
-	for (a, b), n, m in zip(rays, rn, rm):
-		m = magnitude((b - a) * fN, True)
+	for (a, b), r in zip(rays, r):
 		an = (a - T[:,0]) * fN
-		bn = (b - T[:,0]) * fN
 		am = np.sum(an, axis=-1)
-		bm = np.sum(bn, axis=-1)
-		on_plane = ((am >= 0) & (bm <= 0)) | ((am <= 0) & (bm >= 0)) #on hyper plane
-		mp = n * magnitude(an[on_plane], True) / m[on_plane]
+		bm = np.sum((b - T[:,0]) * fN, axis=-1)
+		on_plane = ((am >= 0) & (bm <= 0)) | (back & ((am <= 0) & (bm >= 0)))
+		
+		am = am[on_plane]
+		fn = fN[on_plane]
+		en = eN[on_plane]
+		t = T[on_plane]
+		
+		m = np.sqrt(am).reshape(-1,1) / magnitude(r * fn, True)
+		mp = r.reshape(1,-1) * m + a
 		mp = mp.repeat(3, axis=0).reshape(-1,3,3)
-		in_trid = np.all(np.sum((mp - T[on_plane]) * eN[on_plane], axis=-1) <= 0, axis=-1)
+		in_trid = np.all(np.sum((mp - t) * en, axis=-1) >= 0, axis=-1)
 		hit[on_plane] |= in_trid
 		idx.append(np.nonzero(in_trid)[0])
 		intrp.append(mp[in_trid, 0])
 	return hit, idx, intrp
 
 
-def sphere_uvd(X, norm=False, offset=0.0):
+def sphere_uvd(X, norm=False, z_off=0.0, r_off=0.0):
 	x, y, z = X.T
 	pi = np.where(x > 0.0, np.pi, -np.pi)
 	uvd = np.empty(X.shape)
 	with np.errstate(divide='ignore', over='ignore'):
 		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
 		uvd[:,2] = np.linalg.norm(X, axis=-1)
-		uvd[:,1] = np.arcsin((z-offset) / uvd[:,2])
+		uvd[:,1] = np.arcsin((z-z_off) / uvd[:,2]-r_off)
 	
 	if norm is False:
 		pass
