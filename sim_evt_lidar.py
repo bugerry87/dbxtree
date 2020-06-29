@@ -1,12 +1,5 @@
 #!/usr/bin/env python
 """
-Simulate event driven LiDAR
-
-Based on the sample code from
-	https://github.com/utiasSTARS/pykitti/blob/master/demos/demo_raw.py
-And:
-	http://stackoverflow.com/a/37863912
-	
 Author: Gerald Baulig
 """
 
@@ -201,28 +194,16 @@ def main(args):
 			Q = Q[Mask]
 			mesh = Delaunay(P[:,(0,1)])
 			Ti = mesh.simplices
-			fN = face_normals(Q[Ti], True)
 			viz.mesh(Q, Ti, None, fig)
-			viz.normals(Q, Ti, fN)
 			print("New size:", Q.shape)
-			if input():
-				break
-			viz.clear_figure(fig)
-			
-			print("Raycast...")
-			rays = np.zeros((1,2,3))
-			rays[0,0,0] = 1000
-			Mask, idx, mp = raycast(Q[Ti], rays)
-			Ti = Ti[Mask]
-			viz.mesh(Q, Ti, None, fig)
 			if input():
 				break
 			viz.clear_figure(fig)
 			
 			print("Remove Narrow Z-faces...")
 			fN = face_normals(P[Ti], True)
-			#Mask = (fN[:,2] > -0.8) #& (np.abs(fN[:,1]) > 0.05)
-			#Ti = Ti[Mask]
+			Mask = (fN[:,2] > 0.9) #& (np.abs(fN[:,1]) > 0.05)
+			Ti = Ti[Mask]
 			viz.mesh(P, Ti, None, fig)
 			print("Final size:", np.unique(Ti.flatten()).shape)
 			if input():

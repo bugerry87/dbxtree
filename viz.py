@@ -56,8 +56,7 @@ def mesh(X, T, Y, fig, plot=None, **kwargs):
 	return plot
 
 
-def normals(X, T, N):
-	X = X[T[:,0]]
+def normals(X, N, **kwargs):
 	mlab.quiver3d(
 		X[:,0],
 		X[:,1],
@@ -65,7 +64,7 @@ def normals(X, T, N):
 		N[:,0],
 		N[:,1],
 		N[:,2],
-		scale_factor=0.1)
+		**kwargs)
 
 
 def vertices(X, Y, fig, plot=None, **kwargs):

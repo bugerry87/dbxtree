@@ -12,17 +12,17 @@ def magnitude(X, sqrt=False):
 	if len(X.shape) == 1:
 		m = np.sum(X**2)
 	else:
-		m = np.sum(X**2, axis=-1)[:,None]
+		m = np.sum(X**2, axis=-1).reshape(*X.shape[:-1], 1)
 	return np.sqrt(m) if sqrt else m
 
 
-def norm(X, mgni=False):
+def norm(X, magnitude=False):
 	if len(X.shape) == 1:
 		m = np.linalg.norm(X)
 	else:
-		m = np.linalg.norm(X, axis=-1)[:,None]
+		m = np.linalg.norm(X, axis=-1).reshape(*X.shape[:-1], 1)
 	n = X / m
-	if mgni:
+	if magnitude:
 		return n, m
 	else:
 		return n
@@ -43,7 +43,9 @@ def face_normals(T, normalize=True, magnitude=False):
 		return fN
 
 
-def edge_normals(T, fN, normalize=True, magnitude=False):
+def edge_normals(T, fN=None, normalize=True, magnitude=False):
+	if fN is None:
+		fN = face_normals(T, False)
 	fN = fN.repeat(3, axis=0)
 	xN = T[:,(1,2,0)] - T
 	xN = xN.reshape(-1,3)
@@ -152,7 +154,7 @@ def raycast(T, rays, fN=None, eN=None, back=False):
 		m = np.sqrt(am).reshape(-1,1) / magnitude(r * fn, True)
 		mp = r.reshape(1,-1) * m + a
 		mp = mp.repeat(3, axis=0).reshape(-1,3,3)
-		in_trid = np.all(np.sum((mp - t) * en, axis=-1) >= 0, axis=-1)
+		in_trid = np.all(np.sum((mp - t) * en, axis=-1) <= 0, axis=-1)
 		hit[on_plane] |= in_trid
 		idx.append(np.nonzero(in_trid)[0])
 		intrp.append(mp[in_trid, 0])
@@ -205,3 +207,7 @@ def mask_planar(vN, fN, Ti_flat, min_dot=0.9, mask=None):
 		else:
 			pass
 	return mask
+
+
+if __name__ is '__main__':
+	pass
