@@ -5,7 +5,7 @@ if __name__ == '__main__':
     import numpy as np
     from trimesh import Trimesh
     from trimesh.proximity import closest_point
-    from utils import *
+    from mhdm.utils import *
     
     def init_argparse(parents=[]):
         ''' init_argparse(parents=[]) -> parser
