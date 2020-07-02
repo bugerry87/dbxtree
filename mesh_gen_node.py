@@ -11,14 +11,14 @@ from matplotlib import cm
 #ros
 import rospy
 from std_msgs.msg import ColorRGBA
-from mesh_msgs.msg import TriangleMeshStamped, TriangleIndices
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import Point
 from ros_numpy import numpify
-from utils import *
+from mesh_msgs.msg import TriangleMeshStamped, TriangleIndices
 
 #local
-import spatial
+import mhdm.spatial as spatial
+from mhdm.utils import time, time_delta
 
 
 def numpy_to_trianglemesh(verts, trids, norms, uvds=None, colors=None):
@@ -26,9 +26,9 @@ def numpy_to_trianglemesh(verts, trids, norms, uvds=None, colors=None):
     mesh.mesh.vertices = [Point(*p) for p in verts]
     mesh.mesh.vertex_normals = [Point(*n) for n in norms]
     mesh.mesh.triangles = [TriangleIndices(t) for t in trids.tolist()]
-    if not uvds is None:
+    if uvds is not None:
         mesh.mesh.vertex_texture_coords = [Point(*uvd) for uvd in uvds]
-    if not colors is None:
+    if colors is not None:
         mesh.mesh.vertex_colors = [ColorRGBA(*colors) for colors in colors]
     return mesh
 
@@ -105,7 +105,7 @@ class MeshGen:
             fN = spatial.face_normals(Q[Ti])
             vN = spatial.vec_normals(fN, Ti.flatten())
             print('normals:', next(self.delta))
-            Mask = spatial.mask_planar(vN, fN, Ti.flatten(), 0.95)
+            Mask = spatial.mask_planar(vN, fN, Ti.flatten(), 0.9)
             P = P[Mask]
             Q = Q[Mask]
             Y = Y[Mask]

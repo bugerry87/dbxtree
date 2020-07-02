@@ -15,16 +15,16 @@ from ros_numpy import numpify
 from mesh_msgs.msg import TriangleMeshStamped
 
 
-class MeshMerge:
+class MeshMap:
 	def __init__(self, 
-		name='MeshMerge', 
+		name='MeshMap', 
 		topic='~/velodyne_points', 
 		base_link='base_link', 
 		frame_id='map',
 		fields=('x','y','z','intensity')
 		):
 		'''
-		Initialize an MeshMerge node.
+		Initialize an MeshMap node.
 		Subscribes TriangleMesh cloud data.
 		Publishes mesh_tool.msgs.
 		
@@ -41,7 +41,6 @@ class MeshMerge:
 		self.worker = Thread(target=self.__job__)
 		self.ready = Condition()
 		self.new_msg = False
-		self.mesh_map = TriangleMeshStamped()
 		self.listener = tf.TransformListener()
 		
 		## init the node
@@ -92,15 +91,11 @@ class MeshMerge:
 			verts += trans
 			
 			#Merge
-			self.mesh_map.mesh.vertices += [Point(*p) for p in verts]
-			self.mesh_map.mesh.vertex_normals += [Point(*n) for n in norms]
-			self.mesh_map.mesh.triangles += self.mesh_msg.mesh.triangles
-			self.mesh_map.mesh.vertex_texture_coords += self.mesh_msg.mesh.vertex_texture_coords
-			self.mesh_map.mesh.vertex_colors += self.mesh_msg.mesh.vertex_colors
-			self.mesh_map.header = self.mesh_msg.header
-			self.mesh_map.header.frame_id = self.frame_id
+			self.mesh_msg.mesh.vertices = [Point(*p) for p in verts]
+			self.mesh_msg.mesh.vertex_normals = [Point(*n) for n in norms]
+			self.mesh_msg.header.frame_id = self.frame_id
 			
-			self.pub.publish(self.mesh_map)
+			self.pub.publish(self.mesh_msg)
 		self.ready.release()
 
 
@@ -125,7 +120,7 @@ if __name__ == '__main__':
 		parser.add_argument(
 			'--base_name', '-n',
 			metavar='STRING',
-			default='MeshMerge',
+			default='MeshMap',
 			help='Base name of the node.'
 			)
 		
@@ -156,6 +151,6 @@ if __name__ == '__main__':
 	args, _ = init_argparse().parse_known_args()
 	rospy.init_node(args.base_name, anonymous=False)
 	rospy.loginfo("Init node '{}' on topic '{}'".format(args.base_name, args.topic))
-	mesh_merge = MeshMerge(args.base_name, args.topic, args.base_link, args.frame_id)
+	mesh_merge = MeshMap(args.base_name, args.topic, args.base_link, args.frame_id)
 	rospy.loginfo("Node '{}' ready!".format(args.base_name))
 	rospy.spin()
