@@ -121,3 +121,4 @@ if __name__ == '__main__':
 	node.publish_map()
 	input("Press any key to quit!")
 	rospy.loginfo("Node '{}' terminated!".format(args.node_name))
+	

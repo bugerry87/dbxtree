@@ -4,8 +4,7 @@ Spatial operations for 3D.
 Author: Gerald Baulig
 """
 import numpy as np
-from scipy.spatial import KDTree
-
+from scipy.spatial import cKDTree
 
 
 def magnitude(X, sqrt=False):
@@ -102,7 +101,7 @@ def quantirize(P, m=1):
 
 
 def nn_point2point(X, P):
-	return KDTree(X).query(P)
+	return cKDTree(X).query(P)
 
 
 def nn_point2line(X, Xi, P):

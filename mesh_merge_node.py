@@ -1,27 +1,34 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 #build in
-from __future__ import print_function
 from threading import Thread, Condition
 
 #installed
-from scipy.spatial.transform import Rotation as R
+import numpy as np
+from scipy.spatial import cKDTree
+from scipy.spatial import Delaunay
+from matplotlib import cm
 
 #ros
 import rospy
-import tf
+from std_msgs.msg import ColorRGBA
+from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import Point
 from ros_numpy import numpify
-from mesh_msgs.msg import TriangleMeshStamped
+from mesh_msgs.msg import TriangleMeshStamped, TriangleIndices
+
+#local
+import mhdm.spatial as spatial
 
 
 class MeshMerge:
 	def __init__(self, 
-		name='MeshMerge', 
-		topic='~/velodyne_points', 
-		base_link='base_link', 
+		node_name='MeshMerge', 
+		topic='MeshMap/mesh', 
 		frame_id='map',
-		fields=('x','y','z','intensity')
+		radius=0.05,
+		leafsize=100,
+		jobs=4
 		):
 		'''
 		Initialize an MeshMerge node.
@@ -33,19 +40,19 @@ class MeshMerge:
 			topic [str]:	The topic to be subscribed.
 			frame_id [str]: The frame_id where the mesh came from.
 		'''
-		self.name = name
+		self.node_name = node_name
 		self.topic = topic
-		self.base_link = base_link
 		self.frame_id = frame_id
-		self.fields = fields
+		self.radius = radius
+		self.leafsize = leafsize
+		self.jobs = jobs
+		
 		self.worker = Thread(target=self.__job__)
 		self.ready = Condition()
 		self.new_msg = False
-		self.mesh_map = TriangleMeshStamped()
-		self.listener = tf.TransformListener()
 		
 		## init the node
-		self.pub = rospy.Publisher('{}/mesh'.format(self.name), TriangleMeshStamped, queue_size=5)
+		self.pub = rospy.Publisher('{}/map'.format(self.node_name), TriangleMeshStamped, queue_size=1)
 		rospy.Subscriber(self.topic, TriangleMeshStamped, self.__update__, queue_size=5)
 		self.worker.start()
 
@@ -63,8 +70,11 @@ class MeshMerge:
 			self.new_msg = True
 			self.ready.notify()
 			self.ready.release()
+		else:
+			rospy.logwarn("Node '{}' message dropped!".format(self.node_name))
 		
 	def __job__(self):
+		first = True
 		while not rospy.is_shutdown():
 			self.ready.acquire()
 			self.ready.wait(1.0)
@@ -73,34 +83,66 @@ class MeshMerge:
 			else:
 				continue
 			
-			try:
-				trans, quat = self.listener.lookupTransform(self.frame_id, self.base_link, rospy.Time(0))
-			except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
-				print(e)
+			verts = np.array([(p.x, p.y, p.z) for p in self.mesh_msg.mesh.vertices])
+			norms = np.array([(n.x, n.y, n.z) for n in self.mesh_msg.mesh.vertex_normals])
+			Ti = np.array([t.vertex_indices for t in self.mesh_msg.mesh.triangles])
+			
+			if first:
+				self.mesh = self.mesh_msg.mesh
+				self.verts = verts
+				self.norms = norms
+				self.Ti = Ti
+				first = False
 				continue
 			
-			#Decode
-			verts = self.mesh_msg.mesh.vertices
-			norms = self.mesh_msg.mesh.vertex_normals
-			verts = [(p.x, p.y, p.z) for p in verts]
-			norms = [(p.x, p.y, p.z) for p in norms]
-			
-			#Transform
-			rot = R.from_quat(quat)
-			verts = rot.apply(verts)
-			norms = rot.apply(norms)
-			verts += trans
-			
 			#Merge
-			self.mesh_map.mesh.vertices += [Point(*p) for p in verts]
-			self.mesh_map.mesh.vertex_normals += [Point(*n) for n in norms]
-			self.mesh_map.mesh.triangles += self.mesh_msg.mesh.triangles
-			self.mesh_map.mesh.vertex_texture_coords += self.mesh_msg.mesh.vertex_texture_coords
-			self.mesh_map.mesh.vertex_colors += self.mesh_msg.mesh.vertex_colors
-			self.mesh_map.header = self.mesh_msg.header
-			self.mesh_map.header.frame_id = self.frame_id
+			leafsize = int(self.leafsize + np.log(len(verts)) * self.leafsize)
+			tree = cKDTree(self.verts, leafsize, compact_nodes=False, balanced_tree=False)
+			balls = tree.query_ball_point(verts, self.radius, n_jobs=self.jobs)
+			N = len(self.verts)
 			
-			self.pub.publish(self.mesh_map)
+			unmerged = []
+			for i, ball in enumerate(balls):
+				ball_vert = np.mean(np.vstack((verts[i], self.verts[ball])), axis=0)
+				ball_norm = np.mean(np.vstack((norms[i], self.norms[ball])), axis=0)
+				if len(ball):
+					mask = np.isin(self.Ti, ball)
+					self.Ti[mask] = N + i
+					self.Ti = self.Ti[mask.sum(axis=-1) <= 1]
+				else:
+					unmerged.append(i)
+				verts[i] = ball_vert
+				norms[i] = ball_norm
+			
+			unmerged = verts[unmerged]
+			self.Ti = np.vstack((self.Ti, Ti+N))
+			self.verts = np.vstack((self.verts, verts))
+			self.norms = np.vstack((self.norms, norms))
+			uid, idx = np.unique(self.Ti, return_inverse=True)
+			srt = np.argsort(uid, axis=None)
+			self.Ti = srt[idx].reshape(-1, 3)
+			merged = len(self.verts) - len(uid)
+			self.verts = self.verts[uid][srt]
+			self.norms = self.norms[uid][srt]
+			
+			print("\nIncoming vertices: {}".format(len(verts)))
+			print("Merged {}".format(merged))
+			print("Unmerged: {}".format(len(unmerged)))
+			print("Final vertices {}".format(len(self.verts)))
+			
+			#Publish
+			mesh = self.mesh_msg.mesh
+			self.mesh.triangles = [TriangleIndices(t) for t in self.Ti.tolist()]
+			self.mesh.vertices = [Point(*p) for p in self.verts]
+			self.mesh.vertex_normals = [Point(*n) for n in self.norms]
+			self.mesh.vertex_texture_coords += mesh.vertex_texture_coords
+			self.mesh.vertex_texture_coords = np.array(self.mesh.vertex_texture_coords)[uid][srt].tolist()
+			self.mesh.vertex_colors += mesh.vertex_colors
+			self.mesh.vertex_colors = np.array(self.mesh.vertex_colors)[uid][srt].tolist()
+			
+			self.mesh_msg.header.frame_id = self.frame_id
+			self.mesh_msg.mesh = self.mesh
+			self.pub.publish(self.mesh_msg)
 		self.ready.release()
 
 
@@ -123,7 +165,7 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
-			'--base_name', '-n',
+			'--node_name', '-n',
 			metavar='STRING',
 			default='MeshMerge',
 			help='Base name of the node.'
@@ -132,7 +174,7 @@ if __name__ == '__main__':
 		parser.add_argument(
 			'--topic', '-t',
 			metavar='TOPIC',
-			default='/MeshGen/mesh',
+			default='/MeshMap/mesh',
 			help='The topic to be subscribed.'
 			)
 		
@@ -144,18 +186,37 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
-			'--base_link', '-b',
-			metavar='STRING',
-			default='base_link',
-			help='The transformer of the car.'
+			'--radius', '-r',
+			type=float,
+			metavar='FLOAT',
+			default=0.5,
+			help='The merge radius for each point.'
+			)
+		
+		parser.add_argument(
+			'--leafsize', '-l',
+			type=int,
+			metavar='INT',
+			default=100,
+			help='Minimal leaf size for KDTree.'
+			)
+		
+		parser.add_argument(
+			'--jobs', '-j',
+			type=int,
+			metavar='INT',
+			default=4,
+			help='How many jobs for KDTree.'
 			)
 		
 		return parser
 
 
 	args, _ = init_argparse().parse_known_args()
-	rospy.init_node(args.base_name, anonymous=False)
-	rospy.loginfo("Init node '{}' on topic '{}'".format(args.base_name, args.topic))
-	mesh_merge = MeshMerge(args.base_name, args.topic, args.base_link, args.frame_id)
-	rospy.loginfo("Node '{}' ready!".format(args.base_name))
+	rospy.init_node(args.node_name, anonymous=False)
+	rospy.loginfo("Init node '{}' on topic '{}'".format(args.node_name, args.topic))
+	mesh_merge = MeshMerge(**args.__dict__)
+	rospy.loginfo("Node '{}' ready!".format(args.node_name))
 	rospy.spin()
+	rospy.loginfo("Node '{}' terminated!".format(args.node_name))
+	

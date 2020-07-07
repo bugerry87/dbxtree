@@ -127,3 +127,4 @@ if __name__ == '__main__':
 	mesh_merge = MeshMap(args.base_name, args.topic, args.base_link, args.frame_id)
 	rospy.loginfo("Node '{}' ready!".format(args.base_name))
 	rospy.spin()
+	
