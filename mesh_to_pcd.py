@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 #Installed
 import numpy as np
@@ -117,8 +117,13 @@ if __name__ == '__main__':
 	rospy.loginfo("Init node '{}' on topic '{}'".format(args.node_name, args.topic))
 	node = Mesh2PCD(**args.__dict__)
 	rospy.loginfo("Node '{}' ready!".format(args.node_name))
-	input("Press any key to publish map!")
-	node.publish_map()
-	input("Press any key to quit!")
+	
+	while not rospy.is_shutdown():
+		opt = raw_input("(q)uit or (p)ublish map: ")
+		if opt is 'q':
+			break
+		elif opt is 'p':
+			node.publish_map()
+	
 	rospy.loginfo("Node '{}' terminated!".format(args.node_name))
 	

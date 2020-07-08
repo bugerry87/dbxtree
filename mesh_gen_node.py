@@ -92,32 +92,18 @@ class MeshGen:
 
             next(self.delta)
             X = numpify(self.cloud_msg)
-            x, y, z, _ = self.fields
+            x, y, z, i = self.fields
             Q = np.array((X[x], X[y], X[z])).T
+            P = spatial.sphere_uvd(Q) 
             print('numpify:', next(self.delta), 'shape:', Q.shape)
-            
-            P = spatial.sphere_uvd(Q)
-            Y = spatial.prob(P[:,2])
-            P[:,:2] *= P.max() / np.pi
-            surf = Delaunay(P[:,(0,1)])
-            print('Delaunay:', next(self.delta))
-            Ti = surf.simplices
-            fN = spatial.face_normals(Q[Ti])
-            vN = spatial.vec_normals(fN, Ti.flatten())
-            print('normals:', next(self.delta))
-            Mask = spatial.mask_planar(vN, fN, Ti.flatten(), 0.9)
-            P = P[Mask]
-            Q = Q[Mask]
-            Y = Y[Mask]
-            print('surf plannar:', next(self.delta), 'shape:', Q.shape)
-            
+                       
             surf = Delaunay(P[:,(0,1)])
             Ti = surf.simplices
             fN = spatial.face_normals(Q[Ti])
             vN = spatial.vec_normals(fN, Ti.flatten())
             print('meshed:', next(self.delta))
 
-            mesh = numpy_to_trianglemesh(Q, Ti, vN, P, self.cmap(Y))
+            mesh = numpy_to_trianglemesh(Q, Ti, vN, P, self.cmap(X[i]))
             mesh.header = self.cloud_msg.header
             print('seq', mesh.header.seq)
             mesh.header.frame_id = self.frame_id
@@ -170,6 +156,6 @@ if __name__ == '__main__':
     args, _ = init_argparse().parse_known_args()
     rospy.init_node(args.base_name, anonymous=False)
     rospy.loginfo("Init node '{}' on topic '{}'".format(args.base_name, args.topic))
-    mesh_gen = MeshGen(args.base_name, args.topic, args.frame_id)
+    node = MeshGen(args.base_name, args.topic, args.frame_id)
     rospy.loginfo("Node '{}' ready!".format(args.base_name))
     rospy.spin()

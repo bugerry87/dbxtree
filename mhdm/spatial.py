@@ -66,6 +66,16 @@ def vec_normals(fN, Ti_flat, normalize=True, magnitude=False):
 		return vN
 
 
+def face_magnitude(T=None, fN=None, normalize=False):
+	if fN is None:
+		fN = face_normals(T, False)
+	mag = magnitude(fN, normalize)
+	if normalize:
+		return mag / 2
+	else:
+		return mag
+
+
 def quantirize(P, m=1):
 	k = P[0]
 	p0 = P[1]
