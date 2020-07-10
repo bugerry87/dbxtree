@@ -3,6 +3,8 @@ Spatial operations for 3D.
 
 Author: Gerald Baulig
 """
+
+# Installed
 import numpy as np
 from scipy.spatial import cKDTree
 
@@ -217,6 +219,3 @@ def mask_planar(vN, fN, Ti_flat, min_dot=0.9, mask=None):
 			pass
 	return mask
 
-
-if __name__ is '__main__':
-	pass
