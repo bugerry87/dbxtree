@@ -1,23 +1,87 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2
 
-#build in
+
+## build in
 from threading import Thread, Condition
 
-#installed
+## installed
 import numpy as np
 from scipy.spatial import Delaunay
+from scipy.spatial.transform import Rotation as R
 from matplotlib import cm
 
-#ros
+## ros
 import rospy
+import tf
 from std_msgs.msg import ColorRGBA
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import Point
 from ros_numpy import numpify
 from mesh_msgs.msg import TriangleMeshStamped, TriangleIndices
 
-#local
-import mhdm.spatial as spatial
+
+def magnitude(X, sqrt=False):
+	if len(X.shape) == 1:
+		m = np.sum(X**2)
+	else:
+		m = np.sum(X**2, axis=-1).reshape(*(X.shape[:-1] + (1,)))
+	return np.sqrt(m) if sqrt else m
+
+
+def norm(X, magnitude=False):
+	if len(X.shape) == 1:
+		m = np.linalg.norm(X)
+	else:
+		m = np.linalg.norm(X, axis=-1).reshape(*(X.shape[:-1] + (1,)))
+	n = X / m
+	if magnitude:
+		return n, m
+	else:
+		return n
+
+
+def prob(X):
+	X = X.copy()
+	X -= X.min(axis=0)
+	X /= X.max(axis=0)
+	return X
+
+
+def sphere_uvd(X, norm=False, z_off=0.0, r_off=0.0):
+	x, y, z = X.T
+	pi = np.where(x > 0.0, np.pi, -np.pi)
+	uvd = np.empty(X.shape)
+	with np.errstate(divide='ignore', over='ignore'):
+		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
+		uvd[:,2] = np.linalg.norm(X, axis=-1)
+		uvd[:,1] = np.arcsin((z-z_off) / uvd[:,2]-r_off)
+	
+	if norm is False:
+		pass
+	elif norm is True:
+		uvd = prob(uvd)
+	else:
+		uvd[:,norm] = prob(uvd[:,norm])
+	return uvd
+
+
+def face_normals(T, normalize=True, magnitude=False):
+	fN = np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])
+	if normalize:
+		return norm(fN, magnitude)
+	else:
+		return fN
+
+
+def vec_normals(fN, Ti_flat, normalize=True, magnitude=False):
+	fN = fN.repeat(3, axis=0)
+	vN = np.zeros((Ti_flat.max()+1, 3))
+	for fn, i in zip(fN, Ti_flat):
+		vN[i] += fn
+	if normalize:
+		return norm(vN, magnitude)
+	else:
+		return vN
 
 
 def numpy_to_trianglemesh(verts, trids, norms, uvds=None, colors=None):
@@ -33,12 +97,23 @@ def numpy_to_trianglemesh(verts, trids, norms, uvds=None, colors=None):
 
 
 class MeshGen:
+	## defaults
+	node_name = 'MeshGen'
+	topic = '~/velodyne_points'
+	base_frame = 'base_link'
+	map_frame = 'map'
+	min_distance = 1.0
+	fields = ('x','y','z','intensity')
+	colors = 'Spectral' 
+
 	def __init__(self, 
-		node_name='MeshGen', 
-		topic='~/velodyne_points', 
-		frame_id='base_link', 
-		fields=('x','y','z','intensity'), 
-		colors='Spectral'
+		node_name = node_name, 
+		topic = topic, 
+		base_frame = base_frame,
+		map_frame = map_frame,
+		min_distance = min_distance,
+		fields = fields, 
+		colors = colors
 		):
 		'''
 		Initialize an MeshGen node.
@@ -50,23 +125,37 @@ class MeshGen:
 			topic [str]:	The topic to be subscribed.
 			frame_id [str]: The frame_id in rviz where the markers get plotted at.
 		'''
+		## params
 		self.node_name = node_name
 		self.topic = topic
-		self.frame_id = frame_id
+		self.base_frame = base_frame
+		self.map_frame = map_frame
 		self.fields = fields
 		self.colors = cm.get_cmap(colors)
+		self.min_distance = min_distance
+		
+		# states
+		self.cloud_msg = None
+		self.new_msg = False
+		self.pos = None
+		self.rot = None
+		
+		## report
+		self.report = {
+			'received messages':0,
+			'received points':0,
+			'processed messages':0,
+			'processed points':0,
+			'rejected messages':0,
+			'lost messages':0,
+		}
+		
+		## properties
 		self.worker = Thread(target=self.__job__)
 		self.ready = Condition()
-		self.new_msg = False
-		
-		self.rec_msg = 0
-		self.rec_pts = 0
-		self.pro_msg = 0
-		self.pro_pts = 0
-		
-		## init the node
+		self.listener = tf.TransformListener()
 		self.pub = rospy.Publisher('{}/mesh'.format(self.node_name), TriangleMeshStamped, queue_size=10)
-		rospy.Subscriber(self.topic, PointCloud2, self.__update__, queue_size=10)
+		rospy.Subscriber(self.topic, PointCloud2, self.__update__, queue_size=1)
 		self.worker.start()
 
 	def __update__(self, cloud_msg):
@@ -78,17 +167,30 @@ class MeshGen:
 		Publishes:
 			TriangleMesh
 		'''
-		self.rec_msg += 1
-		self.rec_pts += cloud_msg.width
+		## report
+		self.report['received messages'] += 1
+		self.report['received points'] += cloud_msg.width
 		
-		if self.ready.acquire(False):
+		## update pos
+		try:
+			pos, quat = self.listener.lookupTransform(self.map_frame, self.base_frame, rospy.Time(0))
+		except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
+			rospy.logwarn("Node '{}': {}".format(self.node_name, e))
+			return
+		
+		if self.pos is not None and magnitude(self.pos - pos) < self.min_distance**2:
+			self.report['rejected messages'] += 1
+		elif self.ready.acquire(False):
+			self.pos = np.array(pos)
+			self.rot = R.from_quat(quat)
 			self.cloud_msg = cloud_msg
 			self.new_msg = True
 			self.ready.notify()
 			self.ready.release()
 		else:
-			#rospy.logwarn("{} message dropped!".format(self.node_name))
-			pass
+			rospy.logwarn("{} message dropped!".format(self.node_name))
+			self.report['lost messages'] += 1
+		pass
 		
 	def __job__(self):
 		while not rospy.is_shutdown():
@@ -99,25 +201,40 @@ class MeshGen:
 			else:
 				continue
 
-			self.pro_msg += 1
-			self.pro_pts += self.cloud_msg.width
+			## report
+			self.report['processed messages'] += 1
+			self.report['processed points'] += cloud_msg.width
 			
+			## mesh
 			X = numpify(self.cloud_msg)
 			x, y, z, i = self.fields
 			Q = np.array((X[x], X[y], X[z])).T
-			P = spatial.sphere_uvd(Q)
-			
+			P = sphere_uvd(Q)
 					   
 			surf = Delaunay(P[:,(0,1)])
 			Ti = surf.simplices
-			fN = spatial.face_normals(Q[Ti])
-			vN = spatial.vec_normals(fN, Ti.flatten())
+			fN = face_normals(Q[Ti])
+			vN = vec_normals(fN, Ti.flatten())
+			
+			## transform
+			Q = self.rot.apply(Q)
+			vN = self.rot.apply(vN)
+			Q += self.pos
 
+			## publish
 			mesh = numpy_to_trianglemesh(Q, Ti, vN, P, self.colors(X[i]))
 			mesh.header = self.cloud_msg.header
-			mesh.header.frame_id = self.frame_id
+			mesh.header.frame_id = self.map_frame
 			self.pub.publish(mesh)
+		self.ready.release()
+		pass
 	
+	def plot_report(self):
+		report = ["\n+{:-^32}+".format(self.node_name)]
+		report += ["|{:<20}{:>12}|".format(k, v) for k, v in self.report.iteritems()]
+		report += ["+{:-^32}+\n".format("")]
+		return "\n".join(report)
+
  
 if __name__ == '__main__':
 	from argparse import ArgumentParser
@@ -140,36 +257,51 @@ if __name__ == '__main__':
 		parser.add_argument(
 			'--node_name', '-n',
 			metavar='STRING',
-			default='MeshGen',
+			default=MeshGen.node_name,
 			help='Base name of the node.'
 			)
 		
 		parser.add_argument(
 			'--topic', '-t',
 			metavar='TOPIC',
-			default='~/velodyne_points',
+			default=MeshGen.topic,
 			help='The topic to be subscribed.'
 			)
 		
 		parser.add_argument(
-			'--frame_id', '-f',
+			'--base_frame', '-b',
 			metavar='STRING',
-			default='base_link',
-			help='The frame_id for rviz to plot the markers at.'
+			default=MeshGen.base_frame,
+			help='The base_frame where the point cloud cames from.'
 			)
 		
 		parser.add_argument(
-			'--fields', '-F',
+			'--map_frame', '-m',
+			metavar='STRING',
+			default=MeshGen.map_frame,
+			help='The map_frame where the mesh is to plot at.'
+			)
+		
+		parser.add_argument(
+			'--min_distance', '-d',
+			type=float,
+			metavar='FLOAT',
+			default=MeshGen.min_distance,
+			help='Minimal travel distance to previous record.'
+			)
+		
+		parser.add_argument(
+			'--fields', '-f',
 			metavar='STRING',
 			nargs='+',
-			default=('x', 'y', 'z', 'intensity'),
+			default=MeshGen.fields,
 			help='The field names of the PointCloud.'
 			)
 		
 		parser.add_argument(
 			'--colors', '-c',
 			metavar='STRING',
-			default='Spectral',
+			default=MeshGen.colors,
 			help='The color mapping method.'
 			)
 		
@@ -182,13 +314,6 @@ if __name__ == '__main__':
 	node = MeshGen(**args.__dict__)
 	rospy.loginfo("{} ready!".format(args.node_name))
 	rospy.spin()
-	rospy.loginfo("\n".join((
-		"\n+{:-^32}+".format(args.node_name),
-		"|received messages:  {:>12}|".format(node.rec_msg),
-		"|received points:    {:>12}|".format(node.rec_pts),
-		"|processed messages: {:>12}|".format(node.pro_msg),
-		"|processed points:   {:>12}|".format(node.pro_pts),
-		"+{:-^32}+".format("")
-		)))
+	rospy.loginfo(node.plot_report())
 	rospy.loginfo("{} terminated!".format(args.node_name))
 	
