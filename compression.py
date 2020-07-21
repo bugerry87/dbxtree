@@ -15,16 +15,16 @@ class TokenTree():
 			self.N = len(X)
 			self.nodes = []
 			self.flags = 0
-			
 			token = np.left_shift(tree.token, token_pos, dtype=X.dtype)
-			if token_pos and self.N > 1:
+			
+			if token_pos < 8 and token_pos >= tree.token_size and self.N == 1:
+				self.payload = X.astype(np.uint8)
+			elif token_pos:
 				for t in token:
 					mask = np.all(np.bitwise_and(X, 2**token_pos) == t, axis=-1)
 					if np.any(mask):
 						self.nodes.append(TokenTree.Node(tree, token_pos-1, X[mask]))
 						self.flags |= 2**token_pos
-			else:
-				self.payload = X
 						
 			print("Node: Points {}, Nodes {}, Bit {}".format(self.N, len(self.nodes), token_pos+1))
 			pass
