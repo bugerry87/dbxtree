@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+## Build in
+from collections import deque
+
 ## Installed
 import numpy as np
 
@@ -8,6 +11,7 @@ class TokenTree():
 	DEPTH_FIRST = 'depth_first'
 	BREADTH_FIRST = 'breadth_first'
 	payload_type = np.uint8
+	iter_mode = BREADTH_FIRST
 	
 	class Node():
 		def __init__(self, tree, token_pos, X):
@@ -54,21 +58,10 @@ class TokenTree():
 			for node in self:
 				for n in node.depth_first(payload):
 					yield n
-		
-		def breadth_first(self, payload=False):
-			for node in self:
-				if not payload:
-					yield node
-				elif not node.flags:
-					yield node.payload
-			
-			for node in self:
-				for n in node.breadth_first(payload):
-					yield n
 
 	def __init__(self,
 		payload_type = payload_type,
-		iter_mode = DEPTH_FIRST
+		iter_mode = iter_mode
 		):
 		"""
 		"""
@@ -92,13 +85,14 @@ class TokenTree():
 		return self.root.depth_first(payload)
 		
 	def breadth_first(self, payload=False):
-		if not payload:
-			yield self.root
-		elif not self.root.flags:
-			yield self.root.payload
-		
-		for node in self.root.breadth_first(payload):
-			yield node
+		nodes = deque(self.root)
+		while nodes:
+			node = nodes.popleft()
+			nodes += node.nodes
+			if not payload:
+				yield node
+			elif node.flags == 0:
+				yield node.payload
 	
 	def encode(self, X):
 		self.N = 0
@@ -108,8 +102,8 @@ class TokenTree():
 		self.token = np.arange(1<<self.token_size, dtype=np.uint8).reshape(-1,1)
 		self.token = np.unpackbits(self.token, axis=-1)[:,-self.token_size:]
 		self.root = TokenTree.Node(self, self.token_depth-1, X)
-		self.flags = np.array([node.flags for node in self], dtype=self.payload_type)
-		self.payload = np.array([(*payload,) for payload in self.depth_first(True)], dtype=self.payload_type)
+		self.flags = np.array([node.flags for node in self.breadth_first()], dtype=self.payload_type)
+		self.payload = np.array([(*payload,) for payload in self.breadth_first(True)], dtype=self.payload_type)
 		return self.flags, self.payload
 	
 	def decode(self, X):
@@ -117,19 +111,89 @@ class TokenTree():
 
 
 if __name__ == '__main__':
-	X = np.random.randn(1000000, 3)
+	from argparse import ArgumentParser
+	import matplotlib.pyplot as plt
+	import matplotlib.ticker as ticker
+	
+	def init_argparse(parents=[]):
+		''' init_argparse(parents=[]) -> parser
+		Initialize an ArgumentParser for this module.
+		
+		Args:
+			parents: A list of ArgumentParsers of other scripts, if there are any.
+			
+		Returns:
+			parser: The ArgumentParsers.
+		'''
+		parser = ArgumentParser(
+			description="Demo of TokenTree",
+			parents=parents
+			)
+		
+		parser.add_argument(
+			'--input_size', '-X',
+			metavar='INT',
+			type=int,
+			nargs=2,
+			default=(1000000,3)
+			)
+		
+		parser.add_argument(
+			'--input_type', '-t',
+			metavar='STRING',
+			default='uint16'
+			)
+		
+		parser.add_argument(
+			'--filename', '-Y',
+			metavar='PATH',
+			default='output.bin'
+			)
+		
+		parser.add_argument(
+			'--generator', '-g',
+			metavar='STRING',
+			choices=('rand','randn'),
+			default='randn'
+			)
+		
+		parser.add_argument(
+			'--seed', '-s',
+			metavar='INT',
+			type=int,
+			default=0
+			)
+		
+		return parser
+	
+	args, _ = init_argparse().parse_known_args()
+	np.random.seed(args.seed)
+	X = np.random.__dict__[args.generator](*args.input_size)
 	X -= X.min(axis=0)
 	X /= X.max(axis=0)
-	X *= np.iinfo(np.uint16).max
-	X = np.round(X).astype(np.uint16)
+	X *= np.iinfo(args.input_type).max
+	X = np.round(X).astype(args.input_type)
 	
 	tree = TokenTree()
 	flags, payload = tree.encode(X)
-	print("Data:\n", X)
+	
+	print("\nData:\n", X)
 	print("Leaf Nodes:", tree.leaf_nodes)
 	print("Flags:", flags.shape)
 	print("Payload:", payload.shape)
 	print("Num of nodes:", len(tree))
 	
+	@ticker.FuncFormatter
+	def major_formatter(i, pos):
+		#print(i)
+		#print(pos)
+		return "{:0>8}".format(bin(pos)[2:])
+	
+	ax = plt.subplot(111)
+	ax.plot(range(len(flags)), flags)
+	ax.set_ylim(0, 255)
+	ax.yaxis.set_major_formatter(major_formatter)
+	plt.show()
+
 	payload = np.concatenate((flags, payload), axis=None)
-	payload.tofile('test2.bin')
+	payload.tofile(args.filename)

@@ -4,7 +4,7 @@
 import numpy as np
 
 
-class TokenTree():
+class SeqTokenTree():
 	DEPTH_FIRST = 'depth_first'
 	BREADTH_FIRST = 'breadth_first'
 	payload_type = np.uint32
@@ -81,7 +81,7 @@ class TokenTree():
 		self.token_depth = np.iinfo(X.dtype).bits
 		self.token = np.arange(1<<self.token_size, dtype=np.uint8).reshape(-1,1)
 		self.token = np.unpackbits(self.token, axis=-1)[:,-self.token_size:]
-		self.root = TokenTree.Node(self, self.token_depth-1, X)
+		self.root = SeqTokenTree.Node(self, self.token_depth-1, X)
 		pass
 	
 	def decode(self, X):
@@ -97,7 +97,7 @@ if __name__ == '__main__':
 	X = np.round(X).astype(np.uint16)
 	
 	print("Build Tree...")
-	tree = TokenTree()
+	tree = SeqTokenTree()
 	tree.encode(X)
 	
 	print("Extract Payload...")
