@@ -252,6 +252,7 @@ if __name__ == '__main__':
 	
 	args, _ = init_argparse().parse_known_args()
 	np.random.seed(args.seed)
+	
 	X = np.random.__dict__[args.generator](*args.input_size)
 	X -= X.min(axis=0)
 	X /= X.max(axis=0)
