@@ -148,14 +148,14 @@ if __name__ == '__main__':
 		parser.add_argument(
 			'--filename', '-Y',
 			metavar='PATH',
-			default='output.bin'
+			default='tokentree.bin'
 			)
 		
 		parser.add_argument(
 			'--generator', '-g',
 			metavar='STRING',
 			choices=('rand','randn'),
-			default='randn'
+			default='rand'
 			)
 		
 		parser.add_argument(
@@ -163,6 +163,15 @@ if __name__ == '__main__':
 			metavar='INT',
 			type=int,
 			default=0
+			)
+		
+		parser.add_argument(
+			'--visualize', '-V',
+			metavar='FLAG',
+			nargs='?',
+			type=bool,
+			default=False,
+			const=True
 			)
 		
 		return parser
@@ -182,19 +191,29 @@ if __name__ == '__main__':
 	print("\nData:\n", X)
 	print("Flags:", flags.shape)
 	print("Payload:", payload.shape)
-	
-	@ticker.FuncFormatter
-	def major_formatter(i, pos):
-		return "{:0>8}".format(bin(int(i))[2:])
-	
-	#ax = plt.subplot(111)
-	#ax.scatter(range(len(flags)), flags, 0.5, marker='.')
-	#ax.set_ylim(-7, 263)
-	#ax.yaxis.set_major_formatter(major_formatter)
-	#plt.show()
 
 	np.concatenate((flags, payload), axis=None).tofile(args.filename)
 	
 	print("\n---Decoding---\n")
 	Y = Decoder(X.shape[-1]).expand(flags, payload.reshape(-1,X.shape[-1])).decode(X.dtype)
 	print(Y)
+	
+	if args.visualize:
+		import matplotlib.pyplot as plt
+		import matplotlib.ticker as ticker
+		from mpl_toolkits.mplot3d import Axes3D
+	
+		@ticker.FuncFormatter
+		def major_formatter(i, pos):
+			return "{:0>8}".format(bin(int(i))[2:])
+		
+		fig = plt.figure()
+		ax = fig.add_subplot((111), projection='3d')
+		ax.scatter(*X[:,:3].T, c=X.sum(axis=-1), s=0.5, alpha=0.5, marker='.')
+		plt.show()
+		
+		ax = plt.subplot(111)
+		ax.scatter(range(len(flags)), flags, 0.5, marker='.')
+		ax.set_ylim(-7, 263)
+		ax.yaxis.set_major_formatter(major_formatter)
+		plt.show()
