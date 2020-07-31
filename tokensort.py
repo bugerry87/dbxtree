@@ -3,6 +3,23 @@
 ## Installed
 import numpy as np
 
+## Local
+from mhdm.spatial import *
+
+
+def XYZI_to_UVDI(XYZI, precision=100, dtype=np.uint16, HDL64=False):
+	if HDL64:
+		UVDI = cone_uvd(XYZI[:,:3], z_off=0.2)
+		mask = UVD[:,1] < -0.16
+		UVDI[mask] = cone_uvd(XYZI[:,:3][mask], z_off=0.13, r_off=-0.03)
+	else:
+		UVDI = sphere_uvd(XYZI[:,:3])
+	UVDI = np.hstack((UVD, XYZI[:,-1]))
+	UVDI[:,(0,1,3)] -= UVDI[:,(0,1,3)].min(axis=0)
+	UVDI[:,(0,1,3)] /= UVDI[:,(0,1,3)].max(axis=0)
+	UVDI[:,2] *= precision
+	return UVDI.astype()
+
 
 def tile_merge(L, R):
 	high = np.bitwise_and(L, 0xF0F0F0F0) + np.right_shift(np.bitwise_and(R, 0xF0F0F0F0), 4)
@@ -45,6 +62,7 @@ def decode(Y):
 	return X.reshape(-1,4)
 
 
+## Test
 if __name__ == '__main__':
 	from argparse import ArgumentParser
 	
@@ -61,6 +79,12 @@ if __name__ == '__main__':
 		parser = ArgumentParser(
 			description="Demo of TranSort",
 			parents=parents
+			)
+		
+		parser.add_argument(
+			'--data', '-x',
+			metavar='STRING',
+			default=None
 			)
 		
 		parser.add_argument(
@@ -99,11 +123,10 @@ if __name__ == '__main__':
 		
 		parser.add_argument(
 			'--visualize', '-V',
-			metavar='FLAG',
-			nargs='?',
-			type=bool,
-			default=False,
-			const=True
+			metavar='STRING',
+			nargs='*',
+			default=[],
+			choices=('cloud', 'disp')
 			)
 		
 		return parser
@@ -111,39 +134,54 @@ if __name__ == '__main__':
 	args, _ = init_argparse().parse_known_args()
 	np.random.seed(args.seed)
 	
-	X = np.random.__dict__[args.generator](*args.input_size)
-	X -= X.min(axis=0)
-	X /= X.max(axis=0)
-	X *= np.iinfo(args.input_type).max
+	if args.data:
+		import pykitti
+		from mhdm.utils import *
+		
+		print("\nLoad data: {}".format(args.data))
+		files = ifile(args.data)	
+		frames = pykitti.utils.yield_velo_scans(files)
+		X = np.vstack([f for f in frames])
+		X *= 100
+		X += np.iinfo(args.input_type).max * 0.5
+	else:
+		X = np.random.__dict__[args.generator](*args.input_size)
+		X -= X.min(axis=0)
+		X /= X.max(axis=0)
+		X *= np.iinfo(args.input_type).max
+	
 	X = np.round(X).astype(args.input_type)
 	X.tofile('org.bin')
 	
+	print("\nData: {}\n".format(X.shape), X)
 	print("\n---Encoding---")
 	Y = encode(X)
 	Y.tofile(args.filename)
 	
-	print("\nData:\n", X)
-	print("\nEncoded:\n", Y.T)
+	print("\nEncoded:")
+	for i in range(50):
+		print(Y[:,i])
+	print('...')
 	
 	print("\n---Decoding---")
 	
 	X = decode(Y)
 	print("\nDecoded:\n", X)
+
+	if 'cloud' in args.visualize:
+		from mhdm.viz import *
+		fig = create_figure()
+		vertices(X, X[:,3], fig, None)
+		mlab.show()
 	
-	if args.visualize:
+	if 'disp' in args.visualize:
 		import matplotlib.pyplot as plt
 		import matplotlib.ticker as ticker
-		from mpl_toolkits.mplot3d import Axes3D
 	
 		@ticker.FuncFormatter
 		def major_formatter(i, pos):
 			return "{:0>8}".format(bin(int(i))[2:])
 		
-		fig = plt.figure()
-		ax = fig.add_subplot((111), projection='3d')
-		ax.scatter(*X[:,:3].T, c=X.sum(axis=-1), s=0.5, alpha=0.5, marker='.')
-		plt.show()
-	
 		Y = Y.flatten()
 		ax = plt.subplot(111)
 		ax.set_ylim(-7, 263)
