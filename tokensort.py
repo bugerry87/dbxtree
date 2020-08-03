@@ -7,18 +7,20 @@ import numpy as np
 from mhdm.spatial import *
 
 
-def XYZI_to_UVDI(XYZI, precision=100, dtype=np.uint16, HDL64=False):
-	if HDL64:
-		UVDI = cone_uvd(XYZI[:,:3], z_off=0.2)
-		mask = UVD[:,1] < -0.16
-		UVDI[mask] = cone_uvd(XYZI[:,:3][mask], z_off=0.13, r_off=-0.03)
-	else:
-		UVDI = sphere_uvd(XYZI[:,:3])
-	UVDI = np.hstack((UVD, XYZI[:,-1]))
-	UVDI[:,(0,1,3)] -= UVDI[:,(0,1,3)].min(axis=0)
-	UVDI[:,(0,1,3)] /= UVDI[:,(0,1,3)].max(axis=0)
-	UVDI[:,2] *= precision
-	return UVDI.astype()
+def pack_64(X,
+	shifts=(0, 16, 36, 32, 48),
+	masks=(0xFFFF, 0xFFFF, 0xFFF0, 0xF, 0xFFFF),
+	outtype=np.uint16
+	):
+	"""
+	"""
+	outtype = np.iinfo(outtype)
+	Y = np.zeros((len(X), 64//outtype.bits), dtype=outtype)
+	
+	for dim, (shift, mask) in enumerate(zip(shifts, masks)):
+		s = shift % outtype.bits
+		Y[:,shift//outtype.bits] |= np.bitwise_and((X[:,dim] << s), mask, dtype=outtype)
+	return Y
 
 
 def tile_merge(L, R):
@@ -72,11 +74,14 @@ def pack_8x64(X):
 
 def encode(X):
 	Y = featurize(X)
-	Y.sort()
+	Y = np.argsort(Y)
+	Y = X[Y]
+	Y = np.vstack((Y[0], Y[1:] - Y[:-1]))
+	Y = featurize(Y)
 	Y = numeric_delta(Y)
 	
-	#for y in Y:
-	#	print("{:0>64}".format(bin(y)[2:]))
+	for y in Y[:50]:
+		print("{:0>64}".format(bin(y)[2:]))
 	
 	return pack_8x64(Y).T
 
@@ -159,7 +164,7 @@ if __name__ == '__main__':
 			metavar='STRING',
 			nargs='*',
 			default=[],
-			choices=('cloud', 'disp')
+			choices=('cloud', 'dist')
 			)
 		
 		return parser
@@ -174,9 +179,12 @@ if __name__ == '__main__':
 		print("\nLoad data: {}".format(args.data))
 		files = ifile(args.data)	
 		frames = pykitti.utils.yield_velo_scans(files)
-		X = np.vstack([f for f in frames])
-		X *= 100
-		X += np.iinfo(args.input_type).max * 0.5
+		X = np.vstack([np.hstack((f, np.full((len(f),1), i))) for i, f in enumerate(frames)])
+		X[:,3] /= X[:,3].max()
+		X[:,3] *= 0xF
+		X[:,:3] *= 100
+		X[:,2] += 2**11
+		X[:,:2] += np.iinfo(args.input_type).max * 0.5
 	else:
 		X = np.random.__dict__[args.generator](*args.input_size)
 		X -= X.min(axis=0)
@@ -184,30 +192,30 @@ if __name__ == '__main__':
 		X *= np.iinfo(args.input_type).max
 	
 	X = np.round(X).astype(args.input_type)
+	X = pack_64(X)
 	X.tofile('org.bin')
 	
 	print("\nData: {}\n".format(X.shape), X)
 	print("\n---Encoding---")
+	
 	Y = encode(X)
 	Y.tofile(args.filename)
 	
-	print("\nEncoded:")
-	for i in range(100):
-		print(Y[40:,i])
-	print('...')
-	
+	print("\nEncoded:\n", Y[-16:].T)
 	print("\n---Decoding---")
 	
 	X = decode(Y)
 	print("\nDecoded:\n", X)
 
 	if 'cloud' in args.visualize:
-		from mhdm.viz import *
-		fig = create_figure()
-		vertices(X, X[:,3], fig, None)
-		mlab.show()
+		import mhdm.viz as viz
+		fig = viz.create_figure()
+		I = X[:,2] & 0xF
+		X[:,2] = X[:,2] >> 4
+		viz.vertices(X, I, fig, None)
+		viz.show_figure()
 	
-	if 'disp' in args.visualize:
+	if 'dist' in args.visualize:
 		import matplotlib.pyplot as plt
 		import matplotlib.ticker as ticker
 	
@@ -215,7 +223,7 @@ if __name__ == '__main__':
 		def major_formatter(i, pos):
 			return "{:0>8}".format(bin(int(i))[2:])
 		
-		Y = Y.flatten()
+		Y = Y.flatten()[::10]
 		ax = plt.subplot(111)
 		ax.set_ylim(-7, 263)
 		ax.yaxis.set_major_formatter(major_formatter)
