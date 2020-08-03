@@ -27,25 +27,58 @@ def tile_merge(L, R):
 	return low, high
 
 
-def encode(X):
+def featurize(X):
 	assert(X.dtype == np.uint16)
 	assert(len(X.shape) == 2)
 	assert(X.shape[-1] == 4)
-	
 	## Pack to 64bit
 	Y = np.zeros(len(X), dtype=np.uint64)
 	for bit in range(16):
 		for dim in range(4):
-			Y += (np.bitwise_and(np.right_shift(X[:,dim], bit), 0b1)*2).astype(np.uint64)**(bit*4 + dim)
-	Y.sort()
-	
-	## To 16*8bit 2Point Pack
-	N = len(Y) // 2
-	Y = np.ndarray((N,2,2), dtype=np.uint32, buffer=Y)
+			Y += (((X[:,dim] >> bit) & 0b1)*2).astype(np.uint64)**(bit*4 + dim)
+	return Y
+
+
+def xor_delta(X):
+	Y = np.ndarray((len(X),2), dtype=np.uint32, buffer=X)
+	Y = np.vstack((Y[0], np.bitwise_xor(Y[:-1], Y[1:])))
+	return np.ndarray(len(X), dtype=np.uint64, buffer=Y)
+
+
+def numeric_delta(X):
+	return np.hstack((X[0], X[1:] - X[:-1]))
+
+
+def pack_2x8x16(X):
+	N = len(X) // 2
+	Y = np.ndarray((N,2,2), dtype=np.uint32, buffer=X)
 	Y = np.array([tile_merge(L, R) for L, R in zip(Y[:,0].T, Y[:,1].T)]).reshape(4,-1)
 	Y = [np.ndarray(N*4, dtype=np.uint8, buffer=y) for y in Y]
-	Y = np.hstack((np.vstack((Y[0], Y[1])).T.reshape(-1,8), np.vstack((Y[2], Y[3])).T.reshape(-1,8)))
-	return Y.T
+	return np.hstack((np.vstack((Y[0], Y[1])).T.reshape(-1,8), np.vstack((Y[2], Y[3])).T.reshape(-1,8)))
+
+
+def pack_8x64(X):
+	shape = (len(X)//8,8,8)
+	Y = np.zeros(shape, dtype=np.uint8)
+	X = np.ndarray(shape, dtype=np.uint8, buffer=X)
+	
+	for token in range(8):
+		for byte in range(8):
+			for bit in range(8):
+				Y[:,byte,token] += ((X[:,bit,byte] >> token) & 0b1) << bit
+	
+	return Y.reshape(-1, 64)
+	
+
+def encode(X):
+	Y = featurize(X)
+	Y.sort()
+	Y = numeric_delta(Y)
+	
+	#for y in Y:
+	#	print("{:0>64}".format(bin(y)[2:]))
+	
+	return pack_8x64(Y).T
 
 
 def decode(Y):
@@ -159,8 +192,8 @@ if __name__ == '__main__':
 	Y.tofile(args.filename)
 	
 	print("\nEncoded:")
-	for i in range(50):
-		print(Y[:,i])
+	for i in range(100):
+		print(Y[40:,i])
 	print('...')
 	
 	print("\n---Decoding---")
