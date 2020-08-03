@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Author: Gerald Baulig
 """
@@ -23,12 +23,16 @@ class GUI(HasTraits):
 			)
 
 
-def create_figure():
-	return mlab.figure(bgcolor=(0, 0, 0), size=(640, 360))
+def create_figure(**kwargs):
+	return mlab.figure(**kwargs)
 
 
 def clear_figure(fig):
 	mlab.clf(fig)
+
+
+def show_figure(**kwargs):
+	mlab.show(**kwargs)
 
 
 def mesh(X, T, Y, fig, plot=None, **kwargs):

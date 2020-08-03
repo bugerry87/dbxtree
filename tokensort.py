@@ -10,15 +10,16 @@ from mhdm.spatial import *
 def XYZI_to_UVDI(XYZI, precision=100, dtype=np.uint16, HDL64=False):
 	if HDL64:
 		UVDI = cone_uvd(XYZI[:,:3], z_off=0.2)
-		mask = UVD[:,1] < -0.16
+		mask = UVDI[:,1] < -0.16
 		UVDI[mask] = cone_uvd(XYZI[:,:3][mask], z_off=0.13, r_off=-0.03)
 	else:
 		UVDI = sphere_uvd(XYZI[:,:3])
-	UVDI = np.hstack((UVD, XYZI[:,-1]))
+	UVDI = np.hstack((UVDI, XYZI[:,-1].reshape(-1,1)))
 	UVDI[:,(0,1,3)] -= UVDI[:,(0,1,3)].min(axis=0)
 	UVDI[:,(0,1,3)] /= UVDI[:,(0,1,3)].max(axis=0)
+	UVDI[:,(0,1,3)] *= np.iinfo(dtype).max
 	UVDI[:,2] *= precision
-	return UVDI.astype()
+	return np.round(UVDI).astype(dtype)
 
 
 def tile_merge(L, R):
@@ -102,6 +103,13 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
+			'--input_format', '-f',
+			metavar='STRING',
+			choices=('xyzi', 'uvdi'),
+			default='xyzi'
+			)
+		
+		parser.add_argument(
 			'--filename', '-Y',
 			metavar='PATH',
 			default='tokensort.bin'
@@ -142,10 +150,18 @@ if __name__ == '__main__':
 		files = ifile(args.data)	
 		frames = pykitti.utils.yield_velo_scans(files)
 		X = np.vstack([f for f in frames])
-		X *= 100
-		X += np.iinfo(args.input_type).max * 0.5
+		i = np.argsort(np.sum(X * (1000, 100, 10, 1), axis=-1))
+		
+		if args.input_format == 'xyzi':
+			X *= 100
+			X += np.iinfo(args.input_type).max * 0.5
+		elif args.input_format == 'uvdi':
+			X = XYZI_to_UVDI(X, HDL64=True)
+		else:
+			raise ValueError("Unknown input format '{}'".format(args.input_format))
 	else:
 		X = np.random.__dict__[args.generator](*args.input_size)
+		i = np.argsort(np.sum(X * (1000, 100, 10, 1), axis=-1))
 		X -= X.min(axis=0)
 		X /= X.max(axis=0)
 		X *= np.iinfo(args.input_type).max
@@ -155,24 +171,23 @@ if __name__ == '__main__':
 	
 	print("\nData: {}\n".format(X.shape), X)
 	print("\n---Encoding---")
-	Y = encode(X)
+	#Y = encode(X)
+	
+	
+	Y = X[i].T
 	Y.tofile(args.filename)
 	
-	print("\nEncoded:")
-	for i in range(50):
-		print(Y[:,i])
-	print('...')
-	
+	print("\nEncoded:\n", Y.T)
 	print("\n---Decoding---")
 	
-	X = decode(Y)
-	print("\nDecoded:\n", X)
+	#X = decode(Y)
+	#print("\nDecoded:\n", X)
 
 	if 'cloud' in args.visualize:
-		from mhdm.viz import *
-		fig = create_figure()
-		vertices(X, X[:,3], fig, None)
-		mlab.show()
+		import mhdm.viz as viz
+		fig = viz.create_figure()
+		viz.vertices(X, X[:,3], fig, None)
+		viz.show_figure()
 	
 	if 'disp' in args.visualize:
 		import matplotlib.pyplot as plt
