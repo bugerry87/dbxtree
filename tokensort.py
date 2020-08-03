@@ -7,19 +7,20 @@ import numpy as np
 from mhdm.spatial import *
 
 
-def XYZI_to_UVDI(XYZI, precision=100, dtype=np.uint16, HDL64=False):
-	if HDL64:
-		UVDI = cone_uvd(XYZI[:,:3], z_off=0.2)
-		mask = UVDI[:,1] < -0.16
-		UVDI[mask] = cone_uvd(XYZI[:,:3][mask], z_off=0.13, r_off=-0.03)
-	else:
-		UVDI = sphere_uvd(XYZI[:,:3])
-	UVDI = np.hstack((UVDI, XYZI[:,-1].reshape(-1,1)))
-	UVDI[:,(0,1,3)] -= UVDI[:,(0,1,3)].min(axis=0)
-	UVDI[:,(0,1,3)] /= UVDI[:,(0,1,3)].max(axis=0)
-	UVDI[:,(0,1,3)] *= np.iinfo(dtype).max
-	UVDI[:,2] *= precision
-	return np.round(UVDI).astype(dtype)
+def pack_64(X,
+	shifts=(0, 16, 36, 32, 48),
+	masks=(0xFFFF, 0xFFFF, 0xFFF0, 0xF, 0xFFFF),
+	outtype=np.uint16
+	):
+	"""
+	"""
+	outtype = np.iinfo(outtype)
+	Y = np.zeros((len(X), 64//outtype.bits), dtype=outtype)
+	
+	for dim, (shift, mask) in enumerate(zip(shifts, masks)):
+		s = shift % outtype.bits
+		Y[:,shift//outtype.bits] |= np.bitwise_and((X[:,dim] << s), mask, dtype=outtype)
+	return Y
 
 
 def tile_merge(L, R):
@@ -39,6 +40,9 @@ def encode(X):
 		for dim in range(4):
 			Y += (np.bitwise_and(np.right_shift(X[:,dim], bit), 0b1)*2).astype(np.uint64)**(bit*4 + dim)
 	Y.sort()
+	
+	#for y in Y:
+	#	print("{:0>64}".format(bin(y)[2:]))
 	
 	## To 16*8bit 2Point Pack
 	N = len(Y) // 2
@@ -103,13 +107,6 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
-			'--input_format', '-f',
-			metavar='STRING',
-			choices=('xyzi', 'uvdi'),
-			default='xyzi'
-			)
-		
-		parser.add_argument(
 			'--filename', '-Y',
 			metavar='PATH',
 			default='tokensort.bin'
@@ -134,7 +131,7 @@ if __name__ == '__main__':
 			metavar='STRING',
 			nargs='*',
 			default=[],
-			choices=('cloud', 'disp')
+			choices=('cloud', 'dist')
 			)
 		
 		return parser
@@ -149,47 +146,43 @@ if __name__ == '__main__':
 		print("\nLoad data: {}".format(args.data))
 		files = ifile(args.data)	
 		frames = pykitti.utils.yield_velo_scans(files)
-		X = np.vstack([f for f in frames])
-		i = np.argsort(np.sum(X * (1000, 100, 10, 1), axis=-1))
-		
-		if args.input_format == 'xyzi':
-			X *= 100
-			X += np.iinfo(args.input_type).max * 0.5
-		elif args.input_format == 'uvdi':
-			X = XYZI_to_UVDI(X, HDL64=True)
-		else:
-			raise ValueError("Unknown input format '{}'".format(args.input_format))
+		X = np.vstack([np.hstack((f, np.full((len(f),1), i))) for i, f in enumerate(frames)])
+		X[:,3] /= X[:,3].max()
+		X[:,3] *= 0xF
+		X[:,:3] *= 100
+		X[:,2] += 2**11
+		X[:,:2] += np.iinfo(args.input_type).max * 0.5
 	else:
 		X = np.random.__dict__[args.generator](*args.input_size)
-		i = np.argsort(np.sum(X * (1000, 100, 10, 1), axis=-1))
 		X -= X.min(axis=0)
 		X /= X.max(axis=0)
 		X *= np.iinfo(args.input_type).max
 	
 	X = np.round(X).astype(args.input_type)
+	X = pack_64(X)
 	X.tofile('org.bin')
 	
 	print("\nData: {}\n".format(X.shape), X)
 	print("\n---Encoding---")
-	#Y = encode(X)
 	
-	
-	Y = X[i].T
+	Y = encode(X)
 	Y.tofile(args.filename)
 	
 	print("\nEncoded:\n", Y.T)
 	print("\n---Decoding---")
 	
-	#X = decode(Y)
-	#print("\nDecoded:\n", X)
+	X = decode(Y)
+	print("\nDecoded:\n", X)
 
 	if 'cloud' in args.visualize:
 		import mhdm.viz as viz
 		fig = viz.create_figure()
-		viz.vertices(X, X[:,3], fig, None)
+		I = X[:,2] & 0xF
+		X[:,2] = X[:,2] >> 4
+		viz.vertices(X, I, fig, None)
 		viz.show_figure()
 	
-	if 'disp' in args.visualize:
+	if 'dist' in args.visualize:
 		import matplotlib.pyplot as plt
 		import matplotlib.ticker as ticker
 	
