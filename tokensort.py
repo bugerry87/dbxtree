@@ -6,6 +6,9 @@ import numpy as np
 ## Local
 from mhdm.spatial import *
 
+UINT8_TO_TOKEN32 = np.array([int(bin(i).replace('b','x'),16) for i in range(256)], dtype=np.uint32)
+TOKEN32_TO_UINT8 = dict([(token, bits) for bits, token in enumerate(UINT8_TO_TOKEN32)])
+
 
 def pack_64(X,
 	shifts=(0, 16, 36, 32, 48),
@@ -23,40 +26,32 @@ def pack_64(X,
 	return Y
 
 
-def tile_merge(L, R):
-	high = np.bitwise_and(L, 0xF0F0F0F0) + np.right_shift(np.bitwise_and(R, 0xF0F0F0F0), 4)
-	low = np.left_shift(np.bitwise_and(L, 0x0F0F0F0F), 4) + np.bitwise_and(R, 0x0F0F0F0F)
-	return low, high
-
-
 def featurize(X):
-	assert(X.dtype == np.uint16)
-	assert(len(X.shape) == 2)
-	assert(X.shape[-1] == 4)
-	## Pack to 64bit
-	Y = np.zeros(len(X), dtype=np.uint64)
-	for bit in range(16):
-		for dim in range(4):
-			Y += (((X[:,dim] >> bit) & 0b1)*2).astype(np.uint64)**(bit*4 + dim)
-	return Y
+	N = len(X)
+	X = np.ndarray((N,8), dtype=np.uint8, buffer=X)
+	Y = np.empty((N,2), dtype=np.uint32)
+	shifts = np.arange(4)
+	
+	Y[:,0] = np.sum(UINT8_TO_TOKEN32[X[:,:4]] << shifts, axis=-1)
+	Y[:,1] = np.sum(UINT8_TO_TOKEN32[X[:,4:]] << shifts, axis=-1)
+	return np.ndarray(N, dtype=np.uint64, buffer=Y)
 
 
-def xor_delta(X):
-	Y = np.ndarray((len(X),2), dtype=np.uint32, buffer=X)
-	Y = np.vstack((Y[0], np.bitwise_xor(Y[:-1], Y[1:])))
-	return np.ndarray(len(X), dtype=np.uint64, buffer=Y)
+def realize(Y):
+	N = len(Y)
+	Y = np.ndarray((N,2), dtype=np.uint32, buffer=Y)
+	X = np.empty((N,4,2), dtype=np.uint8)
+	m = 0x11111111
+	
+	for shift in range(4):
+		Y = Y >> shift
+		X[:,shift,0] = [TOKEN32_TO_UINT8[i] for i in Y[:,0] & m]
+		X[:,shift,1] = [TOKEN32_TO_UINT8[i] for i in Y[:,1] & m]
+	return np.ndarray((N,4), dtype=np.uint16, buffer=X)
 
 
-def numeric_delta(X):
-	return np.hstack((X[0], X[1:] - X[:-1]))
-
-
-def pack_2x8x16(X):
-	N = len(X) // 2
-	Y = np.ndarray((N,2,2), dtype=np.uint32, buffer=X)
-	Y = np.array([tile_merge(L, R) for L, R in zip(Y[:,0].T, Y[:,1].T)]).reshape(4,-1)
-	Y = [np.ndarray(N*4, dtype=np.uint8, buffer=y) for y in Y]
-	return np.hstack((np.vstack((Y[0], Y[1])).T.reshape(-1,8), np.vstack((Y[2], Y[3])).T.reshape(-1,8)))
+def numeric_delta(X, offset=1):
+	return np.concatenate((X[:offset], np.diff(X[offset:], axis=0)))
 
 
 def pack_8x64(X):
@@ -64,20 +59,31 @@ def pack_8x64(X):
 	Y = np.zeros(shape, dtype=np.uint8)
 	X = np.ndarray(shape, dtype=np.uint8, buffer=X)
 	
-	for token in range(8):
-		for byte in range(8):
+	for byte in range(8):
+		for token in range(8):
 			for bit in range(8):
 				Y[:,byte,token] += ((X[:,bit,byte] >> token) & 0b1) << bit
 	
 	return Y.reshape(-1, 64)
+
+
+def unpack_8x64(Y):
+	assert(Y.dtype == np.uint8)
 	
+	Y = Y.reshape(64, -1).T
+	N = len(Y)
+	X = np.zeros((N,8), dtype=np.uint64)
+	for i in range(8*64):
+		p = i%8
+		B = i//8
+		b = 0b1<<p
+		X[:,p] += ((2 if B else 1)*((Y[:,B] & b) == b).astype(np.uint64))**(B if B else 1)
+	return X.flatten()
+
 
 def encode(X):
 	Y = featurize(X)
-	Y = np.argsort(Y)
-	Y = X[Y]
-	Y = np.vstack((Y[0], Y[1:] - Y[:-1]))
-	Y = featurize(Y)
+	Y.sort()
 	Y = numeric_delta(Y)
 	
 	for y in Y[:50]:
@@ -87,17 +93,9 @@ def encode(X):
 
 
 def decode(Y):
-	Y = Y.reshape(16, -1).T
-	N = len(Y)
-	X = np.zeros((N,2,4), dtype=np.uint16)
-	
-	for i in range(8*16):
-		p = (i%8)//4
-		d = i%4
-		B = i//8
-		b = 0b1<<(i%8)
-		X[:,p,d] += np.left_shift((np.bitwise_and(Y[:,B], b) == b).astype(np.uint16), B)
-	return X.reshape(-1,4)
+	X = unpack_8x64(Y)
+	X = np.cumsum(X)
+	return realize(X)
 
 
 ## Test
