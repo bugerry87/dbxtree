@@ -7,7 +7,7 @@ import numpy as np
 from mhdm.spatial import *
 
 UINT8_TO_TOKEN32 = np.array([int(bin(i).replace('b','x'),16) for i in range(256)], dtype=np.uint32)
-TOKEN32_TO_UINT8 = dict([(token, bits) for bits, token in enumerate(UINT8_TO_TOKEN32)])
+TOKEN32_TO_UINT8 = dict([(token, byte) for byte, token in enumerate(UINT8_TO_TOKEN32)])
 
 
 def pack_64(X,
@@ -28,12 +28,12 @@ def pack_64(X,
 
 def featurize(X):
 	N = len(X)
-	X = np.ndarray((N,8), dtype=np.uint8, buffer=X)
+	X = np.ndarray((N,4,2), dtype=np.uint8, buffer=X)
 	Y = np.empty((N,2), dtype=np.uint32)
 	shifts = np.arange(4)
 	
-	Y[:,0] = np.sum(UINT8_TO_TOKEN32[X[:,:4]] << shifts, axis=-1)
-	Y[:,1] = np.sum(UINT8_TO_TOKEN32[X[:,4:]] << shifts, axis=-1)
+	Y[:,0] = np.sum(UINT8_TO_TOKEN32[X[:,:,0]] << shifts, axis=-1)
+	Y[:,1] = np.sum(UINT8_TO_TOKEN32[X[:,:,1]] << shifts, axis=-1)
 	return np.ndarray(N, dtype=np.uint64, buffer=Y)
 
 
@@ -44,14 +44,15 @@ def realize(Y):
 	m = 0x11111111
 	
 	for shift in range(4):
-		Y = Y >> shift
-		X[:,shift,0] = [TOKEN32_TO_UINT8[i] for i in Y[:,0] & m]
-		X[:,shift,1] = [TOKEN32_TO_UINT8[i] for i in Y[:,1] & m]
+		if shift:
+			Y = Y >> 1
+		X[:,shift,0] = [TOKEN32_TO_UINT8[i] for i in (Y[:,0] & m)]
+		X[:,shift,1] = [TOKEN32_TO_UINT8[i] for i in (Y[:,1] & m)]
 	return np.ndarray((N,4), dtype=np.uint16, buffer=X)
 
 
-def numeric_delta(X, offset=1):
-	return np.concatenate((X[:offset], np.diff(X[offset:], axis=0)))
+def numeric_delta(X, offset=0):
+	return np.concatenate((X[:offset+1], np.diff(X[offset:], axis=0)))
 
 
 def pack_8x64(X):
@@ -85,16 +86,16 @@ def encode(X):
 	Y = featurize(X)
 	Y.sort()
 	Y = numeric_delta(Y)
-	
-	for y in Y[:50]:
-		print("{:0>64}".format(bin(y)[2:]))
-	
+	#for y in Y[:50]:
+	#	print("{:0>64}".format(bin(y)[2:]))
 	return pack_8x64(Y).T
 
 
 def decode(Y):
 	X = unpack_8x64(Y)
 	X = np.cumsum(X)
+	#for x in X[:50]:
+	#	print("{:0>64}".format(bin(x)[2:]))
 	return realize(X)
 
 
