@@ -179,7 +179,7 @@ def sphere_uvd(X, norm=False, z_off=0.0, r_off=0.0):
 	with np.errstate(divide='ignore', over='ignore'):
 		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
 		uvd[:,2] = np.linalg.norm(X, axis=-1)
-		uvd[:,1] = np.arcsin((z-z_off) / uvd[:,2]-r_off)
+		uvd[:,1] = np.arcsin((z - z_off) / uvd[:,2] - r_off)
 	
 	if norm is False:
 		pass
