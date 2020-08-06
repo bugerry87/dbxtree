@@ -5,7 +5,6 @@ from threading import Thread, Condition
 
 #installed
 import numpy as np
-from scipy.spatial import cKDTree
 from scipy.spatial import Delaunay
 from matplotlib import cm
 
@@ -19,12 +18,13 @@ from mesh_msgs.msg import TriangleMeshStamped, TriangleIndices
 
 #local
 import mhdm.spatial as spatial
+from mhdm.kndtree import KNDTree
 
 
 class MeshMerge:
 	def __init__(self, 
 		node_name='MeshMerge', 
-		topic='MeshMap/mesh', 
+		topic='MeshGen/mesh', 
 		frame_id='map',
 		radius=0.05,
 		leafsize=100,
@@ -97,7 +97,7 @@ class MeshMerge:
 			
 			#Merge
 			leafsize = int(self.leafsize + np.log(len(verts)) * self.leafsize)
-			tree = cKDTree(self.verts, leafsize, compact_nodes=False, balanced_tree=False)
+			tree = KNDTree(verts, Ti, leafsize)
 			balls = tree.query_ball_point(verts, self.radius, n_jobs=self.jobs)
 			N = len(self.verts)
 			

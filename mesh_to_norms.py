@@ -11,18 +11,20 @@ from geometry_msgs.msg import Point
 from mesh_msgs.msg import TriangleMeshStamped
 
 
-class Mesh2PCD:
-	node_name = 'Mesh2PCD'
+class Mesh2Norms:
+	node_name = 'Mesh2Norms'
 	topic = '/MeshGen/mesh'
-	field_names = ('x', 'y', 'z', 'xn', 'yn', 'zn')
+	field_names = ('x', 'y', 'z', 'xn', 'yn', 'zn', 'face')
+	field_types = (np.float32,) * 6 + (np.byte,)
 
 	def __init__(self, 
 		node_name = node_name, 
 		topic = topic,
-		field_names = field_names
+		field_names = field_names,
+		field_types = field_types
 		):
 		'''
-		Initialize an Mesh2PCD node.
+		Initialize an Mesh2Norms node.
 		Subscribes TriangleMesh cloud data.
 		Publishes PointCloud2.
 		
@@ -33,13 +35,14 @@ class Mesh2PCD:
 		self.node_name = node_name
 		self.topic = topic
 		self.field_names = field_names
+		self.field_types = field_types
 		
 		self.mesh_map = TriangleMeshStamped()
 		self.map = []
 		self.header = None
 		
 		## init the node
-		self.pub = rospy.Publisher('{}/pcd'.format(self.node_name), PointCloud2, queue_size=10)
+		self.pub = rospy.Publisher('{}/norms'.format(self.node_name), PointCloud2, queue_size=10)
 		rospy.Subscriber(self.topic, TriangleMeshStamped, self.__update__, queue_size=10)
 
 	def __update__(self, mesh_msg):
@@ -54,21 +57,20 @@ class Mesh2PCD:
 		verts = mesh_msg.mesh.vertices
 		norms = mesh_msg.mesh.vertex_normals
 		
-		V = np.array([(p.x, p.y, p.z, n.x, n.y, n.z) for p, n in zip(verts, norms)], dtype=np.float32)
+		V = np.array([(p.x, p.y, p.z, n.x, n.y, n.z, 0) for p, n in zip(verts, norms)])
 		T = V[np.array([t.vertex_indices for t in mesh_msg.mesh.triangles], dtype=int), :3]
-		F = np.hstack((np.mean(T, axis=1), np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0])))
+		F = np.hstack((np.mean(T, axis=1), np.cross(T[:,1] - T[:,0], T[:,2] - T[:,0]), np.ones((len(T),1))))
 		frame = np.vstack((V, F))
-		#self.map += frame.tolist()
 		
-		data = np.empty(len(frame), dtype=list(zip(self.field_names, (np.float32,) * 6)))
-		for k, v in zip(self.field_names, frame.T):
-			data[k] = v
+		data = np.empty(len(frame), dtype=list(zip(self.field_names, self.field_types)))
+		for k, v, t in zip(self.field_names, frame.T, self.field_types):
+			data[k] = v.astype(t)
 		
 		cloud_msg = msgify(PointCloud2, data)
 		cloud_msg.header = mesh_msg.header
 		self.header = mesh_msg.header
-		print("Publish {}: Frame size {}".format(cloud_msg.header.stamp, data.shape))
 		self.pub.publish(cloud_msg)
+		print("Publish {}: Vertex normals {}".format(cloud_msg.header.stamp, data.shape))
 		pass
 
 
@@ -93,22 +95,22 @@ if __name__ == '__main__':
 		parser.add_argument(
 			'--node_name', '-n',
 			metavar='STRING',
-			default=Mesh2PCD.node_name,
+			default=Mesh2Norms.node_name,
 			help='Base name of the node.'
 			)
 		
 		parser.add_argument(
 			'--topic', '-t',
 			metavar='TOPIC',
-			default=Mesh2PCD.topic,
+			default=Mesh2Norms.topic,
 			help='The topic to be subscribed.'
 			)
 		
 		parser.add_argument(
 			'--field_names', '-f',
-			nargs=6,
+			nargs=7,
 			metavar='STRING',
-			default=Mesh2PCD.field_names,
+			default=Mesh2Norms.field_names,
 			help='The field names of the Point Cloud.'
 			)
 		return parser
@@ -117,7 +119,7 @@ if __name__ == '__main__':
 	args, _ = init_argparse().parse_known_args()
 	rospy.init_node(args.node_name, anonymous=False)
 	rospy.loginfo("Init node '{}' on topic '{}'".format(args.node_name, args.topic))
-	node = Mesh2PCD(**args.__dict__)
+	node = Mesh2Norms(**args.__dict__)
 	rospy.loginfo("Node '{}' ready!".format(args.node_name))
 	rospy.spin()
 	rospy.loginfo("Node '{}' terminated!".format(args.node_name))
