@@ -3,8 +3,6 @@
 ## Installed
 import numpy as np
 
-## Local
-from mhdm.spatial import *
 
 UINT8_TO_TOKEN32 = np.array([int(bin(i).replace('b','x'),16) for i in range(256)], dtype=np.uint32)
 TOKEN32_TO_UINT8 = dict([(token, byte) for byte, token in enumerate(UINT8_TO_TOKEN32)])
@@ -114,7 +112,7 @@ if __name__ == '__main__':
 			parser: The ArgumentParsers.
 		'''
 		parser = ArgumentParser(
-			description="Demo of TranSort",
+			description="Demo of TokenSort",
 			parents=parents
 			)
 		
