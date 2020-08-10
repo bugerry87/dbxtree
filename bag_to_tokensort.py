@@ -15,43 +15,32 @@ from sensor_msgs.msg import PointCloud2
 import mhdm.tokensort as tokensort
 
 
-def bag_to_numpy(bag, topic, fields, chunk_size=None):
-	bag = rosbag.Bag(bag).read_messages(topics=[topic])
-
-	def chunk(msg):
-		n = 0
-		while msg and (chunk_size is None or n < chunk_size):
-			pc = PointCloud2()
-			pc.header = msg.header
-			pc.height = msg.height
-			pc.width = msg.width
-			pc.fields = msg.fields
-			pc.is_bigendian = msg.is_bigendian
-			pc.point_step = msg.point_step
-			pc.row_step = msg.row_step
-			pc.data = msg.data
-			pc.is_dense = msg.is_dense
-			
-			seq = pc.header.seq
-			N = pc.width
-			
-			x, y, z, i = fields
-			X = numpify(pc)
-			X = np.array((X[x], X[y], X[z], X[i], np.full(N, seq, dtype=np.float)))
-			n += 1
-			msg = next(bag, [None]*3)[1]
-			yield X
+def bag_to_numpy(bag, topic, fields):
+	pc = PointCloud2()
 	
-	msg = next(bag, [None]*3)[1]
-	while msg:
-		X = np.hstack([x for x in chunk(msg)]).T
+	for _, msg, _ in rosbag.Bag(bag).read_messages(topics=[topic]):
+		pc.header = msg.header
+		pc.height = msg.height
+		pc.width = msg.width
+		pc.fields = msg.fields
+		pc.is_bigendian = msg.is_bigendian
+		pc.point_step = msg.point_step
+		pc.row_step = msg.row_step
+		pc.data = msg.data
+		pc.is_dense = msg.is_dense
+		
+		seq = pc.header.seq
+		N = pc.width
+		
+		x, y, z, i = fields
+		X = numpify(pc)
+		X = np.array((X[x], X[y], X[z], X[i], np.full(N, seq, dtype=np.float)))
 		X[:,3] /= X[:,3].max()
 		X[:,3] *= 0xF
 		X[:,:3] *= 100
 		X[:,2] += 2**11
 		X[:,:2] += np.iinfo(np.uint16).max * 0.5
 		X = np.round(X).astype(np.uint16)
-		msg = next(bag, [None]*3)[1]
 		yield X
 
 
@@ -96,7 +85,7 @@ if __name__ == '__main__':
 		parser.add_argument(
 			'--output_name', '-y',
 			metavar='PATH',
-			default='/share/tokensort.bin'
+			default='/share/token.bin'
 			)
 		
 		parser.add_argument(
@@ -108,38 +97,38 @@ if __name__ == '__main__':
 			)	
 		return parser
 	
+	
+	def alloc_files(prefix):
+		for surfix in range(256):
+			fn = '{}_0x{:0>2}.bin'.format(prefix, hex(surfix)[2:])
+			yield open(fn, 'wb')
+	
 	args, _ = init_argparse().parse_known_args()
+	args.output_name = args.output_name.replace('.bin', '')
 		
 	print("\nLoad data: {} - topic: {}".format(args.bag, args.topic))
-	for i, X in enumerate(bag_to_numpy(args.bag, args.topic, args.fields, 1000)):
-		X = tokensort.pack_64(X)
-		fn = '{}_org_{:0>4}.bin'.format(args.output_name.replace('.bin', ''), i)
-		X.tofile(fn)
-		Y = tokensort.encode(X)
-		fn = '{}_{:0>4}.bin'.format(args.output_name.replace('.bin', ''), i)
-		Y.tofile(fn)
-		print("Save to file:", fn)
-
-
-	if 'cloud' in args.visualize:
-		import mhdm.viz as viz
-		fig = viz.create_figure()
-		I = X[:,2] & 0xF
-		X[:,2] = X[:,2] >> 4
-		viz.vertices(X, I, fig, None)
-		viz.show_figure()
 	
-	if 'dist' in args.visualize:
-		import matplotlib.pyplot as plt
-		import matplotlib.ticker as ticker
-	
-		@ticker.FuncFormatter
-		def major_formatter(i, pos):
-			return "{:0>8}".format(bin(int(i))[2:])
+	try:
+		files = [f for f in alloc_files(args.output_name)]
+		for X in bag_to_numpy(args.bag, args.topic, args.fields):
+			X = tokensort.pack_64(X)
+			X = tokensort.featurize(X)
+			X = np.ndarray((len(X),8), dtype=np.uint8, buffer=X)
+			
+			for surfix, file in enumerate(files):
+				m = X[:,-1] == surfix
+				X[m, :-1].tofile(file)
+				print(len(m)*7, "bytes add to file:", fn)
+	finally:
+		for f in files:
+			f.close()
 		
-		Y = Y.flatten()[::10]
-		ax = plt.subplot(111)
-		ax.set_ylim(-7, 263)
-		ax.yaxis.set_major_formatter(major_formatter)
-		ax.scatter(range(len(Y)), Y, s=0.2, marker='.')
-		plt.show()
+	for surfix, file in enumerate(files):
+		X = np.fromfile(file.name, dtype=np.uint8).reshape(-1,7)
+		X = np.hstack((X, np.zeros((len(X),1))))
+		X = np.ndarray(len(X), dtype=np.uint64, buffer=X)
+		X.sort()
+		X = tokensort.numeric_delta(X)
+		X = tokensort.pack_8x64(X).T
+		X[:-1].tofile(file.name)
+		print("File sorted:", fn)

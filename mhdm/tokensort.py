@@ -3,6 +3,9 @@
 ## Installed
 import numpy as np
 
+## Local
+from utils import ifile
+
 
 UINT8_TO_TOKEN32 = np.array([int(bin(i).replace('b','x'),16) for i in range(256)], dtype=np.uint32)
 TOKEN32_TO_UINT8 = dict([(token, byte) for byte, token in enumerate(UINT8_TO_TOKEN32)])
@@ -117,8 +120,15 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
-			'--data', '-x',
+			'--kitti',
 			metavar='STRING',
+			default=None
+			)
+		
+		parser.add_argument(
+			'--decode', '-y',
+			metavar='STRING',
+			nargs='*',
 			default=None
 			)
 		
@@ -169,12 +179,16 @@ if __name__ == '__main__':
 	args, _ = init_argparse().parse_known_args()
 	np.random.seed(args.seed)
 	
-	if args.data:
+	if args.decode:
+		files = ifile(args.decode)
+		Y = np.hstack([np.fromfile(f, dtype=np.uint8) for f in files])
+		X = None
+	elif args.kitti:
 		import pykitti
 		from mhdm.utils import *
 		
-		print("\nLoad data: {}".format(args.data))
-		files = ifile(args.data)	
+		print("\nLoad data: {}".format(args.kitti))
+		files = ifile(args.kitti)	
 		frames = pykitti.utils.yield_velo_scans(files)
 		X = np.vstack([np.hstack((f, np.full((len(f),1), i))) for i, f in enumerate(frames)])
 		X[:,3] /= X[:,3].max()
@@ -188,24 +202,23 @@ if __name__ == '__main__':
 		X /= X.max(axis=0)
 		X *= np.iinfo(args.input_type).max
 	
-	X = np.round(X).astype(args.input_type)
-	X = pack_64(X)
-	X.tofile('org.bin')
+	if X is not None:
+		X = np.round(X).astype(args.input_type)
+		X = pack_64(X)
+		X.tofile('org.bin')
+		
+		print("\nData: {}\n".format(X.shape), X)
+		print("\n---Encoding---")
+		Y = encode(X)
+		Y.tofile(args.filename)
+		print("\nEncoded:\n", Y[-16:].T)
 	
-	print("\nData: {}\n".format(X.shape), X)
-	print("\n---Encoding---")
-	
-	Y = encode(X)
-	Y.tofile(args.filename)
-	
-	print("\nEncoded:\n", Y[-16:].T)
 	print("\n---Decoding---")
-	
 	X = decode(Y)
 	print("\nDecoded:\n", X)
 
 	if 'cloud' in args.visualize:
-		import mhdm.viz as viz
+		import viz
 		fig = viz.create_figure()
 		I = X[:,2] & 0xF
 		X[:,2] = X[:,2] >> 4
