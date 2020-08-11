@@ -133,9 +133,9 @@ if __name__ == '__main__':
 			X = np.round(X).astype(np.uint16)
 			X = tokensort.pack_64(X)
 			X = tokensort.featurize(X)
-			X.sort()
 			X = np.ndarray((len(X),8), dtype=np.uint8, buffer=X)
-			u, i = np.unique(X[:,-1], return_index=True)
+			X = X[np.argsort(X[:,0])]
+			u, i = np.unique(X[:,0], return_index=True)
 			I = np.roll(i+1, -1)
 			I[-1] = len(X)
 			
@@ -145,7 +145,7 @@ if __name__ == '__main__':
 				else:
 					fid = alloc_file(args.output_dir, u)
 					files[u] = fid
-				X[i:I, :-1].tofile(fid)
+				X[i:I, 1:].tofile(fid)
 				print("Add to file: {} {:>8} Bytes".format(fid.name, (I-i)*7))
 	finally:
 		for fid in files.values():
@@ -164,12 +164,12 @@ if __name__ == '__main__':
 		print("--- Sort n Add Chunks ---")
 		for fid in files.values():
 			X = np.fromfile(fid.name, dtype=np.uint8).reshape(-1,7)
-			X = np.hstack((X, np.zeros((len(X),1), dtype=np.uint8)))
+			X = np.hstack((np.zeros((len(X),1), dtype=np.uint8), X))
 			X = np.ndarray(len(X), dtype=np.uint64, buffer=X)
 			X.sort()
 			X = tokensort.numeric_delta(X)
 			X = tokensort.pack_8x64(X).T
-			X = X[:-8]
+			X = X[8:]
 			X.tofile(final)
 			print("File sorted:", fid.name, X.shape)
 
