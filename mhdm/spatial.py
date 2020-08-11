@@ -13,7 +13,8 @@ def magnitude(X, sqrt=False):
 	if len(X.shape) == 1:
 		m = np.sum(X**2)
 	else:
-		m = np.sum(X**2, axis=-1).reshape(*X.shape[:-1], 1)
+		shape = X.shape[:-1] + (1,)
+		m = np.sum(X**2, axis=-1).reshape(*shape)
 	return np.sqrt(m) if sqrt else m
 
 
@@ -21,7 +22,8 @@ def norm(X, magnitude=False):
 	if len(X.shape) == 1:
 		m = np.linalg.norm(X)
 	else:
-		m = np.linalg.norm(X, axis=-1).reshape(*X.shape[:-1], 1)
+		shape = X.shape[:-1] + (1,)
+		m = np.linalg.norm(X, axis=-1).reshape(*shape)
 	n = X / m
 	if magnitude:
 		return n, m

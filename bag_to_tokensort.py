@@ -6,6 +6,7 @@ import os
 
 ## Installed
 import numpy as np
+from scipy.spatial import Delaunay
 
 ## ROS
 import rosbag
@@ -14,6 +15,7 @@ from sensor_msgs.msg import PointCloud2
 
 ## Local
 import mhdm.tokensort as tokensort
+import mhdm.spatial as spatial
 
 
 def bag_to_numpy(bag, topic, fields):
@@ -35,14 +37,7 @@ def bag_to_numpy(bag, topic, fields):
 		
 		x, y, z, i = fields
 		X = numpify(pc)
-		X = np.array((X[x], X[y], X[z], X[i], np.full(N, seq, dtype=np.float))).T
-		X[:,3] /= X[:,3].max()
-		X[:,3] *= 0xF
-		X[:,:3] *= 100
-		X[:,2] += 2**11
-		X[:,:2] += np.iinfo(np.uint16).max * 0.5
-		X = np.round(X).astype(np.uint16)
-		yield X
+		yield np.array((X[x], X[y], X[z], X[i], np.full(N, seq, dtype=np.float))).T
 
 
 if __name__ == '__main__':
@@ -95,12 +90,20 @@ if __name__ == '__main__':
 			nargs='*',
 			default=[],
 			choices=('cloud', 'dist')
-			)	
+			)
+		
+		parser.add_argument(
+			'--planarize', '-P',
+			metavar='FLOAT',
+			type=float,
+			default=0.0
+			)
+		
 		return parser
 	
 	
 	def alloc_file(prefix, suffix):
-		fn = os.path.join(prefix, '0x{:0>2}.bin'.format(hex(suffix)[2:]))
+		fn = os.path.join(prefix, '~0x{:0>2}.tmp'.format(hex(suffix)[2:]))
 		return open(fn, 'wb')
 	
 	args, _ = init_argparse().parse_known_args()
@@ -110,7 +113,24 @@ if __name__ == '__main__':
 	
 	try:
 		files = {}
-		for X in bag_to_numpy(args.bag, args.topic, args.fields):
+		for i, X in enumerate(bag_to_numpy(args.bag, args.topic, args.fields)):
+			if args.planarize:
+				P = spatial.sphere_uvd(X[:,(1,0,2)])
+				mesh = Delaunay(P[:,(0,1)])
+				Ti = mesh.simplices
+				fN = spatial.face_normals(X[Ti,:3])
+				vN = spatial.vec_normals(fN, Ti.flatten())
+				m = spatial.mask_planar(vN, fN, Ti.flatten(), args.planarize)
+				X = X[m]
+				print(i, " - Planarize point drop:", len(m), "-->", m.sum())
+		
+			X[:,3] /= X[:,3].max()
+			X[:,3] *= 0xF
+			X[:,:3] *= 100
+			X[:,2] += 2**11
+			X[:,:2] += np.iinfo(np.uint16).max * 0.5
+			
+			X = np.round(X).astype(np.uint16)
 			X = tokensort.pack_64(X)
 			X = tokensort.featurize(X)
 			X.sort()
@@ -131,15 +151,25 @@ if __name__ == '__main__':
 		for fid in files.values():
 			fid.close()
 	
-	print("--- Sort Chunks ---")
-		
-	for fid in files.values():
-		X = np.fromfile(fid.name, dtype=np.uint8).reshape(-1,7)
-		X = np.hstack((X, np.zeros((len(X),1), dtype=np.uint8)))
-		X = np.ndarray(len(X), dtype=np.uint64, buffer=X)
-		X.sort()
-		X = tokensort.numeric_delta(X)
-		X = tokensort.pack_8x64(X).T
-		X[:-1].tofile(fid.name)
-		print("File sorted:", fid.name)
+	fn = os.path.join(args.output_dir, 'final.bin')
+	with open(fn, 'wb') as final:
+		print("--- Create Header ---")
+		num_chunks = len(files)
+		chunks = np.array([(idx, os.path.getsize(fid.name)) for idx, fid in files.iteritems()], dtype=np.uint32)
+		chunk_ids = chunks[:,0].astype(np.uint8)
+		chunk_length = np.ndarray(num_chunks*4, dtype=np.uint8, buffer=chunks[:,1].flatten())
+		header = np.hstack((num_chunks, chunk_ids, chunk_length))
+		header.tofile(final)
+	
+		print("--- Sort n Add Chunks ---")
+		for fid in files.values():
+			X = np.fromfile(fid.name, dtype=np.uint8).reshape(-1,7)
+			X = np.hstack((X, np.zeros((len(X),1), dtype=np.uint8)))
+			X = np.ndarray(len(X), dtype=np.uint64, buffer=X)
+			X.sort()
+			X = tokensort.numeric_delta(X)
+			X = tokensort.pack_8x64(X).T
+			X = X[:-8]
+			X.tofile(final)
+			print("File sorted:", fid.name, X.shape)
 
