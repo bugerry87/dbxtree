@@ -7,6 +7,7 @@ import os
 ## Installed
 import numpy as np
 from scipy.spatial import Delaunay
+from scipy.spatial.transform import Rotation as R
 
 ## ROS
 import rosbag
@@ -18,7 +19,7 @@ import mhdm.tokensort as tokensort
 import mhdm.spatial as spatial
 
 
-def bag_to_numpy(bag, topic, fields):
+def pc_to_numpy(bag, topic, fields):
 	pc = PointCloud2()
 	
 	for _, msg, _ in rosbag.Bag(bag).read_messages(topics=[topic]):
@@ -38,6 +39,57 @@ def bag_to_numpy(bag, topic, fields):
 		x, y, z, i = fields
 		X = numpify(pc)
 		yield np.array((X[x], X[y], X[z], X[i], np.full(N, seq, dtype=np.float))).T
+
+
+def planarize(X, dot=0.9):
+	P = spatial.sphere_uvd(X[:,(1,0,2)])
+	mesh = Delaunay(P[:,(0,1)])
+	Ti = mesh.simplices
+	fN = spatial.face_normals(X[Ti,:3])
+	vN = spatial.vec_normals(fN, Ti.flatten())
+	m = spatial.mask_planar(vN, fN, Ti.flatten(), dot)
+	return X[m], m
+
+
+def featurize(X):
+	X[:,3] /= X[:,3].max()
+	X[:,3] *= 0xF
+	X[:,:3] *= 100
+	X[:,2] += 2**11
+	X[:,:2] += np.iinfo(np.uint16).max * 0.5
+	
+	X = np.round(X).astype(np.uint16)
+	X = tokensort.pack_64(X)
+	return tokensort.featurize(X)
+
+
+def odom_to_numpy(bag, topic, d=180, b=8):
+	abs_pos = np.zeros(3)
+	abs_ori = R.from_rotvec((0,0,0))
+
+	for _, odom, _ in rosbag.Bag(bag).read_messages(topics=[topic]):
+		p = odom.pose.pose.position
+		p = (p.x, p.y, p.z)
+		delta_p = p - abs_pos
+		delta_p = np.round(delta_p * 100).astype(np.int8)
+		abs_pos[:] = p
+		
+		o = odom.pose.pose.orientation
+		o = R.from_quat((o.x, o.y, o.z, o.w))
+		delta_o = (o * abs_ori.inv()).as_euler('zyx', degrees=True)
+		delta_o = np.clip(delta_o, -d, d) 
+		a = np.where(delta_o >= 0, 127.0/d, -127.0/d)
+		delta_o = a * (d**b - (d - np.abs(delta_o))**b)**(1.0/b)
+		delta_o = np.round(delta_o).astype(np.int8)
+		abs_ori = o
+		
+		idx = np.array(odom.header.seq, dtype=np.uint16)
+		idx = np.ndarray(2, np.int8, buffer=idx)
+		
+		print("Seq [{:>5}] ".format(odom.header.seq),
+			"Pos {:<16}".format(delta_p), 
+			"Ori", delta_o)
+		yield np.hstack((delta_p, delta_o, idx))
 
 
 if __name__ == '__main__':
@@ -64,10 +116,17 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
-			'--topic', '-t',
+			'--points', '-p',
 			metavar='TOPIC',
 			default='/MapPCD/pcd',
-			help='The topic to be subscribed.'
+			help='The topic of point clouds.'
+			)
+		
+		parser.add_argument(
+			'--odom', '-o',
+			metavar='TOPIC',
+			default='/MapPCD/odom',
+			help='The topic of odometries.'
 			)
 		
 		parser.add_argument(
@@ -99,77 +158,63 @@ if __name__ == '__main__':
 			default=0.0
 			)
 		
+		parser.add_argument(
+			'--chunk_size', '-c',
+			metavar='INT',
+			type=int,
+			default=1024
+			)
+		
 		return parser
 	
 	
 	def alloc_file(prefix, suffix):
-		fn = os.path.join(prefix, '~0x{:0>2}.tmp'.format(hex(suffix)[2:]))
+		fn = os.path.join(prefix, '~{:0>2}.tmp'.format(suffix))
 		return open(fn, 'wb')
 	
 	args, _ = init_argparse().parse_known_args()
+	
+	if args.odom:	
+		print("\nLoad data: {} - topic: {}".format(args.bag, args.odom))
+		print("--- Convert Odometry ---")
 		
-	print("\nLoad data: {} - topic: {}".format(args.bag, args.topic))
-	print("--- Build Chunks ---")
-	
-	try:
-		files = {}
-		for i, X in enumerate(bag_to_numpy(args.bag, args.topic, args.fields)):
-			if args.planarize:
-				P = spatial.sphere_uvd(X[:,(1,0,2)])
-				mesh = Delaunay(P[:,(0,1)])
-				Ti = mesh.simplices
-				fN = spatial.face_normals(X[Ti,:3])
-				vN = spatial.vec_normals(fN, Ti.flatten())
-				m = spatial.mask_planar(vN, fN, Ti.flatten(), args.planarize)
-				X = X[m]
-				print(i, " - Planarize point drop:", len(m), "-->", m.sum())
+		fn = os.path.join(args.output_dir, 'odom.bin')
+		with open(fn, 'wb') as fid:
+			X = np.array([x for x in odom_to_numpy(args.bag, args.odom)])
+			X = tokensort.encode(X)
+			X.tofile(fn)
+			
+	if args.points:
+		print("\nLoad data: {} - topic: {}".format(args.bag, args.points))
+		print("--- Build Chunks ---")
 		
-			X[:,3] /= X[:,3].max()
-			X[:,3] *= 0xF
-			X[:,:3] *= 100
-			X[:,2] += 2**11
-			X[:,:2] += np.iinfo(np.uint16).max * 0.5
+		try:
+			files = []
+			fid = alloc_file(args.output_dir, len(files))
+			for i, X in enumerate(pc_to_numpy(args.bag, args.points, args.fields)):
+				if args.planarize:
+					X, m = planarize(X, args.planarize)
+					print(i, " - Planarize point drop:", len(m), "-->", m.sum())
+					
+				X = featurize(X)
+				
+				if not i % args.chunk_size:
+					if fid:
+						fid.close()
+					fid = alloc_file(args.output_dir, len(files))
+					files.append(fid)
+				
+				X.tofile(fid)
+				print("Add to file: {} {:>8} Bytes".format(fid.name, X.size * 8))
+		finally:
+			if fid:
+				fid.close()
 			
-			X = np.round(X).astype(np.uint16)
-			X = tokensort.pack_64(X)
-			X = tokensort.featurize(X)
-			X = np.ndarray((len(X),8), dtype=np.uint8, buffer=X)
-			X = X[np.argsort(X[:,0])]
-			u, i = np.unique(X[:,0], return_index=True)
-			I = np.roll(i+1, -1)
-			I[-1] = len(X)
-			
-			for u, i, I in zip(u, i, I):
-				if u in files:
-					fid = files[u]
-				else:
-					fid = alloc_file(args.output_dir, u)
-					files[u] = fid
-				X[i:I, 1:].tofile(fid)
-				print("Add to file: {} {:>8} Bytes".format(fid.name, (I-i)*7))
-	finally:
-		for fid in files.values():
-			fid.close()
-	
-	fn = os.path.join(args.output_dir, 'final.bin')
-	with open(fn, 'wb') as final:
-		print("--- Create Header ---")
-		num_chunks = len(files)
-		chunks = np.array([(idx, os.path.getsize(fid.name)) for idx, fid in files.iteritems()], dtype=np.uint32)
-		chunk_ids = chunks[:,0].astype(np.uint8)
-		chunk_length = np.ndarray(num_chunks*4, dtype=np.uint8, buffer=chunks[:,1].flatten())
-		header = np.hstack((num_chunks, chunk_ids, chunk_length))
-		header.tofile(final)
-	
 		print("--- Sort n Add Chunks ---")
-		for fid in files.values():
-			X = np.fromfile(fid.name, dtype=np.uint8).reshape(-1,7)
-			X = np.hstack((np.zeros((len(X),1), dtype=np.uint8), X))
-			X = np.ndarray(len(X), dtype=np.uint64, buffer=X)
+		for fid in files:
+			X = np.fromfile(fid.name, dtype=np.uint64)
 			X.sort()
-			X = tokensort.numeric_delta(X)
 			X = tokensort.pack_8x64(X).T
-			X = X[8:]
-			X.tofile(final)
+			X.tofile(fid.name)
 			print("File sorted:", fid.name, X.shape)
 
