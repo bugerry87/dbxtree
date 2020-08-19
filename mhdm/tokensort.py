@@ -194,8 +194,8 @@ if __name__ == '__main__':
 		X[:,3] /= X[:,3].max()
 		X[:,3] *= 0xF
 		X[:,:3] *= 100
-		X[:,2] += 2**11
-		X[:,:2] += np.iinfo(args.input_type).max * 0.5
+		X[:,2] += 0x07FF
+		X[:,:2] += 0x7FFF
 	else:
 		X = np.random.__dict__[args.generator](*args.input_size)
 		X -= X.min(axis=0)

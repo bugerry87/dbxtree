@@ -3,93 +3,119 @@
 ## BuildIn
 from __future__ import print_function
 import os
+import time
+from glob import glob
 
 ## Installed
 import numpy as np
-from scipy.spatial import Delaunay
 from scipy.spatial.transform import Rotation as R
 
 ## ROS
+import rospy
 import rosbag
-from ros_numpy import numpify
+import tf2_ros as tf
+from ros_numpy import msgify
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import Vector3, Point, Quaternion, TransformStamped
 
 ## Local
 import mhdm.tokensort as tokensort
-import mhdm.spatial as spatial
 
 
-def pc_to_numpy(bag, topic, fields):
-	pc = PointCloud2()
+def decode(chunk):
+	X = np.fromfile(chunk, dtype=np.uint8)
+	X = tokensort.unpack_8x64(X)
+	X = tokensort.realize(X)
 	
-	for _, msg, _ in rosbag.Bag(bag).read_messages(topics=[topic]):
-		pc.header = msg.header
-		pc.height = msg.height
-		pc.width = msg.width
-		pc.fields = msg.fields
-		pc.is_bigendian = msg.is_bigendian
-		pc.point_step = msg.point_step
-		pc.row_step = msg.row_step
-		pc.data = msg.data
-		pc.is_dense = msg.is_dense
+	i = X[:,3]
+	I = (X[:,2] & 0xF).astype(np.uint8)
+	X[:,2] = X[:,2] >> 4
+	X = X[:,:3].astype(np.float)
+	X[:,2] -= 0x07FF
+	X[:,:2] -= 0x7FFF
+	X[:,:3] /= 100.0
+	return X, I, i
+
+
+class Token2Ros:
+	node_name = 'Token2Ros'
+	base_frame = 'base_link'
+	map_frame = 'map'
+	field_names = ('x', 'y', 'z', 'intensity')
+	field_types = (np.float32,) * 3 + (np.uint8,)
+
+	def	__init__(self,
+		node_name = node_name,
+		map_frame = map_frame,
+		base_frame = base_frame,
+		field_names = field_names,
+		field_types = field_types,
+		**kwargs
+		):
+		"""
+		"""
+		self.node_name = node_name
+		self.map_frame = map_frame
+		self.base_frame = base_frame
+		self.field_names = field_names
+		self.field_types = field_types
 		
-		seq = pc.header.seq
-		N = pc.width
-		
-		x, y, z, i = fields
-		X = numpify(pc)
-		yield np.array((X[x], X[y], X[z], X[i], np.full(N, seq, dtype=np.float))).T
-
-
-def planarize(X, dot=0.9):
-	P = spatial.sphere_uvd(X[:,(1,0,2)])
-	mesh = Delaunay(P[:,(0,1)])
-	Ti = mesh.simplices
-	fN = spatial.face_normals(X[Ti,:3])
-	vN = spatial.vec_normals(fN, Ti.flatten())
-	m = spatial.mask_planar(vN, fN, Ti.flatten(), dot)
-	return X[m], m
-
-
-def featurize(X):
-	X[:,3] /= X[:,3].max()
-	X[:,3] *= 0xF
-	X[:,:3] *= 100
-	X[:,2] += 2**11
-	X[:,:2] += np.iinfo(np.uint16).max * 0.5
+		self.tf = tf.TransformBroadcaster()
+		self.pub_pcd = rospy.Publisher('{}/pcd'.format(self.node_name), PointCloud2, queue_size=10)
+		self.pub_odom = rospy.Publisher('{}/odom'.format(self.node_name), Odometry, queue_size=10)
 	
-	X = np.round(X).astype(np.uint16)
-	X = tokensort.pack_64(X)
-	return tokensort.featurize(X)
-
-
-def odom_to_numpy(bag, topic, d=180, b=8):
-	abs_pos = np.zeros(3)
-	abs_ori = R.from_rotvec((0,0,0))
-
-	for _, odom, _ in rosbag.Bag(bag).read_messages(topics=[topic]):
-		p = odom.pose.pose.position
-		p = (p.x, p.y, p.z)
-		delta_p = p - abs_pos
-		delta_p = np.round(delta_p * 100).astype(np.int8)
-		abs_pos[:] = p
+	def decode(self, path):
+		odom_msg = Odometry()
+		odom_msg.header.frame_id = self.map_frame
+		odom_msg.child_frame_id = self.base_frame
 		
-		o = odom.pose.pose.orientation
-		o = R.from_quat((o.x, o.y, o.z, o.w))
-		delta_o = (o * abs_ori.inv()).as_euler('zyx', degrees=True)
-		delta_o = np.clip(delta_o, -d, d) 
-		a = np.where(delta_o >= 0, 127.0, -127.0)
-		delta_o = a * (np.abs(delta_o)/d)**(1.0/b)
-		delta_o = np.round(delta_o).astype(np.int8)
-		abs_ori = o
+		tf_msg = TransformStamped()
+		tf_msg.header = odom_msg.header
+		tf_msg.child_frame_id = self.base_frame
 		
-		idx = np.array(odom.header.seq, dtype=np.uint16)
-		idx = np.ndarray(2, np.int8, buffer=idx)
+		odom = os.path.join(path, 'odom.bin')
+		odom = np.fromfile(odom, dtype=np.float).reshape(-1,6)
 		
-		print("Seq [{:>5}] ".format(odom.header.seq),
-			"Pos {:<16}".format(delta_p), 
-			"Ori", delta_o)
-		yield np.hstack((delta_p, delta_o, idx))
+		chunks = os.path.join(path, '??.bin')
+		chunks = sorted(glob(chunks))
+		
+		for chunk in chunks:
+			rospy.loginfo("{}: decode {}".format(args.node_name, chunk))
+			X, I, i = decode(chunk)
+			u = np.unique(i)
+			for seq in u:
+				m = i==seq
+				x, y, z = X[m].T
+				intens = I[m]
+				
+				data = np.empty(len(x), dtype=list(zip(self.field_names, self.field_types)))
+				for k, v, t in zip(self.field_names, (x,y,z,intens), self.field_types):
+					data[k] = v.astype(t)
+				
+				t = rospy.Time.now()
+				pcd_msg = msgify(PointCloud2, data)
+				pcd_msg.header.seq = seq
+				pcd_msg.header.frame_id = self.base_frame
+				pcd_msg.header.stamp = t
+				
+				pos = odom[seq-1,:3]
+				ori = odom[seq-1,3:]
+				ori = R.from_euler('zyx', ori).as_quat()
+				ori = Quaternion(*ori)
+				odom_msg.pose.pose.position = Point(*pos)
+				odom_msg.pose.pose.orientation = ori
+				odom_msg.header.seq = seq
+				odom_msg.header.stamp = t
+				
+				tf_msg.transform.translation = Vector3(*pos)
+				tf_msg.transform.rotation = ori
+				print(tf_msg.header.seq)
+				
+				self.pub_odom.publish(odom_msg)
+				self.pub_pcd.publish(pcd_msg)
+				self.tf.sendTransform(tf_msg)
+				yield odom_msg, pcd_msg
 
 
 if __name__ == '__main__':
@@ -111,124 +137,71 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
-			'bag',
+			'input_dir',
 			metavar='STRING'
 			)
 		
 		parser.add_argument(
-			'--points', '-p',
-			metavar='TOPIC',
-			default='/MapPCD/pcd',
-			help='The topic of point clouds.'
+			'--node_name', '-n',
+			metavar='STRING',
+			default=Token2Ros.node_name,
+			help='Base name of the node.'
 			)
 		
 		parser.add_argument(
-			'--odom', '-o',
-			metavar='TOPIC',
-			default='/MapPCD/odom',
-			help='The topic of odometries.'
+			'--base_frame', '-b',
+			metavar='STRING',
+			default=Token2Ros.base_frame,
+			help='The base_frame for the point cloud.'
 			)
 		
 		parser.add_argument(
-			'--fields', '-f',
+			'--map_frame', '-m',
+			metavar='STRING',
+			default=Token2Ros.map_frame,
+			help='The map_frame for the odometry.'
+			)
+		
+		parser.add_argument(
+			'--field_names', '-f',
 			metavar='STRING',
 			nargs='+',
-			default=('x', 'y', 'z', 'intensity'),
+			default=Token2Ros.field_names,
 			help='The field names of the PointCloud.'
 			)
 		
 		parser.add_argument(
-			'--output_dir', '-y',
-			metavar='PATH',
-			default='/share/token/'
-			)
+			'--rate', '-r',
+            type=int,
+            default=10,
+            help="Messages per second (Herz)")
 		
 		parser.add_argument(
-			'--visualize', '-V',
-			metavar='STRING',
-			nargs='*',
-			default=[],
-			choices=('cloud', 'dist')
-			)
-		
-		parser.add_argument(
-			'--planarize', '-P',
-			metavar='FLOAT',
-			type=float,
-			default=0.0
-			)
-		
-		parser.add_argument(
-			'--chunk_size', '-c',
-			metavar='INT',
-			type=int,
-			default=1024
-			)
-		
-		parser.add_argument(
-			'--ang_range', '-d',
-			metavar='FLOAT',
-			type=float,
-			default=180.0
-			)
-		
-		parser.add_argument(
-			'--ang_scale', '-b',
-			metavar='FLOAT',
-			type=float,
-			default=8.0
-			)
+			'--clock', '-c',
+			type=bool,
+			nargs='?',
+			help="Simulate clock",
+			default=False,
+			const=True)
 		
 		return parser
 	
-	
-	def alloc_file(prefix, suffix):
-		fn = os.path.join(prefix, '~{:0>2}.tmp'.format(suffix))
-		return open(fn, 'wb')
-	
 	args, _ = init_argparse().parse_known_args()
+	rospy.init_node(args.node_name, anonymous=False, disable_signals=True)
+	rospy.loginfo("Init node '{}'".format(args.node_name))
+	node = Token2Ros(**args.__dict__)
+	rospy.loginfo("{} ready!".format(args.node_name))
+	raw_input("Press the <ENTER> to continue...")
 	
-	if args.odom:	
-		print("\nLoad data: {} - topic: {}".format(args.bag, args.odom))
-		print("--- Convert Odometry ---")
+	if args.clock:
+		r = rospy.Rate(args.rate)
+	
+	for odom, pcd in node.decode(args.input_dir):
+		if args.clock:
+			r.sleep()
+		else:
+			rospy.sleep(1/args.rate)
+		print(odom.pose.pose)
 		
-		fn = os.path.join(args.output_dir, 'odom.bin')
-		with open(fn, 'wb') as fid:
-			X = np.array([x for x in odom_to_numpy(args.bag, args.odom, args.ang_range, args.ang_scale)])
-			X = tokensort.encode(X)
-			X.tofile(fn)
-			
-	if args.points:
-		print("\nLoad data: {} - topic: {}".format(args.bag, args.points))
-		print("--- Build Chunks ---")
-		
-		try:
-			files = []
-			fid = alloc_file(args.output_dir, len(files))
-			for i, X in enumerate(pc_to_numpy(args.bag, args.points, args.fields)):
-				if args.planarize:
-					X, m = planarize(X, args.planarize)
-					print(i, " - Planarize point drop:", len(m), "-->", m.sum())
-					
-				X = featurize(X)
-				
-				if not i % args.chunk_size:
-					if fid:
-						fid.close()
-					fid = alloc_file(args.output_dir, len(files))
-					files.append(fid)
-				
-				X.tofile(fid)
-				print("Add to file: {} {:>8} Bytes".format(fid.name, X.size * 8))
-		finally:
-			if fid:
-				fid.close()
-			
-		print("--- Sort n Add Chunks ---")
-		for fid in files:
-			X = np.fromfile(fid.name, dtype=np.uint64)
-			X.sort()
-			X = tokensort.pack_8x64(X).T
-			X.tofile(fid.name)
-			print("File sorted:", fid.name, X.shape)
+	rospy.loginfo("{} terminated!".format(args.node_name))
 

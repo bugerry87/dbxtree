@@ -7,58 +7,59 @@ from collections import deque
 import numpy as np
 
 
+class Node():
+	def __init__(self, tree, token_pos, X):
+		tree.N += 1
+		self.ID = tree.N
+		self.token_pos = token_pos
+		self.N = len(X)
+		self.nodes = []
+		self.flags = 0
+		token = np.left_shift(tree.token, token_pos, dtype=np.int32)
+		
+		if token_pos < tree.payload_type.bits and token_pos >= tree.token_size and self.N == 1:
+			self.payload = X.astype(tree.payload_type).flatten()
+		else:
+			for i, t in enumerate(token):
+				mask = np.all(np.bitwise_and(X, 1<<token_pos) == t, axis=-1)
+				if np.any(mask):
+					if token_pos:
+						self.nodes.append(TokenTree.Node(tree, token_pos-1, X[mask]))
+					else:
+						tree.leaf_nodes += 1
+					self.flags |= 1<<i
+		print(self)
+		pass
+	
+	def __str__(self):
+		return "Node-{:->12}: {:>12} Points, {:>3} Nodes, Bit {:>2}, Flag {:0>8}".format(
+			self.ID,
+			self.N,
+			len(self.nodes),
+			self.token_pos+1,
+			bin(self.flags)[2:]
+			)
+	
+	def __iter__(self):
+		return iter(self.nodes)
+	
+	def depth_first(self, payload=False):
+		if not payload:
+			yield self
+		elif not self.flags:
+			yield self.payload
+		
+		for node in self:
+			for n in node.depth_first(payload):
+				yield n
+
+
 class TokenTree():
 	DEPTH_FIRST = 'depth_first'
 	BREADTH_FIRST = 'breadth_first'
 	payload_type = np.uint8
 	iter_mode = BREADTH_FIRST
 	
-	class Node():
-		def __init__(self, tree, token_pos, X):
-			tree.N += 1
-			self.ID = tree.N
-			self.token_pos = token_pos
-			self.N = len(X)
-			self.nodes = []
-			self.flags = 0
-			token = np.left_shift(tree.token, token_pos, dtype=np.int32)
-			
-			if token_pos < tree.payload_type.bits and token_pos >= tree.token_size and self.N == 1:
-				self.payload = X.astype(tree.payload_type).flatten()
-			else:
-				for i, t in enumerate(token):
-					mask = np.all(np.bitwise_and(X, 1<<token_pos) == t, axis=-1)
-					if np.any(mask):
-						if token_pos:
-							self.nodes.append(TokenTree.Node(tree, token_pos-1, X[mask]))
-						else:
-							tree.leaf_nodes += 1
-						self.flags |= 1<<i
-			print(self)
-			pass
-		
-		def __str__(self):
-			return "Node-{:->12}: {:>12} Points, {:>3} Nodes, Bit {:>2}, Flag {:0>8}".format(
-				self.ID,
-				self.N,
-				len(self.nodes),
-				self.token_pos+1,
-				bin(self.flags)[2:]
-				)
-		
-		def __iter__(self):
-			return iter(self.nodes)
-		
-		def depth_first(self, payload=False):
-			if not payload:
-				yield self
-			elif not self.flags:
-				yield self.payload
-			
-			for node in self:
-				for n in node.depth_first(payload):
-					yield n
-
 	def __init__(self,
 		payload_type = payload_type,
 		iter_mode = iter_mode
@@ -105,90 +106,6 @@ class TokenTree():
 		self.flags = np.array([node.flags for node in self.breadth_first()], dtype=self.payload_type)
 		self.payload = np.array([(*payload,) for payload in self.breadth_first(True)], dtype=self.payload_type)
 		return self.flags, self.payload
-	
-	def decode(self, X):
-		pass
-
-
-class SeqTokenTree():
-	DEPTH_FIRST = 'depth_first'
-	BREADTH_FIRST = 'breadth_first'
-	payload_type = np.uint32
-	iter_mode = BREADTH_FIRST
-	
-	class Node():
-		def __init__(self, tree, token_pos, X):
-			self.N = len(X)
-			self.nodes = []
-			token = np.left_shift(tree.token, token_pos, dtype=np.int32)
-			
-			if not self.N:
-				pass
-			elif token_pos:
-				for t in token:
-					mask = np.all(np.bitwise_and(X, 1<<token_pos) == t, axis=-1)
-					self.nodes.append(TokenTree.Node(tree, token_pos-1, X[mask]))
-			pass
-		
-		def __iter__(self):
-			return iter(self.nodes)
-		
-		def depth_first(self):
-			yield self
-			for node in self:
-				for n in node.depth_first():
-					yield n
-		
-		def breadth_first(self):
-			for node in self:
-				yield node
-			
-			for node in self:
-				for n in node.breadth_first():
-					yield n
-
-	def __init__(self,
-		payload_type = payload_type,
-		iter_mode = iter_mode
-		):
-		"""
-		"""
-		self.payload_type = np.iinfo(payload_type)
-		self.iter_mode = iter_mode
-		self.N = 0
-		pass
-	
-	def __len__(self):
-		return self.N
-	
-	def __iter__(self):
-		if self.iter_mode is TokenTree.DEPTH_FIRST:
-			return self.depth_first()
-		elif self.iter_mode is TokenTree.BREADTH_FIRST:
-			return self.breadth_first()
-		else:
-			raise ValueError("Unknown iteration mode: {}!".format(self.iter_mode))
-	
-	def depth_first(self):
-		return self.root.depth_first()
-		
-	def breadth_first(self):
-		yield self.root
-		for node in self.root.breadth_first():
-			yield node
-	
-	def extract_payload(self):
-		self.payload = np.array([node.N for node in self], dtype=self.payload_type)
-		self.N = len(self.payload)
-		return self.payload
-	
-	def encode(self, X):
-		self.token_size = X.shape[-1]
-		self.token_depth = np.iinfo(X.dtype).bits
-		self.token = np.arange(1<<self.token_size, dtype=np.uint8).reshape(-1,1)
-		self.token = np.unpackbits(self.token, axis=-1)[:,-self.token_size:]
-		self.root = SeqTokenTree.Node(self, self.token_depth-1, X)
-		pass
 	
 	def decode(self, X):
 		pass

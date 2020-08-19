@@ -117,6 +117,7 @@ class MapPCD:
 		pass
 		
 	def __job__(self):
+		odom = Odometry()
 		while not rospy.is_shutdown():
 			self.ready.acquire()
 			self.ready.wait(1.0)
@@ -135,12 +136,12 @@ class MapPCD:
 			self.cloud_msg.header.seq = self.seq
 			
 			## odom
-			odom = Odometry()
 			odom.header.frame_id = self.map_frame
 			odom.header.stamp = self.cloud_msg.header.stamp
 			odom.header.seq = self.seq
 			odom.pose.pose.position = Point(*self.pos)
 			odom.pose.pose.orientation = Quaternion(*self.quat)
+			odom.child_frame_id = self.base_frame
 
 			## publish
 			self.pub_pcd.publish(self.cloud_msg)
