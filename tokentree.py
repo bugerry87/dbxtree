@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 
 ## Build in
+from __future__ import print_function
 from collections import deque
 
 ## Installed
 import numpy as np
 
+## Local
+from mhdm.utils import BitBuffer
 
-def find_ftype(token_size):
-	if token_size <= 3:
+def find_ftype(token_dim):
+	if token_dim <= 3:
 		return np.iinfo(np.uint8)
-	elif token_size == 4:
+	elif token_dim == 4:
 		return np.iinfo(np.uint16)
-	elif token_size == 5:
+	elif token_dim == 5:
 		return np.iinfo(np.uint32)
-	elif token_size == 6:
+	elif token_dim == 6:
 		return np.iinfo(np.uint64)
 	else:
-		raise ValueError("Only token sizes upto 6 are supported, but {} is given.".format(token_size))
+		raise ValueError("Only token sizes upto 6 are supported, but {} is given.".format(token_dim))
 
 
 class Node():
@@ -52,9 +55,9 @@ class Node():
 
 
 class Decoder():
-	def __init__(self, token_size):
-		self.token = np.arange(1<<token_size, dtype=np.uint8).reshape(-1,1)
-		self.token = np.unpackbits(self.token, axis=-1)[:,-token_size:]
+	def __init__(self, token_dim):
+		self.token = np.arange(1<<token_dim, dtype=np.uint8).reshape(-1,1)
+		self.token = np.unpackbits(self.token, axis=-1)[:,-token_dim:]
 	
 	def expand(self, flags, payload):
 		self.ftype = np.iinfo(flags.dtype)
@@ -74,42 +77,45 @@ class Decoder():
 		return np.array(nodes, dtype=dtype)
 
 	
-def encode(X):
-	token_size = X.shape[-1]
-	token_depth = np.iinfo(X.dtype).bits
-	ftype = find_ftype(token_size)
+def encode(X, filename=None, breadth_first=False):
+	token_dim = X.shape[-1]
+	tree_depth = np.iinfo(X.dtype).bits
+	ftype = find_ftype(token_dim)
 	X = X.astype(object)
-	token = np.arange(1<<token_size, dtype=np.uint8).reshape(-1,1)
-	token = np.unpackbits(token, axis=-1)[:,-token_size:]
-	payload = np.zeros(token_size, dtype=object)
-	flags = 0
+	token = np.arange(1<<token_dim, dtype=np.uint8).reshape(-1,1)
+	token = np.unpackbits(token, axis=-1)[:,-token_dim:]
+	if filename:
+		flags = BitBuffer(filename + '.flg')
+		payload = BitBuffer(filename + '.pld')
+	else:
+		flags = BitBuffer()
+		payload = BitBuffer()
 
 	def expand(X, token_pos):
 		flag = 0
 		
 		if len(X) == 1:
-			payload <<= token_pos
-			payload |= X.flatten()
+			for d in range(token_dim):
+				payload.write(int(X[:,d]), token_pos)
+			payload.flush()
 		else:
 			for i, t in enumerate(token):
 				m = np.all(X & 1 == t, axis=-1)
 				if np.any(m):
 					if token_pos > 1:
-						yield expand(token_pos-1, X[m] >> 1)
+						yield expand(X[m] >> 1, token_pos-1)
 					flag |= 1<<i
-		flags <<= ftype.bit
-		flags |= flag
+		#print("{:0>8}".format(bin(flag)[2:]))
+		flags.write(flag, ftype.bits, soft_flush=True)
 		pass
 	
-	nodes = deque(expand(X, token_depth))
+	nodes = deque(expand(X, tree_depth))
 	while nodes:
-		node = nodes.popleft()
+		node = nodes.popleft() if breadth_first else nodes.pop()
 		nodes.extend(node)
 	
-	n = np.ceil(flags.bit_length/8.0).astype(int)
-	flags = np.ndarray(n, dtype=np.uint8, buffer=flags.to_bytes(n, 'big'))
-	n = np.ceil(payload[0].bit_length/8.0).astype(int)
-	payload = np.vstack([np.ndarray(n, dtype=np.uint8, buffer=p.to_bytes(n, 'big')) for p in payload]).T
+	flags.close()
+	payload.close()
 	return flags, payload
 
 
@@ -135,7 +141,7 @@ if __name__ == '__main__':
 		
 		parser.add_argument(
 			'--input_file', '-X',
-			nargs=1,
+			required=True,
 			metavar='PATH'
 			)
 		
@@ -152,6 +158,15 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
+			'--breadth_first', '-b',
+			metavar='FLAG',
+			nargs='?',
+			type=bool,
+			default=False,
+			const=True
+			)
+		
+		parser.add_argument(
 			'--visualize', '-V',
 			metavar='FLAG',
 			nargs='?',
@@ -163,17 +178,17 @@ if __name__ == '__main__':
 		return parser
 	
 	args, _ = init_argparse().parse_known_args()
-	X = np.fromfile(args.filename, dtype=args.dtype)
+	X = np.fromfile(args.input_file, dtype=args.dtype)
+	X = X[len(X)%3:].reshape(-1,3)
 	
 	print("\nData:\n", X)
 	print("\n---Encoding---\n")
-	flags, payload = encode(X)
+	flags, payload = encode(X, args.output_file, breadth_first=args.breadth_first)
 	
-	print("Flags:", flags.shape)
-	print("Payload:", payload.shape)
-
-	np.concatenate((flags, payload), axis=None).tofile(args.output_file)
+	print("Flags safed to:", flags.fid.name)
+	print("Payload safed to:", payload.fid.name)
 	exit()
+	np.concatenate((flags, payload), axis=None).tofile(args.output_file)
 	
 	print("\n---Decoding---\n")
 	Y = Decoder(X.shape[-1]).expand(flags, payload.reshape(-1,X.shape[-1])).decode(X.dtype)
