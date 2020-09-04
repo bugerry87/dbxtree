@@ -4,10 +4,20 @@ Helper functions for this project.
 Author: Gerald Baulig
 '''
 
-#Global libs
-import numpy as np
+## Build in
+from __future__ import print_function
 from time import time
 from glob import glob, iglob
+
+#Installed
+import numpy as np
+
+
+def log(*nargs):
+	if log.verbose:
+		log.func(*nargs)
+log.verbose = False
+log.func = lambda *nargs: print(*nargs)
 
 
 def myinput(prompt, default=None, cast=None):

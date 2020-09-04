@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 
 ## Build in
-from __future__ import print_function
 from collections import deque
 
 ## Installed
 import numpy as np
 
 ## Local
-from mhdm.utils import BitBuffer
+from mhdm.utils import BitBuffer, log
 
 def find_ftype(token_dim):
 	if token_dim <= 3:
@@ -77,35 +76,38 @@ class Decoder():
 		return np.array(nodes, dtype=dtype)
 
 	
-def encode(X, filename=None, breadth_first=False):
+def encode(X, filename=None, breadth_first=False, big_first=False, payload=False, **kwargs):
 	token_dim = X.shape[-1]
 	tree_depth = np.iinfo(X.dtype).bits
 	ftype = find_ftype(token_dim)
 	X = X.astype(object)
 	token = np.arange(1<<token_dim, dtype=np.uint8).reshape(-1,1)
 	token = np.unpackbits(token, axis=-1)[:,-token_dim:]
-	if filename:
-		flags = BitBuffer(filename + '.flg')
-		payload = BitBuffer(filename + '.pld')
-	else:
-		flags = BitBuffer()
-		payload = BitBuffer()
+	flags = BitBuffer(filename)
+	stack_size = 0
+	
+	if payload is True:
+		payload = BitBuffer(filename + '~') if filename else BitBuffer()
 
-	def expand(X, token_pos):
+	def expand(X, bits):
 		flag = 0
 		
-		if len(X) == 1:
+		if len(X) == 0:
+			pass
+		elif payload is not False and len(X) == 1:
 			for d in range(token_dim):
-				payload.write(int(X[:,d]), token_pos)
+				payload.write(int(X[:,d]), bits)
 			payload.flush()
 		else:
+			x = X >> bits-1 if big_first else X
 			for i, t in enumerate(token):
-				m = np.all(X & 1 == t, axis=-1)
+				m = np.all(x & 1 == t, axis=-1)
 				if np.any(m):
-					if token_pos > 1:
-						yield expand(X[m] >> 1, token_pos-1)
+					if bits > 1:
+						yield expand(X[m] >> int(not big_first), bits-1)
 					flag |= 1<<i
-		#print("{:0>8}".format(bin(flag)[2:]))
+		if log.verbose:
+			log("Layer: {:>2}, BranchFlag: {:0>8}, StackSize: {:>10}".format(tree_depth-bits, bin(flag)[2:], stack_size))
 		flags.write(flag, ftype.bits, soft_flush=True)
 		pass
 	
@@ -113,9 +115,11 @@ def encode(X, filename=None, breadth_first=False):
 	while nodes:
 		node = nodes.popleft() if breadth_first else nodes.pop()
 		nodes.extend(node)
+		stack_size = len(nodes)
 	
 	flags.close()
-	payload.close()
+	if payload:
+		payload.close()
 	return flags, payload
 
 
@@ -148,17 +152,42 @@ if __name__ == '__main__':
 		parser.add_argument(
 			'--dtype', '-t',
 			metavar='TYPE',
-			default='uint64'
+			default='uint16'
 			)
 		
 		parser.add_argument(
-			'--output_file', '-Y',
+			'--dim', '-d',
+			type=int,
+			metavar='INT',
+			default=3
+			)
+		
+		parser.add_argument(
+			'--filename', '-Y',
 			metavar='PATH',
 			default='tokentree.bin'
 			)
 		
 		parser.add_argument(
 			'--breadth_first', '-b',
+			metavar='FLAG',
+			nargs='?',
+			type=bool,
+			default=False,
+			const=True
+			)
+		
+		parser.add_argument(
+			'--big_first', '-B',
+			metavar='FLAG',
+			nargs='?',
+			type=bool,
+			default=False,
+			const=True
+			)
+		
+		parser.add_argument(
+			'--payload', '-p',
 			metavar='FLAG',
 			nargs='?',
 			type=bool,
@@ -175,24 +204,35 @@ if __name__ == '__main__':
 			const=True
 			)
 		
+		parser.add_argument(
+			'--verbose', '-v',
+			metavar='FLAG',
+			nargs='?',
+			type=bool,
+			default=False,
+			const=True
+			)
+		
 		return parser
 	
 	args, _ = init_argparse().parse_known_args()
+	log.verbose = args.verbose
+	
 	X = np.fromfile(args.input_file, dtype=args.dtype)
-	X = X[len(X)%3:].reshape(-1,3)
+	X = X[len(X)%args.dim:].reshape(-1,args.dim)
 	
-	print("\nData:\n", X)
-	print("\n---Encoding---\n")
-	flags, payload = encode(X, args.output_file, breadth_first=args.breadth_first)
+	log("\nData:\n", X)
+	log("\n---Encoding---\n")
+	flags, payload = encode(X, **args.__dict__)
 	
-	print("Flags safed to:", flags.fid.name)
-	print("Payload safed to:", payload.fid.name)
+	log("Flags safed to:", flags.fid.name)
+	log("Payload safed to:", payload.fid.name)
 	exit()
 	np.concatenate((flags, payload), axis=None).tofile(args.output_file)
 	
-	print("\n---Decoding---\n")
+	log("\n---Decoding---\n")
 	Y = Decoder(X.shape[-1]).expand(flags, payload.reshape(-1,X.shape[-1])).decode(X.dtype)
-	print(Y)
+	log(Y)
 	
 	if args.visualize:
 		import matplotlib.pyplot as plt
