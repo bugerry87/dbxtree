@@ -85,6 +85,7 @@ def encode(X, filename=None, breadth_first=False, big_first=False, payload=False
 	token = np.unpackbits(token, axis=-1)[:,-token_dim:]
 	flags = BitBuffer(filename)
 	stack_size = 0
+	msg = "Layer: {:>2}, BranchFlag: {:0>" + str(ftype.bits) + "}, StackSize: {:>10}"
 	
 	if payload is True:
 		payload = BitBuffer(filename + '~') if filename else BitBuffer()
@@ -107,7 +108,7 @@ def encode(X, filename=None, breadth_first=False, big_first=False, payload=False
 						yield expand(X[m] >> int(not big_first), bits-1)
 					flag |= 1<<i
 		if log.verbose:
-			log("Layer: {:>2}, BranchFlag: {:0>8}, StackSize: {:>10}".format(tree_depth-bits, bin(flag)[2:], stack_size))
+			log(msg.format(tree_depth-bits, bin(flag)[2:], stack_size))
 		flags.write(flag, ftype.bits, soft_flush=True)
 		pass
 	
@@ -125,8 +126,6 @@ def encode(X, filename=None, breadth_first=False, big_first=False, payload=False
 
 if __name__ == '__main__':
 	from argparse import ArgumentParser
-	import matplotlib.pyplot as plt
-	import matplotlib.ticker as ticker
 	
 	def init_argparse(parents=[]):
 		''' init_argparse(parents=[]) -> parser

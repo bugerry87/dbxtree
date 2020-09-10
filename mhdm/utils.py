@@ -142,8 +142,8 @@ class BitBuffer:
 		self.fid = open(filename, 'ab')
 	
 	def write(self, bits, shift, soft_flush=False):
-		self.buffer <<= shift
-		self.buffer |= bits
+		self.buffer <<= int(shift)
+		self.buffer |= int(bits)
 		if soft_flush:
 			self.flush()
 			
