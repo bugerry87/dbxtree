@@ -9,68 +9,62 @@ import numpy as np
 ## Local
 from mhdm.utils import BitBuffer, log
 
-def find_ftype(token_dim):
-	if token_dim <= 3:
-		return np.iinfo(np.uint8)
-	elif token_dim == 4:
-		return np.iinfo(np.uint16)
-	elif token_dim == 5:
-		return np.iinfo(np.uint32)
-	elif token_dim == 6:
-		return np.iinfo(np.uint64)
-	else:
-		raise ValueError("Only token sizes upto 6 are supported, but {} is given.".format(token_dim))
-
 	
-def encode(X, filename=None, breadth_first=False, **kwargs):
+def encode(X, filename=None, breadth_first=False, big_first=False, **kwargs):
 	token_dim = X.shape[-1]
-	tree_depth = np.iinfo(X.dtype).bits
-	ftype = find_ftype(token_dim)
+	tree_depth = np.iinfo(X.dtype).bits - 1
+	fbits = 1 << token_dim
 	X = X.astype(object)
-	shifts = np.full(len(X), tree_depth-1, dtype=np.uint8)
-	token = np.arange(ftype.bits, dtype=np.uint8).reshape(-1,1)
+	shifts = np.full(len(X), tree_depth if big_first else 0, dtype=np.int16)
+	token = np.arange(fbits, dtype=np.uint8).reshape(-1,1)
 	token = np.unpackbits(token, axis=-1)[:,-token_dim:]
 	flags = BitBuffer(filename)
 	stack_size = 0
-	msg = "{}: {:0>" + str(ftype.bits) + "}, StackSize: {:>10}, Done: {:>3.2f}%"
-	done = np.sum(shifts, dtype=float)
+	msg = "Layer: {:>2}, {:0>" + str(fbits) + "}, StackSize: {:>10}, Done: {:>3.2f}%"
+	done = len(X) * tree_depth
+	stop_bit = 0 if big_first else tree_depth
+	increment = -1 if big_first else 1
 
-	def expand(Xi, root=False):
+	def expand(Xi):
 		flag = 0
 		
-		if not root and len(Xi) == 1:
+		if len(Xi) == 1:
 			pass
 		else:
 			x = X[Xi] >> shifts[Xi].reshape(-1, 1)
 			for i, t in enumerate(token):
 				m = np.all(x & 1 == t, axis=-1)
 				if np.any(m):
-					m &= shifts[Xi] != 0
+					m &= shifts[Xi] != stop_bit
 					if np.any(m):
 						xi = Xi[m]
-						shifts[xi] -= 1
-						yield expand(xi, root)
+						shifts[xi] += increment
+						yield expand(xi)
 					flag |= 1<<i
 				
 		if log.verbose:
-			progress = 100.0 - np.sum(shifts, dtype=float) / done * 100
-			step = "Root" if root else "Tree"
-			log(msg.format(step, bin(flag)[2:], stack_size, progress))
-		flags.write(flag, ftype.bits, soft_flush=True)
+			progress = np.sum(shifts, dtype=float) / done * 100
+			if big_first:
+				progress = 100.0 - progress
+			log(msg.format(layer, bin(flag)[2:], stack_size, progress))
+		flags.write(flag, fbits, soft_flush=True)
 		pass
 	
-	nodes = deque(expand(np.arange(len(X)), False))
-	while nodes:
-		node = nodes.popleft() if breadth_first else nodes.pop()
-		nodes.extend(node)
-		stack_size = len(nodes)
+	report = {}
+	layers = range(tree_depth, -1, -1) if big_first else range(tree_depth+1)
+	for layer in layers:
+		m = shifts == layer
+		if not np.any(m):
+			continue
 	
-	nodes = deque(expand(np.arange(len(X))[shifts != 0], True))
-	while nodes:
-		node = nodes.popleft() if breadth_first else nodes.pop()
-		nodes.extend(node)
-		stack_size = len(nodes)
+		nodes = deque(expand(np.arange(len(X))[m]))
+		while nodes:
+			node = nodes.popleft() if breadth_first else nodes.pop()
+			nodes.extend(node)
+			stack_size = len(nodes)
+		report[layer] = m.sum()
 	
+	log(report)
 	flags.close()
 	return flags
 
@@ -128,6 +122,15 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
+			'--big_first', '-B',
+			metavar='FLAG',
+			nargs='?',
+			type=bool,
+			default=False,
+			const=True
+			)
+		
+		parser.add_argument(
 			'--visualize', '-V',
 			metavar='FLAG',
 			nargs='?',
@@ -152,8 +155,10 @@ if __name__ == '__main__':
 	
 	X = np.fromfile(args.input_file, dtype=args.dtype)
 	X = X.reshape(-1, args.dim)
+	X = np.unique(X, axis=0)
 	
-	log("\nData:\n", X)
+	log("\nData:", X.shape)
+	log(X)
 	log("\n---Encoding---\n")
 	flags = encode(X, **args.__dict__)
 	log("Flags safed to:", flags.fid.name)

@@ -9,18 +9,6 @@ import numpy as np
 ## Local
 from mhdm.utils import BitBuffer, log
 
-def find_ftype(token_dim):
-	if token_dim <= 3:
-		return np.iinfo(np.uint8)
-	elif token_dim == 4:
-		return np.iinfo(np.uint16)
-	elif token_dim == 5:
-		return np.iinfo(np.uint32)
-	elif token_dim == 6:
-		return np.iinfo(np.uint64)
-	else:
-		raise ValueError("Only token sizes upto 6 are supported, but {} is given.".format(token_dim))
-
 
 class Node():
 	def __init__(self, token=0):
@@ -79,13 +67,13 @@ class Decoder():
 def encode(X, filename=None, breadth_first=False, big_first=False, payload=False, **kwargs):
 	token_dim = X.shape[-1]
 	tree_depth = np.iinfo(X.dtype).bits
-	ftype = find_ftype(token_dim)
+	fbits = 1<<token_dim
 	X = X.astype(object)
 	token = np.arange(1<<token_dim, dtype=np.uint8).reshape(-1,1)
 	token = np.unpackbits(token, axis=-1)[:,-token_dim:]
 	flags = BitBuffer(filename)
 	stack_size = 0
-	msg = "Layer: {:>2}, BranchFlag: {:0>" + str(ftype.bits) + "}, StackSize: {:>10}"
+	msg = "Layer: {:>2}, BranchFlag: {:0>" + str(fbits) + "}, StackSize: {:>10}"
 	
 	if payload is True:
 		payload = BitBuffer(filename + '~') if filename else BitBuffer()
@@ -109,7 +97,7 @@ def encode(X, filename=None, breadth_first=False, big_first=False, payload=False
 					flag |= 1<<i
 		if log.verbose:
 			log(msg.format(tree_depth-bits, bin(flag)[2:], stack_size))
-		flags.write(flag, ftype.bits, soft_flush=True)
+		flags.write(flag, fbits, soft_flush=True)
 		pass
 	
 	nodes = deque(expand(X, tree_depth))
@@ -219,8 +207,10 @@ if __name__ == '__main__':
 	
 	X = np.fromfile(args.input_file, dtype=args.dtype)
 	X = X[len(X)%args.dim:].reshape(-1,args.dim)
+	X = np.unique(X, axis=0)
 	
-	log("\nData:\n", X)
+	log("\nData:", X.shape)
+	log(X)
 	log("\n---Encoding---\n")
 	flags, payload = encode(X, **args.__dict__)
 	
