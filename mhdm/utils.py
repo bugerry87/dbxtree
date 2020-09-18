@@ -13,11 +13,11 @@ from glob import glob, iglob
 import numpy as np
 
 
-def log(*nargs):
+def log(*nargs, **kwargs):
 	if log.verbose:
-		log.func(*nargs)
+		log.func(*nargs, **kwargs)
 log.verbose = False
-log.func = lambda *nargs: print(*nargs)
+log.func = lambda *nargs, **kwargs: print(*nargs, **kwargs)
 
 
 def myinput(prompt, default=None, cast=None):
@@ -98,6 +98,7 @@ class BitBuffer:
 		Init a BitBuffer.
 		Opens and writes to a file from beginning if filename is given.
 		Otherwise, all bits are kept in buffer.
+		If you want to open in read-mode, please use 'open'.
 		
 		Args:
 			filename: Opens a file from beginning.
@@ -114,6 +115,17 @@ class BitBuffer:
 		self.close()
 	
 	def flush(self, hard=False):
+		"""
+		Flushes the bit-stream to the internal byte-stream.
+		May release some memory.
+		
+		Args:
+			hard: Forces the flush to the byte-stream.
+		
+		Note:
+			A hard-flush will append zeros to complete the last byte!
+			Only recommended either on file close or when you are sure all bytes are complete!
+		"""
 		if not self.fid or self.fid.closed:
 			return
 	
@@ -133,17 +145,45 @@ class BitBuffer:
 		pass
 	
 	def close(self):
+		"""
+		Performes a hard flush and closes the file if given.
+		"""
 		if self.fid:
 			self.flush(True)
 			self.fid.close()
 	
-	def open(self, filename):
+	def open(self, filename, mode='rb'):
+		"""
+		(Re)opens a byte-stream to a file.
+		The file-mode must be in binary-mode!
+		
+		Args:
+			filename: The path/name of a file to be opened.
+			mode: File mode, either 'rb', 'ab' or 'wb'.
+		
+		Note:
+			Buffer will be reset on re-opening.
+		"""
 		self.close()
-		self.fid = open(filename, 'ab')
+		self.fid = open(filename, mode)
+		return self
 	
 	def write(self, bits, shift, soft_flush=False):
+		"""
+		Write bits to BitBuffer.
+		Ensure the BitBuffer was opened in 'wb' mode!
+		
+		Args:
+			bits: The bits added by 'or'-operation to the end of the bit-stream.
+			shift: The number of shifts applied before bits got added.
+			soft_flush: Flushes the bits to the internal byte-stream, if possible.
+		"""
 		self.buffer <<= int(shift)
 		self.buffer |= int(bits)
 		if soft_flush:
 			self.flush()
+	
+	def read(self, bits):
+		raise NotImplemented()
+		
 			
