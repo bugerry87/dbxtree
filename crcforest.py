@@ -6,13 +6,9 @@ from copy import copy
 
 ## Installed
 import numpy as np
-from crcmod import mkCrcFun
 
 ## Local
 from mhdm.utils import BitBuffer, log
-
-
-CRC8 = mkCrcFun(0x111, initCrc=0, xorOut=0xFF)
 
 
 def find_ftype(dim):
@@ -43,28 +39,29 @@ def reverse_bits(X):
 	return Y
 
 
-def create_checksum(X, **kwargs):
+def create_checksum(X, seed_length=8, **kwargs):
 	xtype = X.dtype
-	nbytes = 8 if xtype == object else np.iinfo(xtype).bits//8
+	bits = 64 if xtype == object else np.iinfo(xtype).bits
+	xor = X.sum(axis=-1) & ((1<<bits)-1)
+	seed = np.round(np.random.rand(len(xor)) * ((1<<seed_length)-1)).astype(xtype)
 	
-	c = np.empty((X.shape[0], nbytes), dtype=np.uint8)
-	Xb = np.ndarray((*X.shape, nbytes), dtype=np.uint8, buffer=X)
-	
-	for i in range(nbytes):
-		c[:,i] = [CRC8(x.flatten()) for x in Xb[:,:,:i+1]]
-		
-	c = np.ndarray((X.shape[0],1), dtype=xtype, buffer=c)
-	return np.hstack((X,c))
+	for low, high in zip(range(bits-seed_length), range(seed_length, bits)):
+		seed |= (seed>>low & 1)<<high ^ (xor & 1<<high)
+	return np.vstack((X.T, seed)).astype(xtype).T
 
 
-def check_checksum(X, at, **kwargs):
-	nbytes = 8 if X.dtype == object else np.iinfo(X.dtype).bits//8
-	X = np.ndarray((*X.shape, nbytes), dtype=np.uint8, buffer=X)
-	c = [CRC8(x.flatten()) for x in X[:,:-1,:at+1]]
-	return X[:,-1, at] == c
+def check_checksum(X, at, seed_length=8, **kwargs):
+	xtype = X.dtype
+	bits = 64 if xtype == object else np.iinfo(xtype).bits
+	xor = X[:,:-1].sum(axis=-1) & ((1<<bits)-1)
+	seed = X[:,-1]
+	high = at
+	low = at - seed_length
+	c = (seed>>low & 1)<<at ^ (xor & 1<<high)
+	return c > 0
 
 
-def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, **kwargs):
+def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_length=8, **kwargs):
 	dim += 1
 	dtype = np.iinfo(dtype)
 	fbits = 1 << dim
@@ -75,9 +72,11 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, **kwargs
 	X = {0:np.zeros((1,dim), dtype=xtype)}
 	ptr = iter(Y)
 	
-	msg = "SubTree: {:>2}, Layer {:>2}, Flag: {:0>" + str(fbits) + "}, Points: {:>10}, Done: {:>3.2f}%"
-	done = np.zeros(1)
-	points = np.zeros(1)
+	if log.verbose:
+		msg = "SubTree{:0>2}, Layer{:0>2}, {:0>" + str(fbits) + "}, Pnts:{:>10}, Rej:{:>10}, {:>3.2f}%"
+		done = np.zeros(1)
+		points = np.zeros(1)
+		rejected = np.zeros(1)
 	
 	def expand(layer, x):
 		flag = next(ptr, 0)
@@ -86,17 +85,20 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, **kwargs
 				X[layer] = np.vstack((X[layer], x))
 			else:
 				X[layer] = x
-			points[:] = len(X[layer])
+			if log.verbose:
+				points[:] = np.sum([len(v) for v in X.values()])
 		else:
 			for bit in range(fbits):
 				if flag & 1<<bit == 0:
 					continue
 					
 				tx = x | token[bit]<<layer
-				if (layer+1) % 8 == 0:
-					m = check_checksum(tx, layer//8).flatten()
+				if sub and layer >= seed_length:
+					m = check_checksum(tx, layer, seed_length).flatten()
+					if log.verbose:
+						rejected[:] += np.sum(~m)
 					if not np.any(m):
-						continue
+						raise RuntimeError("Invalid parser state!")
 					elif layer == depth-1:
 						X[layer] = tx[m]
 					else:
@@ -107,7 +109,7 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, **kwargs
 		if log.verbose:
 			done[:] += 1
 			progress = 100.0 * float(done) / len(Y)
-			log(msg.format(sub, layer, bin(flag)[2:], int(points), progress), end='\r', flush=True)
+			log(msg.format(sub, layer, bin(flag)[2:], int(points), int(rejected),  progress)) #, end='\r', flush=True)
 		pass
 	
 	for sub in range(depth):
@@ -225,6 +227,13 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
+			'--seed_length', '-s',
+			type=int,
+			metavar='INT',
+			default=8
+			)
+		
+		parser.add_argument(
 			'--output', '-o',
 			metavar='PATH',
 			default='crcforest.bin'
@@ -280,7 +289,7 @@ if __name__ == '__main__':
 		X = create_checksum(X, **args.__dict__)
 		
 		u = np.unique(X[:,-1])
-		log("Checksum uniquesness {:>3.2f}%".format(100.0 * len(u)/len(X)))
+		log("Checksum uniqueness {:>3.2f}%".format(100.0 * len(u)/len(X)))
 		log("Data:", X.shape, "\n", X, "\n")
 		
 		Y = encode(X, **args.__dict__)
