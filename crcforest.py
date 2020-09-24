@@ -2,13 +2,16 @@
 
 ## Build in
 from collections import deque
-from copy import copy
 
 ## Installed
 import numpy as np
+from crcmod import mkCrcFun
 
 ## Local
 from mhdm.utils import BitBuffer, log
+
+
+CRC32 = mkCrcFun(0x104c11db7, initCrc=0, xorOut=0xFFFFFFFF)
 
 
 def find_ftype(dim):
@@ -43,22 +46,23 @@ def create_checksum(X, seed_length=8, **kwargs):
 	xtype = X.dtype
 	bits = 64 if xtype == object else np.iinfo(xtype).bits
 	xor = X.sum(axis=-1) & ((1<<bits)-1)
-	seed = np.round(np.random.rand(len(xor)) * ((1<<seed_length)-1)).astype(xtype)
+	cs = np.round(np.random.rand(len(xor)) * ((1<<seed_length)-1)).astype(xtype)
 	
 	for low, high in zip(range(bits-seed_length), range(seed_length, bits)):
-		seed |= (seed>>low & 1)<<high ^ (xor & 1<<high)
-	return np.vstack((X.T, seed)).astype(xtype).T
+		cs |= (cs>>low & 1)<<high ^ (xor & 1<<high)
+	return np.vstack((X.T, cs)).astype(xtype).T
 
 
 def check_checksum(X, at, seed_length=8, **kwargs):
 	xtype = X.dtype
 	bits = 64 if xtype == object else np.iinfo(xtype).bits
-	xor = X[:,:-1].sum(axis=-1) & ((1<<bits)-1)
-	seed = X[:,-1]
-	high = at
-	low = at - seed_length
-	c = (seed>>low & 1)<<at ^ (xor & 1<<high)
-	return c > 0
+	xor = X[:,:-1].sum(axis=-1) & ((1<<at)-1)
+	cs = X[:,-1] & ((1<<min(at, seed_length))-1)
+	
+	for low, high in zip(range(at-seed_length), range(seed_length, at)):
+		cs |= (cs>>low & 1)<<high ^ (xor & 1<<high)
+	
+	return X[:,-1] & ((1<<at)-1) == cs
 
 
 def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_length=8, **kwargs):
@@ -69,77 +73,108 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_len
 	xtype = object if depth > 32 else dtype
 	token = np.arange(fbits, dtype=np.uint8).reshape(-1,1)
 	token = np.unpackbits(token, axis=-1)[:,-dim:].astype(xtype)
-	X = {0:np.zeros((1,dim), dtype=xtype)}
+	subtrees = {0}
 	ptr = iter(Y)
+	F = {}
+	X = []
 	
-	if log.verbose:
-		msg = "SubTree{:0>2}, Layer{:0>2}, {:0>" + str(fbits) + "}, Pnts:{:>10}, Rej:{:>10}, {:>3.2f}%"
-		done = np.zeros(1)
-		points = np.zeros(1)
-		rejected = np.zeros(1)
-	
-	def expand(layer, x):
-		flag = next(ptr, 0)
+	def expand(sub, layer, x):
+		flag = next(ptr, 0) if layer < depth else 0
 		if flag == 0:
-			if layer in X:
-				X[layer] = np.vstack((X[layer], x))
+			x = np.hstack((x, np.full((len(x),1), layer, dtype=x.dtype)))
+			subtrees.add(layer)
+			
+			if sub in F:
+				F[sub].append(x)
 			else:
-				X[layer] = x
+				F[sub] = [x]
+			
 			if log.verbose:
-				points[:] = np.sum([len(v) for v in X.values()])
+				points[:] += len(x)
 		else:
 			for bit in range(fbits):
 				if flag & 1<<bit == 0:
 					continue
-					
-				tx = x | token[bit]<<layer
-				if sub and layer >= seed_length:
-					m = check_checksum(tx, layer, seed_length).flatten()
-					if log.verbose:
-						rejected[:] += np.sum(~m)
-					if not np.any(m):
-						raise RuntimeError("Invalid parser state!")
-					elif layer == depth-1:
-						X[layer] = tx[m]
-					else:
-						yield expand(layer+1, tx[m])
-				else:
-					yield expand(layer+1, tx)
+				yield expand(sub, layer+1, x | token[bit]<<layer)
 		
 		if log.verbose:
 			done[:] += 1
 			progress = 100.0 * float(done) / len(Y)
-			log(msg.format(sub, layer, bin(flag)[2:], int(points), int(rejected),  progress)) #, end='\r', flush=True)
+			log(msg.format(sub, layer, bin(flag)[2:], int(points),  progress), end='\r', flush=True)
 		pass
 	
+	def merge(x, sub):
+		if sub == depth:
+			X.append(x)
+			return
+		
+		if sub > seed_length:
+			m = check_checksum(x, sub, seed_length)
+			if log.verbose:
+				points[:] += m.sum() - np.sum(~m)
+			
+			if np.any(m):
+				x = x[m]
+			else:
+				return
+	
+		f, layers = F[sub][:,:-1], F[sub][:,-1]
+		for tx in x:
+			tx = tx.reshape(1,-1) | f
+			for layer in np.unique(layers):
+				yield merge(tx[layer==layers], layer)
+	
+		if log.verbose:
+			done [:] += 1
+			progress = 100.0 * float(done) / float(total)
+			merges = np.sum([len(v) for v in X])
+			log(msg.format(sub, int(points), int(merges), progress))#, end='\r', flush=True)
+		pass
+	
+	log("\nUnpack:")
+	if log.verbose:
+		msg = "SubTree{:0>2}, Layer{:0>2}, {:0>" + str(fbits) + "}, Points: {:>10}, Done: {:>3.2f}%"
+		done = np.zeros(1)
+		points = np.zeros(1)
+	
 	for sub in range(depth):
-		if not sub in X:
+		if sub not in subtrees:
 			continue
-		nodes = deque(expand(sub, X[sub]))
+		
+		nodes = deque(expand(sub, sub, np.zeros((1,dim), dtype=xtype)))
 		while nodes:
 			nodes.extend(nodes.popleft() if breadth_first else nodes.pop())
-			stack_size = len(nodes)
-		if not sub == depth-1:
-			del X[sub]
+		F[sub] = np.vstack(F[sub])
 	
-	return X[sub].astype(dtype)
+	log("\nMerge:")
+	if log.verbose:
+		msg = "SubTree{:0>2}, Points: {:>10}, Merges: {:>10}, Done: {:>3.2f}%"
+		done[:] = 0
+		points[:] = 0
+		total = np.sum([len(v) for v in F.values()])
+	
+	nodes = deque(merge(np.zeros((1,dim), dtype=xtype), 0))
+	while nodes:
+		nodes.extend(nodes.pop())
+	
+	return np.vstack(X)	
 
 	
-def encode(X, output=None, leaf_size=0, breadth_first=False, **kwargs):
+def encode(X, output=None, breadth_first=False, **kwargs):
 	dim = X.shape[-1]
 	fbits = 1 << dim
 	depth = 64 if X.dtype == object else np.iinfo(X.dtype).bits
-	leaf_size = dim if leaf_size <= 0 else leaf_size
 	shifts = np.zeros(len(X), dtype=np.int8)
 	token = np.arange(fbits, dtype=np.uint8).reshape(-1,1)
 	token = np.unpackbits(token, axis=-1)[:,-dim:].astype(X.dtype)
 	flags = BitBuffer(output)
 	
-	stack_size = 0
-	msg = "SubTree: {:>2}, Flag: {:0>" + str(fbits) + "}, StackSize: {:>10}, Done: {:>3.2f}%"
-	done = len(X) * (depth-1)
+	if log.verbose:
+		stack_size = 0
+		msg = "SubTree: {:>2}, Flag: {:0>" + str(fbits) + "}, Node: {:>9}, Stack: {:>9}, Done: {:>3.2f}%"
+		done = len(X) * (depth-1)
 
-	def expand(Xi):
+	def expand(Xi, leaf_size):
 		flag = 0
 		
 		if len(Xi) > leaf_size:
@@ -148,6 +183,7 @@ def encode(X, output=None, leaf_size=0, breadth_first=False, **kwargs):
 				m = np.all(x & 1 == t, axis=-1)
 				if not np.any(m):
 					continue
+				flag |= 1<<i
 					
 				m &= shifts[Xi] != (depth-1)
 				if not np.any(m):
@@ -155,12 +191,11 @@ def encode(X, output=None, leaf_size=0, breadth_first=False, **kwargs):
 					
 				xi = Xi[m]
 				shifts[xi] += 1
-				yield expand(xi)
-				flag |= 1<<i
+				yield expand(xi, leaf_size)
 				
 		if log.verbose:
 			progress = np.sum(shifts, dtype=float) / done * 100
-			log(msg.format(layer, bin(flag)[2:], stack_size, progress), end='\r', flush=True)
+			log(msg.format(layer, bin(flag)[2:], len(Xi), stack_size, progress))#, end='\r', flush=True)
 		flags.write(flag, fbits, soft_flush=True)
 		pass
 	
@@ -168,8 +203,13 @@ def encode(X, output=None, leaf_size=0, breadth_first=False, **kwargs):
 		m = shifts == layer
 		if not np.any(m):
 			continue
-	
-		nodes = deque(expand(np.arange(len(X))[m]))
+		
+		leaf_size = depth - layer
+		if m.sum() <= leaf_size:
+			nodes = deque(expand(np.arange(len(X))[m], 1))
+		else:
+			nodes = deque(expand(np.arange(len(X))[m], leaf_size))
+				
 		while nodes:
 			nodes.extend(nodes.popleft() if breadth_first else nodes.pop())
 			stack_size = len(nodes)
@@ -220,10 +260,10 @@ if __name__ == '__main__':
 			)
 		
 		parser.add_argument(
-			'--leaf_size', '-l',
+			'--leaf_factor', '-l',
 			type=int,
 			metavar='INT',
-			default=0
+			default=1
 			)
 		
 		parser.add_argument(
@@ -290,7 +330,7 @@ if __name__ == '__main__':
 		
 		u = np.unique(X[:,-1])
 		log("Checksum uniqueness {:>3.2f}%".format(100.0 * len(u)/len(X)))
-		log("Data:", X.shape, "\n", X, "\n")
+		log("Data:", X.shape, "\n", X)
 		
 		Y = encode(X, **args.__dict__)
 		log("\nFlags safed to:", Y.fid.name)
@@ -298,7 +338,8 @@ if __name__ == '__main__':
 		log("\n---CRCForest Decoding---\n")
 		Y = np.fromfile(args.decompress, dtype=find_ftype(args.dim))
 		log("Flags:", Y.shape, "\n", Y, "\n")
-		X = decode(Y, **args.__dict__)
+		Xs, Xl = decode(Y, **args.__dict__)
+		
 		if args.reverse:
 			X = reverse_bits(X).astype(args.dtype)
 		log("\n Final Data:", X.shape, "\n", X, "\n")
