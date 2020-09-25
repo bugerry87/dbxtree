@@ -46,7 +46,7 @@ def create_checksum(X, seed_length=8, **kwargs):
 	xtype = X.dtype
 	bits = 64 if xtype == object else np.iinfo(xtype).bits
 	xor = X.sum(axis=-1) & ((1<<bits)-1)
-	cs = np.round(np.random.rand(len(xor)) * ((1<<seed_length)-1)).astype(xtype)
+	cs = np.array([CRC32(x) for x in X], dtype=xtype) & ((1<<seed_length)-1)
 	
 	for low, high in zip(range(bits-seed_length), range(seed_length, bits)):
 		cs |= (cs>>low & 1)<<high ^ (xor & 1<<high)
@@ -56,13 +56,18 @@ def create_checksum(X, seed_length=8, **kwargs):
 def check_checksum(X, at, seed_length=8, **kwargs):
 	xtype = X.dtype
 	bits = 64 if xtype == object else np.iinfo(xtype).bits
-	xor = X[:,:-1].sum(axis=-1) & ((1<<at)-1)
-	cs = X[:,-1] & ((1<<min(at, seed_length))-1)
 	
-	for low, high in zip(range(at-seed_length), range(seed_length, at)):
-		cs |= (cs>>low & 1)<<high ^ (xor & 1<<high)
-	
-	return X[:,-1] & ((1<<at)-1) == cs
+	if at >= bits:
+		cs = np.array([CRC32(x) for x in X[:,:-1]], dtype=xtype) & ((1<<seed_length)-1)
+		m = X[:,-1] & ((1<<seed_length)-1) == cs
+	else:
+		xor = X[:,:-1].sum(axis=-1) & ((1<<at)-1)
+		cs = X[:,-1] & ((1<<min(at, seed_length))-1)
+		
+		for low, high in zip(range(at-seed_length), range(seed_length, at)):
+			cs |= (cs>>low & 1)<<high ^ (xor & 1<<high)
+		m = X[:,-1] & ((1<<at)-1) == cs
+	return m
 
 
 def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_length=8, **kwargs):
@@ -105,7 +110,8 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_len
 	
 	def merge(x, sub):
 		if sub == depth:
-			X.append(x)
+			m = check_checksum(x, sub, seed_length)
+			X.append(x[m])
 			return
 		
 		if sub > seed_length:
@@ -117,6 +123,8 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_len
 				x = x[m]
 			else:
 				return
+		else:
+			points[:] += len(x)
 	
 		f, layers = F[sub][:,:-1], F[sub][:,-1]
 		for tx in x:
@@ -133,7 +141,7 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_len
 	
 	log("\nUnpack:")
 	if log.verbose:
-		msg = "SubTree{:0>2}, Layer{:0>2}, {:0>" + str(fbits) + "}, Points: {:>10}, Done: {:>3.2f}%"
+		msg = "SubTree:{:0>2}, Layer:{:0>2}, {:0>" + str(fbits) + "}, Points:{:>8}, Done:{:>3.2f}%"
 		done = np.zeros(1)
 		points = np.zeros(1)
 	
@@ -148,7 +156,7 @@ def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_len
 	
 	log("\nMerge:")
 	if log.verbose:
-		msg = "SubTree{:0>2}, Points: {:>10}, Merges: {:>10}, Done: {:>3.2f}%"
+		msg = "SubTree:{:0>2}, Points:{:>10}, Merges:{:>10}, Done:{:>3.2f}%"
 		done[:] = 0
 		points[:] = 0
 		total = np.sum([len(v) for v in F.values()])
@@ -171,7 +179,7 @@ def encode(X, output=None, breadth_first=False, **kwargs):
 	
 	if log.verbose:
 		stack_size = 0
-		msg = "SubTree: {:>2}, Flag: {:0>" + str(fbits) + "}, Node: {:>9}, Stack: {:>9}, Done: {:>3.2f}%"
+		msg = "SubTree:{:>2}, Flag:{:0>" + str(fbits) + "}, Node:{:>8}, Stack:{:>8}, Done:{:>3.2f}%"
 		done = len(X) * (depth-1)
 
 	def expand(Xi, leaf_size):
@@ -195,7 +203,7 @@ def encode(X, output=None, breadth_first=False, **kwargs):
 				
 		if log.verbose:
 			progress = np.sum(shifts, dtype=float) / done * 100
-			log(msg.format(layer, bin(flag)[2:], len(Xi), stack_size, progress))#, end='\r', flush=True)
+			log(msg.format(layer, bin(flag)[2:], len(Xi), stack_size, progress), end='\r', flush=True)
 		flags.write(flag, fbits, soft_flush=True)
 		pass
 	
@@ -336,7 +344,7 @@ if __name__ == '__main__':
 		log("\nFlags safed to:", Y.fid.name)
 	elif args.decompress:
 		log("\n---CRCForest Decoding---\n")
-		Y = np.fromfile(args.decompress, dtype=find_ftype(args.dim))
+		Y = np.fromfile(args.decompress, dtype=find_ftype(args.dim+1))
 		log("Flags:", Y.shape, "\n", Y, "\n")
 		Xs, Xl = decode(Y, **args.__dict__)
 		
