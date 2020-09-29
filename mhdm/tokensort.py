@@ -3,9 +3,6 @@
 ## Installed
 import numpy as np
 
-## Local
-from utils import ifile
-
 
 UINT8_TO_TOKEN32 = np.array([int(bin(i).replace('b','x'),16) for i in range(256)], dtype=np.uint32)
 TOKEN32_TO_UINT8 = dict([(token, byte) for byte, token in enumerate(UINT8_TO_TOKEN32)])
@@ -87,22 +84,19 @@ def encode(X):
 	Y = featurize(X)
 	Y.sort()
 	Y = numeric_delta(Y)
-	#for y in Y[:50]:
-	#	print("{:0>64}".format(bin(y)[2:]))
 	return pack_8x64(Y).T
 
 
 def decode(Y):
 	X = unpack_8x64(Y)
 	X = np.cumsum(X)
-	#for x in X[:50]:
-	#	print("{:0>64}".format(bin(x)[2:]))
 	return realize(X)
 
 
 ## Test
 if __name__ == '__main__':
 	from argparse import ArgumentParser
+	from utils import ifile
 	
 	def init_argparse(parents=[]):
 		''' init_argparse(parents=[]) -> parser

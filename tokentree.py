@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 ## Build in
+from argparse import ArgumentParser
 from collections import deque
 
 ## Installed
@@ -10,58 +11,222 @@ import numpy as np
 from mhdm.utils import BitBuffer, log
 
 
-class Node():
-	def __init__(self, token=0):
-		self.token = token
-		self.payload = None
-		self.nodes = []
+def init_argparse(parents=[]):
+	''' init_argparse(parents=[]) -> parser
+	Initialize an ArgumentParser for this module.
 	
-	def __iter__(self):
-		return iter(self.nodes)
-	
-	def expand(self, tree, flag, payload):
-		if flag:
-			for bit in range(tree.ftype.bits):
-				if 1<<bit & flag:
-					self.nodes.append(Node(tree.token[bit]))
-		else:
-			self.payload = next(payload)
-		return self.nodes
-	
-	def decode(self, token_pos, x=0):
-		token = np.left_shift(self.token, token_pos, dtype=np.int32)
-		if self.payload is not None:
-			yield np.bitwise_or(x + token, self.payload)
-		elif token_pos:
-			for node in self:
-				for payload in node.decode(token_pos-1, x + token):
-					yield payload
-		else:
-			yield x + token
-		pass
-
-
-class Decoder():
-	def __init__(self, token_dim):
-		self.token = np.arange(1<<token_dim, dtype=np.uint8).reshape(-1,1)
-		self.token = np.unpackbits(self.token, axis=-1)[:,-token_dim:]
-	
-	def expand(self, flags, payload):
-		self.ftype = np.iinfo(flags.dtype)
-		self.root = Node()
+	Args:
+		parents: A list of ArgumentParsers of other scripts, if there are any.
 		
-		flag_iter = iter(flags)
-		payload_iter = iter(payload)
-		nodes = deque(self.root.expand(self, next(flag_iter), payload_iter))
-		for flag in flag_iter:
-			node = nodes.popleft()
-			nodes.extend(node.expand(self, flag, payload_iter))
-		return self
+	Returns:
+		parser: The ArgumentParsers.
+	'''
+	parser = ArgumentParser(
+		description="Demo of TokenTree",
+		parents=parents
+		)
 	
-	def decode(self, dtype):
-		dtype = np.iinfo(dtype)
-		nodes = list(self.root.decode(dtype.bits))
-		return np.array(nodes, dtype=dtype)
+	parser.add_argument(
+		'--compress', '-X',
+		metavar='PATH'
+		)
+	
+	parser.add_argument(
+		'--decompress', '-Y',
+		metavar='PATH'
+		)
+	
+	parser.add_argument(
+		'--dtype', '-t',
+		metavar='TYPE',
+		default='uint16'
+		)
+	
+	parser.add_argument(
+		'--dim', '-d',
+		type=int,
+		metavar='INT',
+		default=3
+		)
+	
+	parser.add_argument(
+		'--output', '-o',
+		metavar='PATH',
+		default='tokentree.bin'
+		)
+	
+	parser.add_argument(
+		'--breadth_first', '-b',
+		metavar='FLAG',
+		nargs='?',
+		type=bool,
+		default=False,
+		const=True
+		)
+	
+	parser.add_argument(
+		'--reverse', '-r',
+		metavar='FLAG',
+		nargs='?',
+		type=bool,
+		default=False,
+		const=True
+		)
+	
+	parser.add_argument(
+		'--payload', '-p',
+		metavar='FLAG',
+		nargs='?',
+		type=bool,
+		default=False,
+		const=True
+		)
+	
+	parser.add_argument(
+		'--visualize', '-V',
+		metavar='FLAG',
+		nargs='?',
+		type=bool,
+		default=False,
+		const=True
+		)
+	
+	parser.add_argument(
+		'--verbose', '-v',
+		metavar='FLAG',
+		nargs='?',
+		type=bool,
+		default=False,
+		const=True
+		)
+	
+	return parser
+
+
+def find_ftype(dim):
+	if dim <= 3:
+		dtype = np.uint8
+	elif dim == 4:
+		dtype = np.uint16
+	elif dim == 5:
+		dtype = np.uint32
+	else:
+		raise ValueError("Data of only up to 5 dimensions are supported")
+	return dtype
+
+
+def reverse_bits(X):
+	if X.dtype == np.uint64:
+		Y = X.astype(object)
+	else:
+		Y = X.copy()
+	
+	if X.dtype == object:
+		shifts = 64
+	else:
+		shifts = np.iinfo(X.dtype).bits
+	
+	for low, high in zip(range(shifts//2), range(shifts-1, shifts//2 - 1, -1)):
+		Y |= (X & 1<<low) << high | (X & 1<<high) >> high-low
+	return Y
+
+
+def decode(Y, output=None, dim=2, dtype=np.uint32, breadth_first=False, seed_length=8, **kwargs):
+	dim += 1
+	dtype = np.iinfo(dtype)
+	fbits = 1 << dim
+	depth = dtype.bits
+	xtype = object if depth > 32 else dtype
+	token = np.arange(fbits, dtype=np.uint8).reshape(-1,1)
+	token = np.unpackbits(token, axis=-1)[:,-dim:].astype(xtype)
+	subtrees = {0}
+	ptr = iter(Y)
+	F = {}
+	X = []
+	
+	def expand(sub, layer, x):
+		flag = next(ptr, 0) if layer < depth else 0
+		if flag == 0:
+			x = np.hstack((x, np.full((len(x),1), layer, dtype=x.dtype)))
+			subtrees.add(layer)
+			
+			if sub in F:
+				F[sub].append(x)
+			else:
+				F[sub] = [x]
+			
+			if log.verbose:
+				points[:] += len(x)
+		else:
+			for bit in range(fbits):
+				if flag & 1<<bit == 0:
+					continue
+				yield expand(sub, layer+1, x | token[bit]<<layer)
+		
+		if log.verbose:
+			done[:] += 1
+			progress = 100.0 * float(done) / len(Y)
+			log(msg.format(sub, layer, bin(flag)[2:], int(points),  progress), end='\r', flush=True)
+		pass
+	
+	def merge(x, sub):
+		if sub == depth:
+			m = check_checksum(x, sub, seed_length)
+			X.append(x[m])
+			return
+		
+		if sub > seed_length:
+			m = check_checksum(x, sub, seed_length)
+			if log.verbose:
+				points[:] += m.sum() - np.sum(~m)
+			
+			if np.any(m):
+				x = x[m]
+			else:
+				return
+		else:
+			points[:] += len(x)
+	
+		f, layers = F[sub][:,:-1], F[sub][:,-1]
+		for tx in x:
+			tx = tx.reshape(1,-1) | f
+			for layer in np.unique(layers):
+				yield merge(tx[layer==layers], layer)
+	
+		if log.verbose:
+			done [:] += 1
+			progress = 100.0 * float(done) / float(total)
+			merges = np.sum([len(v) for v in X])
+			log(msg.format(sub, int(points), int(merges), progress))#, end='\r', flush=True)
+		pass
+	
+	log("\nUnpack:")
+	if log.verbose:
+		msg = "SubTree:{:0>2}, Layer:{:0>2}, {:0>" + str(fbits) + "}, Points:{:>8}, Done:{:>3.2f}%"
+		done = np.zeros(1)
+		points = np.zeros(1)
+	
+	for sub in range(depth):
+		if sub not in subtrees:
+			continue
+		
+		nodes = deque(expand(sub, sub, np.zeros((1,dim), dtype=xtype)))
+		while nodes:
+			nodes.extend(nodes.popleft() if breadth_first else nodes.pop())
+		F[sub] = np.vstack(F[sub])
+	
+	log("\nMerge:")
+	if log.verbose:
+		msg = "SubTree:{:0>2}, Points:{:>10}, Merges:{:>10}, Done:{:>3.2f}%"
+		done[:] = 0
+		points[:] = 0
+		total = np.sum([len(v) for v in F.values()])
+	
+	nodes = deque(merge(np.zeros((1,dim), dtype=xtype), 0))
+	while nodes:
+		nodes.extend(nodes.pop())
+	
+	return np.vstack(X)	
 
 	
 def encode(X, filename=None, breadth_first=False, big_first=False, payload=False, **kwargs):
@@ -112,102 +277,14 @@ def encode(X, filename=None, breadth_first=False, big_first=False, payload=False
 	return flags, payload
 
 
-if __name__ == '__main__':
-	from argparse import ArgumentParser
-	
-	def init_argparse(parents=[]):
-		''' init_argparse(parents=[]) -> parser
-		Initialize an ArgumentParser for this module.
-		
-		Args:
-			parents: A list of ArgumentParsers of other scripts, if there are any.
-			
-		Returns:
-			parser: The ArgumentParsers.
-		'''
-		parser = ArgumentParser(
-			description="Demo of TokenTree",
-			parents=parents
-			)
-		
-		parser.add_argument(
-			'--input_file', '-X',
-			required=True,
-			metavar='PATH'
-			)
-		
-		parser.add_argument(
-			'--dtype', '-t',
-			metavar='TYPE',
-			default='uint16'
-			)
-		
-		parser.add_argument(
-			'--dim', '-d',
-			type=int,
-			metavar='INT',
-			default=3
-			)
-		
-		parser.add_argument(
-			'--filename', '-Y',
-			metavar='PATH',
-			default='tokentree.bin'
-			)
-		
-		parser.add_argument(
-			'--breadth_first', '-b',
-			metavar='FLAG',
-			nargs='?',
-			type=bool,
-			default=False,
-			const=True
-			)
-		
-		parser.add_argument(
-			'--big_first', '-B',
-			metavar='FLAG',
-			nargs='?',
-			type=bool,
-			default=False,
-			const=True
-			)
-		
-		parser.add_argument(
-			'--payload', '-p',
-			metavar='FLAG',
-			nargs='?',
-			type=bool,
-			default=False,
-			const=True
-			)
-		
-		parser.add_argument(
-			'--visualize', '-V',
-			metavar='FLAG',
-			nargs='?',
-			type=bool,
-			default=False,
-			const=True
-			)
-		
-		parser.add_argument(
-			'--verbose', '-v',
-			metavar='FLAG',
-			nargs='?',
-			type=bool,
-			default=False,
-			const=True
-			)
-		
-		return parser
-	
-	args, _ = init_argparse().parse_known_args()
+def main(args):
 	log.verbose = args.verbose
 	
 	X = np.fromfile(args.input_file, dtype=args.dtype)
 	X = X[len(X)%args.dim:].reshape(-1,args.dim)
 	X = np.unique(X, axis=0)
+	if args.reverse:
+		X = reverse_bits(X)
 	
 	log("\nData:", X.shape)
 	log(X)
@@ -242,3 +319,8 @@ if __name__ == '__main__':
 		ax.set_ylim(-7, 263)
 		ax.yaxis.set_major_formatter(major_formatter)
 		plt.show()
+
+
+if __name__ == '__main__':
+	args, _ = init_argparse().parse_known_args()
+	main(args)
