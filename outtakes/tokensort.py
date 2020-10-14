@@ -49,10 +49,6 @@ def realize(Y):
 	return np.ndarray((N,4), dtype=np.uint16, buffer=X)
 
 
-def numeric_delta(X, offset=0):
-	return np.concatenate((X[:offset+1], np.diff(X[offset:], axis=0)))
-
-
 def pack_8x64(X):
 	shape = (len(X)//8,8,8)
 	Y = np.zeros(shape, dtype=np.uint8)
@@ -83,7 +79,7 @@ def unpack_8x64(Y):
 def encode(X):
 	Y = featurize(X)
 	Y.sort()
-	Y = numeric_delta(Y)
+	Y = np.diff(Y, prepend=0).astype(np.uint64)
 	return pack_8x64(Y).T
 
 

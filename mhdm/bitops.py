@@ -7,13 +7,14 @@ def serialize(X, bits):
 	pass
 
 
-def sort_bits(X, reverse=False):
+def sort_bits(X, reverse=False, absp=False):
 	shifts = np.iinfo(X.dtype).bits
 	shape = X.shape
 	X = X.flatten()
 	Y = np.zeros_like(X)
 	p = np.array([np.sum(X>>i&1) for i in range(shifts)])
-	p = np.max((p, len(Y)-p), axis=0)
+	if absp:
+		p = np.max((p, len(Y)-p), axis=0)
 	p = np.argsort(p)
 	if reverse:
 		p = p[::-1]
@@ -23,7 +24,7 @@ def sort_bits(X, reverse=False):
 	return Y.reshape(shape), p.astype(np.uint8)
 
 
-def unsort_bits(X, p):
+def permute_bits(X, p):
 	shifts = np.iinfo(X.dtype).bits
 	shape = X.shape
 	X = X.flatten()
