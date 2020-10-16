@@ -1,12 +1,14 @@
-#!/usr/bin/env python3
 
 ## Build in
 from argparse import ArgumentParser
 from collections import deque
 
+## Installed
+import numpy as np
+
 ## Local
-from utils import log
-from bitops import BitBuffer, quantization
+from .bitops import BitBuffer
+from .utils import Prototype, log
 
 
 def encode(X, output=None, breadth_first=False, payload=False, **kwargs):
@@ -15,12 +17,12 @@ def encode(X, output=None, breadth_first=False, payload=False, **kwargs):
 	fbits = 1<<token_dim
 	token = np.arange(1<<token_dim, dtype=np.uint8).reshape(-1,1)
 	token = np.unpackbits(token, axis=-1)[:,-token_dim:]
-	flags = BitBuffer(output + '.flg.bin')
-	msg = "Layer: {:>2}, {:0>" + str(fbits) + "}, StackSize: {:>10}, Done: {:>3.2f}%"
+	flags = BitBuffer(output + '.flg.bin', 'wb')
+	msg = "Layer: {:>2}, {:0>" + str(fbits) + "}, StackSize: {:>10}"
 	stack_size = 0
 	
 	if payload is True:
-		payload = BitBuffer(output + '.pyl.bin') if output else BitBuffer()
+		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
 
 	def expand(X, bits):
 		flag = 0
@@ -55,7 +57,7 @@ def encode(X, output=None, breadth_first=False, payload=False, **kwargs):
 	return flags, payload
 
 
-def decode(flags, payload=None, xtype=np.uint16, breadth_first=False, **kwargs):
+def decode(Y, payload=None, qtype=np.uint16, breadth_first=False, **kwargs):
 	if isinstance(payload, str):
 		payload = BitBuffer(payload, 'rb')
 	elif isinstance(payload, BitBuffer):
@@ -63,24 +65,24 @@ def decode(flags, payload=None, xtype=np.uint16, breadth_first=False, **kwargs):
 	else:
 		payload = None
 
-	xtype = np.iinfo(xtype)
-	fbits = np.iinfo(flags.dtype).bits
+	qtype = np.iinfo(qtype)
+	fbits = np.iinfo(Y.dtype).bits
 	dim = int(np.log2(fbits))
 	token = np.arange(fbits, dtype=np.uint8).reshape(-1,1)
-	token = np.unpackbits(token, axis=-1)[:,-dim:].astype(xtype)
+	token = np.unpackbits(token, axis=-1)[:,-dim:].astype(qtype)
 	msg = "Layer: {:0>2}, {:0>" + str(fbits) + "}, Points: {:>10}, Done: {:>3.2f}%"
 	done = np.zeros(1)
 	points = np.zeros(1)
-	ptr = iter(flags)
-	X = np.zeros((np.sum(flags==0), dim), dtype=xtype)
-	Xi = range(len(X))
+	ptr = iter(Y)
+	X = np.zeros((np.sum(Y==0), dim), dtype=qtype)
+	Xi = iter(range(len(X)))
 	
 	def expand(layer, x):
-		flag = next(ptr, 0) if layer < xtype.bits else 0
+		flag = next(ptr, 0) if layer < qtype.bits else 0
 		
 		if flag == 0:
 			if payload:
-				x |= payload.read(xtype.bits - layer) << layer
+				x |= payload.read(qtype.bits - layer) << layer
 			
 			xi = next(Xi, None)
 			if xi is not None:
@@ -97,181 +99,12 @@ def decode(flags, payload=None, xtype=np.uint16, breadth_first=False, **kwargs):
 		
 		if log.verbose:
 			done[:] += 1
-			progress = 100.0 * float(done) / len(flags)
+			progress = 100.0 * float(done) / len(Y)
 			log(msg.format(layer, bin(flag)[2:], int(points), progress), end='\r', flush=True)
 		pass
 		
-	nodes = deque(expand(0, np.zeros(dim, dtype=xtype)))
+	nodes = deque(expand(0, np.zeros(dim, dtype=qtype)))
 	while nodes:
-		nodes.extend(nodes.popleft() if breadth_first else nodes.pop())	
-	return X
-
-
-def load_datapoints(input_file, xtype=np.uint16, dim=3, **kwargs):
-	X = np.fromfile(input_file, dtype=xtype)
-	X = X[:(len(X)//args.dim)*args.dim].reshape(-1,args.dim)
-	X = np.unique(X, axis=0)
+		nodes.extend(nodes.popleft() if breadth_first else nodes.pop())
 	return X
 	
-
-def compress(X, **kwargs):
-	log("\nData:", X.shape)
-	log(X)
-	log("\n---Encoding---\n")
-	
-	flags, payload = encode(X, **kwargs)
-	
-	log("Flags safed to:", flags.name)
-	log("Payload safed to:", payload.name)
-	return flags, payload
-
-
-def load_flags(input_file, dim=3, **kwargs):
-	if dim == 3:
-		Y = np.fromfile(input_file, dtype=np.uint8)
-	elif dim == 4:
-		Y = np.fromfile(input_file, dtype=np.uint16)
-	elif dim == 5:
-		Y = np.fromfile(input_file, dtype=np.uint32)
-	elif dim == 6:
-		Y = np.fromfile(input_file, dtype=np.uint64)
-	else:
-		Y = BitBuffer(input_file, 'rb', 1<<dim)
-	return Y
-
-
-def decompress(Y, **kwargs):
-	if output is None:
-		output = flags
-	if output:
-		output = output.replace('.flg', '')
-	
-	log("\nFlags:", Y.shape)
-	log(Y)
-	log("\n---Decoding---\n")
-	X = decode(flags, **kwargs)
-	
-	log("\nData:", X.shape)
-	log(X)
-	return X
-
-
-def init_argparser(parents=[]):
-	"""
-	Initialize an ArgumentParser for this module.
-	
-	Args:
-		parents: A list of ArgumentParsers of other scripts, if there are any.
-		
-	Returns:
-		main_args: The ArgumentParsers.
-	"""
-	main_args = ArgumentParser(
-		description="TokenTree",
-		parents=parents
-		)
-	
-	main_args.add_argument(
-		'--output', '-o',
-		metavar='PATH',
-		default=None,
-		help='A filename for the output data'
-		)
-	
-	main_args.add_argument(
-		'--xtype', '-t',
-		metavar='TYPE',
-		default='uint16',
-		help='The expected data-type for the datapoints'
-		)
-	
-	main_args.add_argument(
-		'--dim', '-d',
-		type=int,
-		metavar='INT',
-		default=3,
-		help='The expected dimension of the datapoints'
-		)
-	
-	main_args.add_argument(
-		'--breadth_first', '-b',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True,
-		help='Flag whether the tree-structure is either breadth first or (default) depthfirst'
-		)
-	
-	main_args.add_argument(
-		'--verbose', '-v',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True
-		)
-	
-	subparsers = parser.add_subparsers(help='Application Mode')
-	compress_args = parser.add_parser('compress', help='Compress datapoints to a TokenTree')
-	decompress_args = parser.add_parser('decompress', help='Decompress a TokenTree to datapoints')
-	
-	compress_args.add_argument(
-		'input_file',
-		metavar='PATH',
-		help='A path to a file of datapoints as .bin'
-		)
-	
-	compress_args.add_argument(
-		'--payload', '-p',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True,
-		help='Flag whether or (default) not to separate a payload file'
-		)
-	
-	compress_args.set_defaults(
-		load=load_datapoints,
-		run=compress
-		)
-	
-	decompress_args.add_argument(
-		'input_file',
-		metavar='PATH',
-		help='A path to a file of branching flags as .flg.bin'
-		)
-	
-	decompress_args.add_argument(
-		'--payload', '-p',
-		metavar='PATH',
-		default=None,
-		help='A path to a payload file of .ply.bin '
-		)
-	
-	decompress_args.set_defaults(
-		load=load_flags,
-		run=decompress
-		)
-	
-	return parser
-
-
-def main(args):
-	log.verbose = args.verbose
-	
-	if args.output is None:
-		args.output = args.input_file
-	if args.output:
-		args.output = output.replace('.flg', '')
-		args.output = output.replace('.bin', '')
-	
-	X = args.load(**args.__dict__)
-	args.run(**args.__dict__)
-	pass
-
-
-if __name__ == '__main__':
-	args, _ = init_argparser().parse_known_args()
-	main(args)

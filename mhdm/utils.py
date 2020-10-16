@@ -84,3 +84,10 @@ def time_delta(start=None):
 		delta = curr - start
 		start = curr
 		yield delta
+
+
+class Prototype():
+	def __init__(self, **kwargs):
+		for k, v in kwargs.items():
+			self.__dict__[k] = v
+	pass

@@ -3,22 +3,27 @@
 import numpy as np
 
 
-def quantization(X, bits_per_dim, dtype=object, offset=None, scale=None):
+def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
+	if bits_per_dim is None:
+		if qtype is object:
+			raise ValueError("bits_per_dim cannot be estimated from type object!")
+		else:
+			bits_per_dim = np.iinfo(qtype).bits
 	X = X.astype(float)
 	
 	if offset is None:
-		offset = X.min(axis=-1)
+		offset = X.min(axis=0)
 	X -= offset
 	if scale is None:
-		scale = (1<<np.array(bits_per_dim) - 1) / X.max(axis=-1)
+		scale = (1<<np.array(bits_per_dim) - 1) / X.max(axis=0)
 	X *= scale
-	X = np.round(X).astype(dtype)
+	X = np.round(X).astype(qtype)
 	
 	return X, offset, scale 
 
 
 def realization(X, offset, scale):
-	X = X * scale
+	X = X / scale
 	X += offset
 	return X
 
@@ -113,7 +118,7 @@ class BitBuffer:
 		try:
 			while True:
 				yield self.read(self.interval)
-		except EOFError, BufferError:
+		except (EOFError, BufferError):
 			raise StopIteration
 	
 	@property
