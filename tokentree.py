@@ -16,9 +16,9 @@ from mhdm.utils import Prototype, log
 from mhdm.bitops import BitBuffer
 
 
-def init_main_args(parents=[]):
+def init_argparsers(parents=[]):
 	"""
-	Initialize an ArgumentParser for the main-method of this module.
+	Initialize an ArgumentParser for this module.
 	
 	Args:
 		parents: A list of ArgumentParsers of other scripts, if there are any.
@@ -28,17 +28,13 @@ def init_main_args(parents=[]):
 	"""
 	main_args = ArgumentParser(
 		description="TokenTree",
-		parents=parents,
-		add_help=False
+		conflict_handler='resolve',
+		parents=parents
 		)
 	
 	main_args.add_argument(
-		'mode',
-		metavar='MODE',
-		nargs='?',
-		choices=['compress', 'decompress'],
-		default=None,
-		help='The application mode, either compress or decompress.'
+		'--verbose', '-v',
+		action='store_true'
 		)
 	
 	main_args.add_argument(
@@ -48,35 +44,25 @@ def init_main_args(parents=[]):
 		help='A filename for the output data'
 		)
 	
-	main_args.add_argument(
-		'--verbose', '-v',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True
+	main_args.set_defaults(
+		run=lambda **kwargs: main_args.print_help()
 		)
 	
-	return main_args
-
-
-def init_compress_args(parents=[]):
-	"""
-	Initialize an ArgumentParser for the compress-method of this module.
-	
-	Args:
-		parents: A list of ArgumentParsers of other scripts, if there are any.
-		
-	Returns:
-		main_args: The ArgumentParsers.
-	"""
-	compress_args = ArgumentParser(
-		description="TokenTree",
-		parents=parents
+	subparsers = main_args.add_subparsers(help='Application Mode')
+	compress_args = subparsers.add_parser('compress',
+		help='Compress datapoints to a TokenTree',
+		conflict_handler='resolve',
+		parents=[main_args]
+		)
+	decompress_args = subparsers.add_parser('decompress',
+		help='Decompress a TokenTree to datapoints',
+		conflict_handler='resolve',
+		parents=[main_args]
 		)
 	
 	compress_args.add_argument(
-		'datapoints',
+		'--datapoints', '-X',
+		required=True,
 		metavar='PATH',
 		help='A path to a file of datapoints as .bin'
 		)
@@ -105,69 +91,44 @@ def init_compress_args(parents=[]):
 	
 	compress_args.add_argument(
 		'--breadth_first', '-b',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True,
+		action='store_true',
 		help='Flag whether the tree-structure is either breadth first or (default) depth first'
 		)
 	
 	compress_args.add_argument(
 		'--payload', '-p',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True,
+		action='store_true',
 		help='Flag whether or (default) not to separate a payload file'
 		)
 	
 	compress_args.add_argument(
 		'--sort_bits', '-B',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True,
+		action='store_true',
 		help='Flag whether the bits of the datapoints get either sorted by probability or (default) not'
 		)
 	
 	compress_args.add_argument(
 		'--reverse', '-r',
-		metavar='FLAG',
-		nargs='?',
-		type=bool,
-		default=False,
-		const=True,
+		action='store_true',
 		help='Flag whether the TokenTree starts from either heigher or (default) lower bit'
 		)
 	
-	return compress_args
-
-
-def init_decompress_args(parents=[]):
-	"""
-	Initialize an ArgumentParser for the decompress-method of this module.
-	
-	Args:
-		parents: A list of ArgumentParsers of other scripts, if there are any.
-		
-	Returns:
-		main_args: The ArgumentParsers.
-	"""
-	decompress_args = ArgumentParser(
-		description="TokenTree",
-		parents=parents
+	compress_args.set_defaults(
+		run=compress
 		)
 	
 	decompress_args.add_argument(
-		'header_file',
+		'--header_file', '-Y',
+		required=True,
 		metavar='PATH',
 		help='A path to a header file as .hdr.pkl'
 		)
 	
-	return decompress_args
+	decompress_args.set_defaults(
+		run=decompress
+		)
+	
+	return main_args
 
 
 def save_header(header_file, **kwargs):
@@ -288,23 +249,13 @@ def decompress(header_file, output=None, **kwargs):
 	return X
 
 
-def main(args, unparsed):
+def main(args):
 	log.verbose = args.verbose
-	if args.mode == 'compress':
-		subargs = init_compress_args().parse_known_args(unparsed)[0]
-		compress(**args.__dict__, **subargs.__dict__)
-	elif args.mode == 'decompress':
-		subargs = init_decompress_args().parse_known_args(unparsed)[0]
-		decompress(**args.__dict__, **subargs.__dict__)
-	else:
-		init_main_args().print_help()
+	args.run(**args.__dict__)
 
 
 if __name__ == '__main__':
-	main_parser = init_main_args()
-	args, unparsed = main_parser.parse_known_args()
-	if args.mode:
-		main(args, unparsed)
-	else:
-		main_parser.print_help()
+	main_parser = init_argparsers()
+	args = main_parser.parse_args()
+	main(args)
 		

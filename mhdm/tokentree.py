@@ -71,11 +71,13 @@ def decode(Y, payload=None, qtype=np.uint16, breadth_first=False, **kwargs):
 	token = np.arange(fbits, dtype=np.uint8).reshape(-1,1)
 	token = np.unpackbits(token, axis=-1)[:,-dim:].astype(qtype)
 	msg = "Layer: {:0>2}, {:0>" + str(fbits) + "}, Points: {:>10}, Done: {:>3.2f}%"
-	done = np.zeros(1)
-	points = np.zeros(1)
+	local = Prototype(
+		X = np.zeros((np.sum(Y==0), dim), dtype=qtype),
+		points = 0,
+		done = 0
+		)
+	Xi = iter(range(len(local.X)))
 	ptr = iter(Y)
-	X = np.zeros((np.sum(Y==0), dim), dtype=qtype)
-	Xi = iter(range(len(X)))
 	
 	def expand(layer, x):
 		flag = next(ptr, 0) if layer < qtype.bits else 0
@@ -86,10 +88,10 @@ def decode(Y, payload=None, qtype=np.uint16, breadth_first=False, **kwargs):
 			
 			xi = next(Xi, None)
 			if xi is not None:
-				X[xi] = x
+				local.X[xi] = x
 			else:
-				X = np.vstack((X, x))
-			points[:] += 1
+				local.X = np.vstack((local.X, x))
+			local.points += 1
 			
 		else:
 			for bit in range(fbits):
@@ -98,7 +100,7 @@ def decode(Y, payload=None, qtype=np.uint16, breadth_first=False, **kwargs):
 				yield expand(layer+1, x | token[bit]<<layer)
 		
 		if log.verbose:
-			done[:] += 1
+			local.done += 1
 			progress = 100.0 * float(done) / len(Y)
 			log(msg.format(layer, bin(flag)[2:], int(points), progress), end='\r', flush=True)
 		pass
