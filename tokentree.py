@@ -12,11 +12,11 @@ import numpy as np
 ## Local
 import mhdm.tokentree as tokentree
 import mhdm.bitops as bitops
-from mhdm.utils import Prototype, log
+from mhdm.utils import Prototype, log, ifile
 from mhdm.bitops import BitBuffer
 
 
-def init_argparsers(parents=[]):
+def init_main_args(parents=[]):
 	"""
 	Initialize an ArgumentParser for this module.
 	
@@ -48,17 +48,22 @@ def init_argparsers(parents=[]):
 		run=lambda **kwargs: main_args.print_help()
 		)
 	
-	subparsers = main_args.add_subparsers(help='Application Mode')
-	compress_args = subparsers.add_parser('compress',
-		help='Compress datapoints to a TokenTree',
-		conflict_handler='resolve',
-		parents=[main_args]
-		)
-	decompress_args = subparsers.add_parser('decompress',
-		help='Decompress a TokenTree to datapoints',
-		conflict_handler='resolve',
-		parents=[main_args]
-		)
+	return main_args
+
+
+def init_compress_args(parents=[], subparser=None):
+	if subparser:
+		compress_args = subparser.add_parser('compress',
+			help='Compress datapoints to a TokenTree',
+			conflict_handler='resolve',
+			parents=parents
+			)
+	else:
+		compress_args = ArgumentParser(
+			description='Compress datapoints to a TokenTree',
+			conflict_handler='resolve',
+			parents=parents
+			)
 	
 	compress_args.add_argument(
 		'--datapoints', '-X',
@@ -102,7 +107,7 @@ def init_argparsers(parents=[]):
 		)
 	
 	compress_args.add_argument(
-		'--sort_bits', '-B',
+		'--sort_bits', '-P',
 		action='store_true',
 		help='Flag whether the bits of the datapoints get either sorted by probability or (default) not'
 		)
@@ -117,6 +122,23 @@ def init_argparsers(parents=[]):
 		run=compress
 		)
 	
+	return compress_args
+
+
+def init_decompress_args(parents=[], subparser=None):
+	if subparser:
+		decompress_args = subparser.add_parser('decompress',
+			help='Decompress a TokenTree to datapoints',
+			conflict_handler='resolve',
+			parents=parents
+			)
+	else:
+		decompress_args = ArgumentParser(
+			description='Decompress a TokenTree to datapoints',
+			conflict_handler='resolve',
+			parents=parents
+			)
+	
 	decompress_args.add_argument(
 		'--header_file', '-Y',
 		required=True,
@@ -128,7 +150,90 @@ def init_argparsers(parents=[]):
 		run=decompress
 		)
 	
-	return main_args
+	return decompress_args
+
+
+def init_kitti_args(parents=[], subparser=None):
+	if subparser:
+		kitti_args = subparser.add_parser('kitti',
+			help='Compress kitti data to a TokenTree',
+			conflict_handler='resolve',
+			parents=parents
+			)
+	else:
+		kitti_args = ArgumentParser(
+			description='Compress kitti data to a TokenTree',
+			conflict_handler='resolve',
+			parents=parents
+			)
+	
+	kitti_args.add_argument(
+		'--kittidata', '-X',
+		required=True,
+		metavar='WILDCARD',
+		help='A wildcard to kitti lidar scans'
+		)
+	
+	kitti_args.add_argument(
+		'--scale', '-S',
+		type=float,
+		nargs='*',
+		default=[200.0, 200.0, 30.0, 1.0],
+		metavar='FLOAT',
+		help='Scaleing factors for the kitti data'
+		)
+	
+	kitti_args.add_argument(
+		'--offset', '-O',
+		type=float,
+		nargs='*',
+		default=[-100.0, -100.0, -25.0, 0],
+		metavar='FLOAT',
+		help='Offsets for the kitti data'
+		)
+	
+	kitti_args.add_argument(
+		'--bits_per_dim', '-B',
+		type=int,
+		nargs='*',
+		default=[16, 16, 8, 8],
+		metavar='INT',
+		help='Bits per dim for quantization'
+		)
+	
+	kitti_args.add_argument(
+		'--breadth_first', '-b',
+		action='store_true',
+		help='Flag whether the tree-structure is either breadth first or (default) depth first'
+		)
+	
+	kitti_args.add_argument(
+		'--payload', '-p',
+		action='store_true',
+		help='Flag whether or (default) not to separate a payload file'
+		)
+	
+	kitti_args.add_argument(
+		'--sort_bits', '-P',
+		action='store_true',
+		help='Flag whether the bits of the datapoints get either sorted by probability or (default) not'
+		)
+	
+	kitti_args.add_argument(
+		'--reverse', '-r',
+		action='store_true',
+		help='Flag whether the TokenTree starts from either heigher or (default) lower bit'
+		)
+	
+	kitti_args.add_argument(
+		'--sort', '-s',
+		action='store_true',
+		help='Flag whether to sort the data or (default) not'
+		)
+	
+	kitti_args.set_defaults(
+		run=kitti
+		)
 
 
 def save_header(header_file, **kwargs):
@@ -221,6 +326,8 @@ def compress(datapoints,
 
 
 def decompress(header_file, output=None, **kwargs):
+	"""
+	"""
 	if output is None:
 		output = header_file
 	if output:
@@ -249,13 +356,94 @@ def decompress(header_file, output=None, **kwargs):
 	return X
 
 
-def main(args):
+def merge_frames(frames,
+	bits_per_dim=[16, 16, 8, 8],
+	offset=[-100.0, -100.0, -25.0, 0],
+	scale=[200.0, 200.0, 30.0, 1.0]
+	):
+	"""
+	"""
+	scale = (1<<np.array(bits_per_dim) - 1).astype(float) / scale
+	for i, X in enumerate(frames):
+		X = bitops.serialize(X, bits_per_dim, qtype=np.uint64, offset=offset, scale=scale)[0]
+		X = np.ndarray((len(X), 4), dtype=np.uint16, buffer=X)
+		X[:,-1] = i
+		yield X
+
+
+def kitti(kittidata,
+	sort=False,
+	bits_per_dim=[16, 16, 8, 8],
+	offset=[-100.0, -100.0, -25.0, 0],
+	scale=[200.0, 200.0, 30.0, 1.0],
+	output=None,
+	breadth_first=False,
+	sort_bits=False,
+	reverse=False,
+	**kwargs
+	):
+	"""
+	"""
+	from pykitti.utils import yield_velo_scans
+	files = ifile(kittidata, sort)    
+	frames = yield_velo_scans(files)
+	
+	if output is None:
+		output = 'kitti_merge'
+	if output:
+		output = path.splitext(output)[0]
+	
+	X = np.vstack([X for X in merge_frames(frames, bits_per_dim, offset, scale)])
+	X = np.unique(X, axis=0)
+	
+	if sort_bits:
+		X = np.ndarray(len(X), dtype=np.uint64, buffer=X)
+		X, permute = bitops.sort_bits(X, reverse)
+		X = np.ndarray((len(X),4), dtype=np.uint16, buffer=X)
+		permute = permute.tolist()
+	elif args.reverse:
+		X = reverse_bits(X)
+		permute = True
+	else:
+		permute = False
+
+	log("\nData:", X.shape)
+	log("Range:", X.max(axis=0))
+	log(X)
+	log("\n---Encoding---\n")
+	
+	flags, payload = tokentree.encode(X,
+		output=output,
+		breadth_first=breadth_first,
+		**kwargs
+		)
+	
+	header_file, header = save_header(
+		output + '.hdr.pkl',
+		flags = path.basename(flags.name),
+		payload = path.basename(payload.name) if payload else False,
+		breadth_first = breadth_first,
+		offset = offset,
+		scale = scale,
+		permute = permute,
+		)
+	
+	log("\n")
+	log("Header saved to:", header_file)
+	log("Flags saved to:", flags.name)
+	log("Payload saved to:", payload.name)
+	return flags, payload, header
+
+
+def main(args, unparsed):
 	log.verbose = args.verbose
 	args.run(**args.__dict__)
 
 
 if __name__ == '__main__':
-	main_parser = init_argparsers()
-	args = main_parser.parse_args()
-	main(args)
-		
+	main_args = init_main_args()
+	subparser = main_args.add_subparsers(help='Application Modes:')
+	init_compress_args([main_args], subparser)
+	init_decompress_args([main_args], subparser)
+	init_kitti_args([main_args], subparser)
+	main(*main_args.parse_known_args())

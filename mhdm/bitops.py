@@ -17,8 +17,8 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 	if scale is None:
 		scale = (1<<np.array(bits_per_dim) - 1) / X.max(axis=0)
 	X *= scale
-	X = np.round(X).astype(qtype)
 	
+	X = np.round(X).astype(qtype)
 	return X, offset, scale 
 
 
@@ -28,9 +28,9 @@ def realization(X, offset, scale):
 	return X
 
 
-def serialize(X, bits_per_dim, dtype=object, offset=None, scale=None):
-	X, offset, scale = quantization(X, bits_per_dim, dtype, offset, scale)
-	shifts = np.cumsum(bits_per_dim, dtype=dtype) - bits_per_dim[0]
+def serialize(X, bits_per_dim, qtype=object, offset=None, scale=None):
+	X, offset, scale = quantization(X, bits_per_dim, qtype, offset, scale)
+	shifts = np.cumsum(bits_per_dim, dtype=qtype) - bits_per_dim[0]
 	X = np.sum(X<<shifts, axis=-1)
 	return X, offset, scale
 
