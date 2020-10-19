@@ -1,6 +1,5 @@
 
 ## Build in
-from argparse import ArgumentParser
 from collections import deque
 
 ## Installed
@@ -101,8 +100,8 @@ def decode(Y, payload=None, qtype=np.uint16, breadth_first=False, **kwargs):
 		
 		if log.verbose:
 			local.done += 1
-			progress = 100.0 * float(done) / len(Y)
-			log(msg.format(layer, bin(flag)[2:], int(points), progress), end='\r', flush=True)
+			progress = 100.0 * local.done / len(Y)
+			log(msg.format(layer, bin(flag)[2:], points, progress), end='\r', flush=True)
 		pass
 		
 	nodes = deque(expand(0, np.zeros(dim, dtype=qtype)))

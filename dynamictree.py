@@ -10,7 +10,7 @@ import pickle
 import numpy as np
 
 ## Local
-import mhdm.tokentree as tokentree
+import mhdm.dynamictree as dynamictree
 import mhdm.bitops as bitops
 from mhdm.utils import Prototype, log, ifile
 from mhdm.bitops import BitBuffer
@@ -27,7 +27,7 @@ def init_main_args(parents=[]):
 		main_args: The ArgumentParsers.
 	"""
 	main_args = ArgumentParser(
-		description="TokenTree",
+		description="DynamicTree",
 		conflict_handler='resolve',
 		parents=parents
 		)
@@ -54,13 +54,13 @@ def init_main_args(parents=[]):
 def init_compress_args(parents=[], subparser=None):
 	if subparser:
 		compress_args = subparser.add_parser('compress',
-			help='Compress datapoints to a TokenTree',
+			help='Compress datapoints to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		compress_args = ArgumentParser(
-			description='Compress datapoints to a TokenTree',
+			description='Compress datapoints to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -88,10 +88,36 @@ def init_compress_args(parents=[], subparser=None):
 		)
 	
 	compress_args.add_argument(
+		'--dims', '-D',
+		type=int,
+		nargs='*',
+		metavar='INT',
+		default=[],
+		help='Dimension per tree layer'
+		)
+	
+	compress_args.add_argument(
 		'--qtype', '-q',
 		metavar='TYPE',
-		default='uint16',
+		default='object',
 		help='The quantization type for the datapoints'
+		)
+	
+	compress_args.add_argument(
+		'--bits_per_dim', '-B',
+		type=int,
+		nargs='*',
+		metavar='INT',
+		default=[16, 16, 16],
+		help='The quantization size per dimension'
+		)
+	
+	compress_args.add_argument(
+		'--tree_depth', '-T',
+		type=int,
+		metavar='INT',
+		default=48,
+		help='The expected dimension of the datapoints'
 		)
 	
 	compress_args.add_argument(
@@ -115,7 +141,7 @@ def init_compress_args(parents=[], subparser=None):
 	compress_args.add_argument(
 		'--reverse', '-r',
 		action='store_true',
-		help='Flag whether the TokenTree starts from either heigher or (default) lower bit'
+		help='Flag whether the DynamicTree starts from either heigher or (default) lower bit'
 		)
 	
 	compress_args.set_defaults(
@@ -128,13 +154,13 @@ def init_compress_args(parents=[], subparser=None):
 def init_decompress_args(parents=[], subparser=None):
 	if subparser:
 		decompress_args = subparser.add_parser('decompress',
-			help='Decompress a TokenTree to datapoints',
+			help='Decompress a DynamicTree to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		decompress_args = ArgumentParser(
-			description='Decompress a TokenTree to datapoints',
+			description='Decompress a DynamicTree to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -156,13 +182,13 @@ def init_decompress_args(parents=[], subparser=None):
 def init_kitti_args(parents=[], subparser=None):
 	if subparser:
 		kitti_args = subparser.add_parser('kitti',
-			help='Compress kitti data to a TokenTree',
+			help='Compress kitti data to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		kitti_args = ArgumentParser(
-			description='Compress kitti data to a TokenTree',
+			description='Compress kitti data to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -180,6 +206,15 @@ def init_kitti_args(parents=[], subparser=None):
 		metavar='INT',
 		default=0,
 		help='Limit chunk size'
+		)
+	
+	kitti_args.add_argument(
+		'--dims', '-D',
+		type=int,
+		nargs='*',
+		metavar='INT',
+		default=[],
+		help='Dimension per tree layer'
 		)
 	
 	kitti_args.add_argument(
@@ -210,6 +245,21 @@ def init_kitti_args(parents=[], subparser=None):
 		)
 	
 	kitti_args.add_argument(
+		'--qtype', '-q',
+		metavar='TYPE',
+		default='uint64',
+		help='The quantization type for the datapoints'
+		)
+	
+	kitti_args.add_argument(
+		'--tree_depth', '-T',
+		type=int,
+		metavar='INT',
+		default=64,
+		help='The expected dimension of the datapoints'
+		)
+	
+	kitti_args.add_argument(
 		'--breadth_first', '-b',
 		action='store_true',
 		help='Flag whether the tree-structure is either breadth first or (default) depth first'
@@ -230,7 +280,7 @@ def init_kitti_args(parents=[], subparser=None):
 	kitti_args.add_argument(
 		'--reverse', '-r',
 		action='store_true',
-		help='Flag whether the TokenTree starts from either heigher or (default) lower bit'
+		help='Flag whether the DynamicTree starts from either heigher or (default) lower bit'
 		)
 	
 	kitti_args.set_defaults(
@@ -255,29 +305,18 @@ def load_datapoints(datapoints, xtype=np.float, dim=3, **kwargs):
 	X = X[:(len(X)//dim)*dim].reshape(-1,dim)
 	X = np.unique(X, axis=0)
 	return X
-
-
-def load_flags(flags, dim=3, **kwargs):
-	if dim == 3:
-		Y = np.fromfile(flags, dtype=np.uint8)
-	elif dim == 4:
-		Y = np.fromfile(flags, dtype=np.uint16)
-	elif dim == 5:
-		Y = np.fromfile(flags, dtype=np.uint32)
-	elif dim == 6:
-		Y = np.fromfile(flags, dtype=np.uint64)
-	else:
-		Y = BitBuffer(flags, 'rb', 1<<dim)
-	return Y
 	
 
 def compress(datapoints,
+	dims=[],
+	bits_per_dim=[16,16,16],
+	tree_depth=None,
 	output=None,
 	breadth_first=False,
 	sort_bits=False,
 	reverse=False,
 	xtype=np.float,
-	qtype=np.uint16,
+	qtype=object,
 	**kwargs
 	):
 	"""
@@ -288,7 +327,7 @@ def compress(datapoints,
 		output = path.splitext(output)[0]
 
 	X = load_datapoints(datapoints, xtype=xtype, **kwargs)
-	X, offset, scale = bitops.quantization(X, qtype=qtype)
+	X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
 	if sort_bits:
 		X, permute = bitops.sort_bits(X, reverse)
 		permute = permute.tolist()
@@ -302,7 +341,9 @@ def compress(datapoints,
 	log(X)
 	log("\n---Encoding---\n")
 	
-	flags, payload = tokentree.encode(X,
+	flags, payload = dynamictree.encode(X,
+		dims=dims,
+		tree_depth=tree_depth,
 		output=output,
 		breadth_first=breadth_first,
 		**kwargs
@@ -310,12 +351,15 @@ def compress(datapoints,
 	
 	header_file, header = save_header(
 		output + '.hdr.pkl',
+		dims=dims,
 		flags = path.basename(flags.name),
 		payload = path.basename(payload.name) if payload else False,
+		num_points = len(X),
 		breadth_first = breadth_first,
 		offset = offset.tolist(),
 		scale = scale.tolist(),
 		permute = permute,
+		bits_per_dim=bits_per_dim,
 		xtype = xtype,
 		qtype = qtype,
 		)
@@ -333,25 +377,28 @@ def decompress(header_file, output=None, **kwargs):
 	if output is None:
 		output = header_file
 	if output:
-		output = path.splitext(output)[0]
+		output = path.splitext(path.splitext(output)[0])[0] + '.bin'
 	
 	header = load_header(header_file)
+	log("\n---Header---")
+	log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
+	log("---Header---")
+	
 	header.flags = path.join(path.dirname(header_file), header.flags)
 	header.payload = path.join(path.dirname(header_file), header.payload) if header.payload else None
 	
-	Y = load_flags(**header.__dict__)
-	log("\nFlags:", Y.shape)
-	log(Y)
+	flags = BitBuffer(header.flags, 'rb')
 	log("\n---Decoding---\n")
-	X = tokentree.decode(Y, **header.__dict__)
+	X = dynamictree.decode(flags, **header.__dict__)
 	
 	if header.permute is True:
 		X = reverse_bits(X)
 	elif header.permute:
-		X = permute_bits(X, header.permute)
+		X = bitops.permute_bits(X, header.permute)
 	
-	X = realization(X, header.offset, header.scale)
-	X.tofile(output + '.bin')
+	X = bitops.deserialize(X, header.bits_per_dim, header.qtype)
+	X = bitops.realization(X, header.offset, header.scale)
+	X.tofile(output)
 	log("\nData:", X.shape)
 	log(X)
 	log("Datapoints saved to:", output)
@@ -362,26 +409,29 @@ def merge_frames(frames,
 	bits_per_dim=[16, 16, 8, 8],
 	offset=[-100.0, -100.0, -25.0, 0],
 	scale=[200.0, 200.0, 30.0, 1.0],
-	limit=0
+	limit=0,
+	qtype=np.uint64
 	):
 	"""
 	"""
 	scale = (1<<np.array(bits_per_dim) - 1).astype(float) / scale
 	for i, X in enumerate(frames):
-		X = bitops.serialize(X, bits_per_dim, qtype=np.uint64, offset=offset, scale=scale)[0]
-		X = np.ndarray((len(X), 4), dtype=np.uint16, buffer=X)
-		X[:,-1] = i
+		X = bitops.serialize(X, bits_per_dim, qtype=qtype, offset=offset, scale=scale)[0]
+		X |= i << np.sum(bits_per_dim)
 		yield X
 		if limit and i >= limit-1:
-			raise StopIteration()
+			break
 
 
 def kitti(kittidata,
+	dims=[],
 	bits_per_dim=[16, 16, 8, 8],
 	offset=[-100.0, -100.0, -25.0, 0],
 	scale=[200.0, 200.0, 30.0, 1.0],
 	limit=0,
+	qtype=np.uint64,
 	output=None,
+	tree_depth=None,
 	breadth_first=False,
 	sort_bits=False,
 	reverse=False,
@@ -401,12 +451,12 @@ def kitti(kittidata,
 	i = 0
 	while True:
 		output_i = '{}_{:0>4}'.format(output, i)
-		try:
-			X = np.vstack([X for X in merge_frames(frames, bits_per_dim, offset, scale, limit)])
-		except StopIteration:
-			return
+		X = np.hstack([X for X in merge_frames(frames, bits_per_dim, offset, scale, limit, qtype)])
 		X = np.unique(X, axis=0)
-		i += 1
+		if len(X) == 0:
+			return
+		else:
+			i += 1
 		
 		if sort_bits:
 			X, permute = bitops.sort_bits(X, reverse)
@@ -423,7 +473,9 @@ def kitti(kittidata,
 		log(X)
 		log("\n---Encoding---\n")
 		
-		flags, payload = tokentree.encode(X,
+		flags, payload = dynamictree.encode(X,
+			dims=dims,
+			tree_depth=tree_depth,
 			output=output_i,
 			breadth_first=breadth_first,
 			**kwargs
@@ -431,17 +483,25 @@ def kitti(kittidata,
 		
 		header_file, header = save_header(
 			output_i + '.hdr.pkl',
+			dims = dims,
 			flags = path.basename(flags.name),
-			payload = path.basename(payload.name) if payload else False,
+			payload = path.basename(payload.name) if payload is not None else False,
+			num_points = len(X),
 			breadth_first = breadth_first,
 			offset = offset,
 			scale = scale,
 			permute = permute,
-			bits_per_dim=bits_per_dim
+			bits_per_dim=bits_per_dim,
+			xtype = float,
+			qtype = qtype
 			)
 		
 		log("\n")
-		log("Header saved to:", header_file)
+		log("---Header---")
+		log("\n".join(["{}: {}".format(k,v) for k,v in header.items()]))
+		log("---Header---")
+		
+		log("\nHeader saved to:", header_file)
 		log("Flags saved to:", flags.name)
 		log("Payload saved to:", payload.name)
 	pass

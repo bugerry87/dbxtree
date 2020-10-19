@@ -35,10 +35,10 @@ def serialize(X, bits_per_dim, qtype=object, offset=None, scale=None):
 	return X, offset, scale
 
 
-def deserialize(X, bits_per_dim):
+def deserialize(X, bits_per_dim, qtype=object):
 	X = X.reshape(-1,1)
-	masks = 1<<np.array(bits_per_dim) - 1
-	shifts = np.cumsum(bits_per_dim, dtype=dtype) - bits_per_dim[0]
+	masks = 1<<np.array(bits_per_dim, dtype=qtype) - 1
+	shifts = np.cumsum(bits_per_dim, dtype=qtype) - bits_per_dim[0]
 	X = X>>shifts & masks
 	return X
 
@@ -174,7 +174,8 @@ class BitBuffer:
 			       (default=True)
 		"""
 		if self.fid:
-			self.flush(True)
+			if 'r' not in self.fid.mode:
+				self.flush(True)
 			self.fid.close()
 		if reset:
 			self.reset()
@@ -226,14 +227,15 @@ class BitBuffer:
 			if len(buffer) < n_bytes:
 				raise EOFError()
 			elif buffer:
-				self.buffer <<= len(buffer)
+				self.buffer <<= len(buffer*8)
 				self.buffer |= int.from_bytes(buffer, 'big')
 		
 		n_bits = self.__len__()
 		if n_bits >= bits:
-			mask = (1<<n_bits-bits) - 1
-			result = self.buffer >> n_bits-bits
-			self.buffer &= mask
+			mask = (1<<bits) - 1
+			result = (self.buffer >> n_bits-bits) & mask
+			self.buffer &= (1<<n_bits-bits) - 1
+			self.buffer |= 0xFF << n_bits-bits
 		else:
 			raise BufferError()
 		
