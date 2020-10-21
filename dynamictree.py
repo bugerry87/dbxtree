@@ -51,35 +51,35 @@ def init_main_args(parents=[]):
 	return main_args
 
 
-def init_compress_args(parents=[], subparser=None):
+def init_encode_args(parents=[], subparser=None):
 	if subparser:
-		compress_args = subparser.add_parser('compress',
-			help='Compress datapoints to a DynamicTree',
+		encode_args = subparser.add_parser('encode',
+			help='Encode datapoints to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
-		compress_args = ArgumentParser(
-			description='Compress datapoints to a DynamicTree',
+		encode_args = ArgumentParser(
+			description='Encode datapoints to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--datapoints', '-X',
 		required=True,
 		metavar='PATH',
 		help='A path to a file of datapoints as .bin'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--xtype', '-t',
 		metavar='TYPE',
 		default='float',
 		help='The expected data-type of the datapoints'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--dim', '-d',
 		type=int,
 		metavar='INT',
@@ -87,7 +87,7 @@ def init_compress_args(parents=[], subparser=None):
 		help='The expected dimension of the datapoints'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--dims', '-D',
 		type=int,
 		nargs='*',
@@ -96,14 +96,14 @@ def init_compress_args(parents=[], subparser=None):
 		help='Dimension per tree layer'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--qtype', '-q',
 		metavar='TYPE',
 		default='object',
 		help='The quantization type for the datapoints'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--bits_per_dim', '-B',
 		type=int,
 		nargs='*',
@@ -112,7 +112,7 @@ def init_compress_args(parents=[], subparser=None):
 		help='The quantization size per dimension'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--tree_depth', '-T',
 		type=int,
 		metavar='INT',
@@ -120,75 +120,75 @@ def init_compress_args(parents=[], subparser=None):
 		help='The expected dimension of the datapoints'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--breadth_first', '-b',
 		action='store_true',
 		help='Flag whether the tree-structure is either breadth first or (default) depth first'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--payload', '-p',
 		action='store_true',
 		help='Flag whether or (default) not to separate a payload file'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--sort_bits', '-P',
 		action='store_true',
 		help='Flag whether the bits of the datapoints get either sorted by probability or (default) not'
 		)
 	
-	compress_args.add_argument(
+	encode_args.add_argument(
 		'--reverse', '-r',
 		action='store_true',
 		help='Flag whether the DynamicTree starts from either heigher or (default) lower bit'
 		)
 	
-	compress_args.set_defaults(
-		run=compress
+	encode_args.set_defaults(
+		run=encode
 		)
 	
-	return compress_args
+	return encode_args
 
 
-def init_decompress_args(parents=[], subparser=None):
+def init_decode_args(parents=[], subparser=None):
 	if subparser:
-		decompress_args = subparser.add_parser('decompress',
-			help='Decompress a DynamicTree to datapoints',
+		decode_args = subparser.add_parser('decode',
+			help='Decode a DynamicTree to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
-		decompress_args = ArgumentParser(
-			description='Decompress a DynamicTree to datapoints',
+		decode_args = ArgumentParser(
+			description='Decode a DynamicTree to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	
-	decompress_args.add_argument(
+	decode_args.add_argument(
 		'--header_file', '-Y',
 		required=True,
 		metavar='PATH',
 		help='A path to a header file as .hdr.pkl'
 		)
 	
-	decompress_args.set_defaults(
-		run=decompress
+	decode_args.set_defaults(
+		run=decode
 		)
 	
-	return decompress_args
+	return decode_args
 
 
 def init_kitti_args(parents=[], subparser=None):
 	if subparser:
 		kitti_args = subparser.add_parser('kitti',
-			help='Compress kitti data to a DynamicTree',
+			help='Encode kitti data to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		kitti_args = ArgumentParser(
-			description='Compress kitti data to a DynamicTree',
+			description='Encode kitti data to a DynamicTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -307,7 +307,7 @@ def load_datapoints(datapoints, xtype=np.float, dim=3, **kwargs):
 	return X
 	
 
-def compress(datapoints,
+def encode(datapoints,
 	dims=[],
 	bits_per_dim=[16,16,16],
 	tree_depth=None,
@@ -371,7 +371,7 @@ def compress(datapoints,
 	return flags, payload, header
 
 
-def decompress(header_file, output=None, **kwargs):
+def decode(header_file, output=None, **kwargs):
 	"""
 	"""
 	if output is None:
@@ -382,7 +382,6 @@ def decompress(header_file, output=None, **kwargs):
 	header = load_header(header_file)
 	log("\n---Header---")
 	log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
-	log("---Header---")
 	
 	header.flags = path.join(path.dirname(header_file), header.flags)
 	header.payload = path.join(path.dirname(header_file), header.payload) if header.payload else None
@@ -391,6 +390,11 @@ def decompress(header_file, output=None, **kwargs):
 	log("\n---Decoding---\n")
 	X = dynamictree.decode(flags, **header.__dict__)
 	
+	if log.verbose:
+		log()
+		X.sort()
+		log(X)
+	
 	if header.permute is True:
 		X = reverse_bits(X)
 	elif header.permute:
@@ -398,7 +402,6 @@ def decompress(header_file, output=None, **kwargs):
 	
 	X = bitops.deserialize(X, header.bits_per_dim, header.qtype)
 	X = bitops.realization(X, header.offset, header.scale)
-	X.tofile(output)
 	log("\nData:", X.shape)
 	log(X)
 	log("Datapoints saved to:", output)
@@ -451,12 +454,13 @@ def kitti(kittidata,
 	i = 0
 	while True:
 		output_i = '{}_{:0>4}'.format(output, i)
-		X = np.hstack([X for X in merge_frames(frames, bits_per_dim, offset, scale, limit, qtype)])
-		X = np.unique(X, axis=0)
+		X = [X for X in merge_frames(frames, bits_per_dim, offset, scale, limit, qtype)]
 		if len(X) == 0:
 			return
 		else:
 			i += 1
+		X = np.hstack(X)
+		X = np.unique(X, axis=0)
 		
 		if sort_bits:
 			X, permute = bitops.sort_bits(X, reverse)
@@ -467,11 +471,12 @@ def kitti(kittidata,
 		else:
 			permute = False
 
-		log("\nChunk No.", i)
-		log("Data:", X.shape)
-		log("Range:", X.max(axis=0))
-		log(X)
-		log("\n---Encoding---\n")
+		if log.verbose:
+			log("\nChunk No.", i)
+			log("Data:", X.shape)
+			X.sort()
+			log(X)
+			log("\n---Encoding---\n")
 		
 		flags, payload = dynamictree.encode(X,
 			dims=dims,
@@ -499,7 +504,6 @@ def kitti(kittidata,
 		log("\n")
 		log("---Header---")
 		log("\n".join(["{}: {}".format(k,v) for k,v in header.items()]))
-		log("---Header---")
 		
 		log("\nHeader saved to:", header_file)
 		log("Flags saved to:", flags.name)
@@ -515,8 +519,8 @@ def main(args, unparsed):
 if __name__ == '__main__':
 	main_args = init_main_args()
 	subparser = main_args.add_subparsers(help='Application Modes:')
-	init_compress_args([main_args], subparser)
-	init_decompress_args([main_args], subparser)
+	init_encode_args([main_args], subparser)
+	init_decode_args([main_args], subparser)
 	init_kitti_args([main_args], subparser)
 	main(*main_args.parse_known_args())
 	

@@ -82,14 +82,14 @@ def decode(Y, num_points,
 		points = 0
 		)
 	
-	def expand(layer, x, tail):
+	def expand(x, layer, pos):
 		dim = dims[layer] if layer < len(dims) else 1
 		fbit = 1<<dim
 		flag = Y.read(fbit) if layer < tree_depth else 0
 		
 		if flag == 0:
 			if payload:
-				x |= payload.read(tail) << layer
+				x |= payload.read(tree_depth-pos) << pos
 			
 			xi = next(Xi, None)
 			if xi is not None:
@@ -98,14 +98,14 @@ def decode(Y, num_points,
 		else:
 			for token in range(fbit):
 				if flag & 1<<token:
-					yield expand(layer+1, x | token<<tree_depth-tail, tail-dim)
+					yield expand(x | token<<pos, layer+1, pos+dim)
 		
 		if log.verbose:
 			progress = 100.0 * local.points / len(X)
 			log(msg.format(layer, hex(flag)[2:], local.points, progress), end='\r', flush=True)
 		pass
 		
-	nodes = deque(expand(0, np.zeros(1, dtype=qtype), tree_depth))
+	nodes = deque(expand(np.zeros(1, dtype=qtype), 0, 0))
 	while nodes:
 		nodes.extend(nodes.popleft() if breadth_first else nodes.pop())
 	return X

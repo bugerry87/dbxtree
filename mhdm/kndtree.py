@@ -1,5 +1,6 @@
 
 #BuildIn
+from argparse import ArgumentParser
 from multiprocessing import Pool, Lock
 from collections import deque
 import time
@@ -9,6 +10,66 @@ import numpy as np
 
 #Local
 import spatial
+
+
+def init_MeshTree_args(parents=[]):
+	"""
+	Initialize an ArgumentParser for this module.
+	
+	Args:
+		parents: A list of ArgumentParsers of other scripts, if there are any.
+		
+	Returns:
+		parser: The ArgumentParsers.
+	"""
+	parser = ArgumentParser(
+		#description="Demo for embedding data via LDA",
+		parents=parents
+		)
+	
+	parser.add_argument(
+		'--model_size', '-m',
+		metavar='INT',
+		type=int,
+		default=30000
+		)
+	
+	parser.add_argument(
+		'--query_size', '-q',
+		metavar='INT',
+		type=int,
+		default=30000
+		)
+	
+	parser.add_argument(
+		'--batch_size', '-b',
+		metavar='INT',
+		type=int,
+		default=0
+		)
+	
+	parser.add_argument(
+		'--leaf_size', '-l',
+		metavar='INT',
+		type=int,
+		default=1000
+		)
+	
+	parser.add_argument(
+		'--jobs', '-j',
+		metavar='INT',
+		type=int,
+		default=1
+		)
+	
+	parser.add_argument(
+		'--seed', '-s',
+		metavar='INT',
+		type=int,
+		default=0
+		)
+	
+	return parser
 
 
 def __job__(data):
@@ -207,7 +268,7 @@ class Node:
 			yield self.right.query(tree, Pi[right])
 
 
-class KNDTree:
+class MeshTree:
 	def __init__(self, X, Xi, j=1, leaf_size=None, batch_size=None, callback=None):
 		self.X = X
 		self.Xi = Xi
@@ -232,7 +293,7 @@ class KNDTree:
 		self.done = np.zeros(self.K, dtype=bool)
 	
 	def __str__(self):
-		return "**KNDtree**\n  Leaf Size: {}\n".format(self.leaf_size) + \
+		return "**MeshTree**\n  Leaf Size: {}\n".format(self.leaf_size) + \
 			"\n".join(["  Root:{}".format(str(root)) for root in self.roots])
 	
 	def __len__(self):
@@ -262,6 +323,14 @@ class KNDTree:
 		return self.L, self.mp, self.nn
 
 
+def query():
+	pass
+
+
+def demo(args):
+	pass
+
+
 def callback(tree):
 	last = 0
 	while last <= 50:
@@ -281,64 +350,7 @@ if __name__ == '__main__':
 	from utils import time_delta
 	from time import time
 	
-	def init_argparse(parents=[]):
-		''' init_argparse(parents=[]) -> parser
-		Initialize an ArgumentParser for this module.
-		
-		Args:
-			parents: A list of ArgumentParsers of other scripts, if there are any.
-			
-		Returns:
-			parser: The ArgumentParsers.
-		'''
-		parser = ArgumentParser(
-			#description="Demo for embedding data via LDA",
-			parents=parents
-			)
-		
-		parser.add_argument(
-			'--model_size', '-m',
-			metavar='INT',
-			type=int,
-			default=30000
-			)
-		
-		parser.add_argument(
-			'--query_size', '-q',
-			metavar='INT',
-			type=int,
-			default=30000
-			)
-		
-		parser.add_argument(
-			'--batch_size', '-b',
-			metavar='INT',
-			type=int,
-			default=0
-			)
-		
-		parser.add_argument(
-			'--leaf_size', '-l',
-			metavar='INT',
-			type=int,
-			default=1000
-			)
-		
-		parser.add_argument(
-			'--jobs', '-j',
-			metavar='INT',
-			type=int,
-			default=1
-			)
-		
-		parser.add_argument(
-			'--seed', '-s',
-			metavar='INT',
-			type=int,
-			default=0
-			)
-		
-		return parser
+	
 	
 	args, _ = init_argparse().parse_known_args()
 	
@@ -347,12 +359,12 @@ if __name__ == '__main__':
 	P = np.random.randn(args.query_size,3)
 	Xi = np.arange(len(X)).reshape(-1,3)
 	
-	print("KNDTree")
+	print("MeshTree")
 	print("Model size:", X.shape)
 	print("Query size:", P.shape)
 	
 	delta = time_delta(time())
-	tree = KNDTree(
+	tree = MeshTree(
 		X, Xi,
 		args.jobs,
 		args.leaf_size,

@@ -15,7 +15,7 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 		offset = X.min(axis=0)
 	X -= offset
 	if scale is None:
-		scale = (1<<np.array(bits_per_dim) - 1) / X.max(axis=0)
+		scale = ((1<<np.array(bits_per_dim)) - 1) / X.max(axis=0)
 	X *= scale
 	
 	X = np.round(X).astype(qtype)
@@ -23,7 +23,7 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 
 
 def realization(X, offset, scale):
-	X = X / scale
+	X = X.astype(float) / scale
 	X += offset
 	return X
 
@@ -31,15 +31,16 @@ def realization(X, offset, scale):
 def serialize(X, bits_per_dim, qtype=object, offset=None, scale=None):
 	X, offset, scale = quantization(X, bits_per_dim, qtype, offset, scale)
 	shifts = np.cumsum(bits_per_dim, dtype=qtype) - bits_per_dim[0]
+	print(X.dtype)
 	X = np.sum(X<<shifts, axis=-1)
 	return X, offset, scale
 
 
 def deserialize(X, bits_per_dim, qtype=object):
 	X = X.reshape(-1,1)
-	masks = 1<<np.array(bits_per_dim, dtype=qtype) - 1
+	masks = (1<<np.array(bits_per_dim, dtype=qtype)) - 1
 	shifts = np.cumsum(bits_per_dim, dtype=qtype) - bits_per_dim[0]
-	X = X>>shifts & masks
+	X = (X>>shifts) & masks
 	return X
 
 
@@ -88,7 +89,8 @@ class BitBuffer:
 	def __init__(self,
 		filename=None,
 		mode='rb',
-		interval=8
+		interval=8,
+		buf=1000
 		):
 		"""
 		Init a BitBuffer.
@@ -98,11 +100,13 @@ class BitBuffer:
 		Args:
 			filename: Opens a file from beginning.
 			mode: The operation mode, either 'rb', 'ab' or 'wb'.
-			interval: Used in case of iterative reading
+			interval: Used in case of iterative reading.
+			buf: Bytes to buffer on read or write to file.
 		"""
 		self.fid = None
 		self.buffer = 0xFF
 		self.interval = interval
+		self.buf = buf
 		
 		if filename:
 			self.open(filename, mode)
@@ -152,17 +156,19 @@ class BitBuffer:
 	
 		n_bits = self.buffer.bit_length()
 		n_bytes = n_bits // 8
-		n_tail = n_bits % 8
+		n_tail = 8-n_bits % 8
 		
 		if hard:
+			self.buffer <<= n_tail
 			buf = self.buffer.to_bytes(n_bytes+bool(n_tail), 'big')
 			self.fid.write(buf[1:])
 			self.buffer = 0xFF
 			self.fid.flush()
-		elif n_bytes > 1:
+		elif n_bytes > self.buf:
+			self.buffer <<= n_tail
 			buf = self.buffer.to_bytes(n_bytes+bool(n_tail), 'big')
 			self.fid.write(buf[1:n_bytes])
-			self.buffer = (0xFF << n_tail) | buf[-1] if n_tail else 0xFF
+			self.buffer = (0xFF00 | buf[-1]) >> n_tail if n_tail else 0xFF
 		pass
 	
 	def close(self, reset=True):
@@ -216,14 +222,14 @@ class BitBuffer:
 		if soft_flush:
 			self.flush()
 	
-	def read(self, bits, buf=0):
+	def read(self, bits):
 		"""
 		"""
 		bits = int(bits)
 		
 		if self.__len__() < bits and not self.closed:
 			n_bytes = max(bits//8, 1)
-			buffer = self.fid.read(buf + n_bytes)
+			buffer = self.fid.read(self.buf + n_bytes)
 			if len(buffer) < n_bytes:
 				raise EOFError()
 			elif buffer:
