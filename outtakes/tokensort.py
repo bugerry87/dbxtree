@@ -3,7 +3,6 @@
 ## Installed
 import numpy as np
 
-
 UINT8_TO_TOKEN32 = np.array([int(bin(i).replace('b','x'),16) for i in range(256)], dtype=np.uint32)
 TOKEN32_TO_UINT8 = dict([(token, byte) for byte, token in enumerate(UINT8_TO_TOKEN32)])
 
@@ -49,6 +48,10 @@ def realize(Y):
 	return np.ndarray((N,4), dtype=np.uint16, buffer=X)
 
 
+def numeric_delta(X, offset=0):
+	return np.concatenate((X[:offset+1], np.diff(X[offset:], axis=0)))
+
+
 def pack_8x64(X):
 	shape = (len(X)//8,8,8)
 	Y = np.zeros(shape, dtype=np.uint8)
@@ -79,20 +82,23 @@ def unpack_8x64(Y):
 def encode(X):
 	Y = featurize(X)
 	Y.sort()
-	Y = np.diff(Y, prepend=0).astype(np.uint64)
+	Y = numeric_delta(Y)
+	#for y in Y[:50]:
+	#	print("{:0>64}".format(bin(y)[2:]))
 	return pack_8x64(Y).T
 
 
 def decode(Y):
 	X = unpack_8x64(Y)
 	X = np.cumsum(X)
+	#for x in X[:50]:
+	#	print("{:0>64}".format(bin(x)[2:]))
 	return realize(X)
 
 
 ## Test
 if __name__ == '__main__':
 	from argparse import ArgumentParser
-	from utils import ifile
 	
 	def init_argparse(parents=[]):
 		''' init_argparse(parents=[]) -> parser
@@ -105,20 +111,13 @@ if __name__ == '__main__':
 			parser: The ArgumentParsers.
 		'''
 		parser = ArgumentParser(
-			description="Demo of TokenSort",
+			description="Demo of TranSort",
 			parents=parents
 			)
 		
 		parser.add_argument(
-			'--kitti',
+			'--data', '-x',
 			metavar='STRING',
-			default=None
-			)
-		
-		parser.add_argument(
-			'--decode', '-y',
-			metavar='STRING',
-			nargs='*',
 			default=None
 			)
 		
@@ -169,46 +168,43 @@ if __name__ == '__main__':
 	args, _ = init_argparse().parse_known_args()
 	np.random.seed(args.seed)
 	
-	if args.decode:
-		files = ifile(args.decode)
-		Y = np.hstack([np.fromfile(f, dtype=np.uint8) for f in files])
-		X = None
-	elif args.kitti:
+	if args.data:
 		import pykitti
 		from mhdm.utils import *
 		
-		print("\nLoad data: {}".format(args.kitti))
-		files = ifile(args.kitti)	
+		print("\nLoad data: {}".format(args.data))
+		files = ifile(args.data)	
 		frames = pykitti.utils.yield_velo_scans(files)
 		X = np.vstack([np.hstack((f, np.full((len(f),1), i))) for i, f in enumerate(frames)])
 		X[:,3] /= X[:,3].max()
 		X[:,3] *= 0xF
 		X[:,:3] *= 100
-		X[:,2] += 0x07FF
-		X[:,:2] += 0x7FFF
+		X[:,2] += 2**11
+		X[:,:2] += np.iinfo(args.input_type).max * 0.5
 	else:
 		X = np.random.__dict__[args.generator](*args.input_size)
 		X -= X.min(axis=0)
 		X /= X.max(axis=0)
 		X *= np.iinfo(args.input_type).max
 	
-	if X is not None:
-		X = np.round(X).astype(args.input_type)
-		X = pack_64(X)
-		X.tofile('org.bin')
-		
-		print("\nData: {}\n".format(X.shape), X)
-		print("\n---Encoding---")
-		Y = encode(X)
-		Y.tofile(args.filename)
-		print("\nEncoded:\n", Y[-16:].T)
+	X = np.round(X).astype(args.input_type)
+	X = pack_64(X)
+	X.tofile('org.bin')
 	
+	print("\nData: {}\n".format(X.shape), X)
+	print("\n---Encoding---")
+	
+	Y = encode(X)
+	Y.tofile(args.filename)
+	
+	print("\nEncoded:\n", Y[-16:].T)
 	print("\n---Decoding---")
+	
 	X = decode(Y)
 	print("\nDecoded:\n", X)
 
 	if 'cloud' in args.visualize:
-		import viz
+		import mhdm.viz as viz
 		fig = viz.create_figure()
 		I = X[:,2] & 0xF
 		X[:,2] = X[:,2] >> 4

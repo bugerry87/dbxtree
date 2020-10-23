@@ -12,39 +12,39 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 	X = X.astype(float)
 	
 	if offset is None:
-		offset = X.min(axis=0)
-	X -= offset
+		offset = -X.min(axis=0)
+	X += offset
 	if scale is None:
-		scale = ((1<<np.array(bits_per_dim)) - 1) / X.max(axis=0)
+		scale = X.max(axis=0)
+		m = scale != 0
+		scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / X.max(axis=0)[m]
 	X *= scale
-	
 	X = np.round(X).astype(qtype)
 	return X, offset, scale 
 
 
 def realization(X, offset, scale):
 	X = X.astype(float) / scale
-	X += offset
+	X -= offset
 	return X
 
 
 def serialize(X, bits_per_dim, qtype=object, offset=None, scale=None):
 	X, offset, scale = quantization(X, bits_per_dim, qtype, offset, scale)
-	shifts = np.cumsum(bits_per_dim, dtype=qtype) - bits_per_dim[0]
-	print(X.dtype)
-	X = np.sum(X<<shifts, axis=-1)
+	shifts = np.cumsum([0] + bits_per_dim[:-1], dtype=qtype)
+	X = np.sum(X<<shifts, axis=-1, dtype=qtype)
 	return X, offset, scale
 
 
 def deserialize(X, bits_per_dim, qtype=object):
 	X = X.reshape(-1,1)
 	masks = (1<<np.array(bits_per_dim, dtype=qtype)) - 1
-	shifts = np.cumsum(bits_per_dim, dtype=qtype) - bits_per_dim[0]
+	shifts = np.cumsum([0] + bits_per_dim[:-1], dtype=qtype)
 	X = (X>>shifts) & masks
 	return X
 
 
-def sort_bits(X, reverse=False, absp=False):
+def sort(X, reverse=False, absp=False):
 	shifts = np.iinfo(X.dtype).bits
 	shape = X.shape
 	X = X.flatten()
@@ -61,7 +61,7 @@ def sort_bits(X, reverse=False, absp=False):
 	return Y.reshape(shape), p.astype(np.uint8)
 
 
-def permute_bits(X, p):
+def permute(X, p):
 	shifts = np.iinfo(X.dtype).bits
 	shape = X.shape
 	X = X.flatten()
@@ -72,7 +72,7 @@ def permute_bits(X, p):
 	return Y.reshape(shape)
 
 
-def reverse_bits(X):
+def reverse(X):
 	shifts = np.iinfo(X.dtype).bits
 	Y = np.zeros_like(X)
 	
@@ -81,7 +81,23 @@ def reverse_bits(X):
 	return Y
 
 
-class BitBuffer:
+def transpose(X, bits=None, dtype=object):
+	if X.ndim > 1 and X.shape[-1] == 8:
+		if bits is None:
+			bits = np.iinfo(X.dtype).bits
+		Xt = np.hstack([np.packbits(X>>i & 1) for i in range(bits)])
+	elif X.dtype == np.uint8:
+		if bits is None:
+			bits = np.iinfo(dtype).bits
+		X = X.reshape(bits, -1)
+		Xt = np.sum([np.unpackbits(X[i], axis=-1).astype(dtype) << i for i in range(bits)], axis=0, dtype=dtype)
+		Xt = Xt.reshape(-1, 8)
+	else:
+		ValueError("The last dimension must have either a shape of 8 or contain data of type uint8")
+	return Xt
+
+
+class BitBuffer():
 	"""
 	Buffers bitwise to a file or memory.
 	"""
@@ -124,6 +140,15 @@ class BitBuffer:
 				yield self.read(self.interval)
 		except (EOFError, BufferError):
 			raise StopIteration
+	
+	def __bytes__(self):
+		n_bits = self.buffer.bit_length()
+		n_bytes = n_bits // 8
+		n_tail = 8-n_bits % 8
+		return (self.buffer << n_tail).to_bytes(n_bytes+bool(n_tail), 'big')
+	
+	def __bool__(self):
+		return True
 	
 	@property
 	def name(self):

@@ -10,7 +10,7 @@ import pickle
 import numpy as np
 
 ## Local
-import mhdm.tokentree as tokentree
+import mhdm.tokensort as tokensort
 import mhdm.bitops as bitops
 from mhdm.utils import Prototype, log, ifile
 from mhdm.bitops import BitBuffer
@@ -27,7 +27,7 @@ def init_main_args(parents=[]):
 		main_args: The ArgumentParsers.
 	"""
 	main_args = ArgumentParser(
-		description="TokenTree",
+		description="TokenSort",
 		conflict_handler='resolve',
 		parents=parents
 		)
@@ -54,13 +54,13 @@ def init_main_args(parents=[]):
 def init_encode_args(parents=[], subparser=None):
 	if subparser:
 		encode_args = subparser.add_parser('encode',
-			help='Encode datapoints to a TokenTree',
+			help='Encode datapoints to TokenSort',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		encode_args = ArgumentParser(
-			description='Encode datapoints to a TokenTree',
+			description='Encode datapoints to TokenSort',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -80,30 +80,43 @@ def init_encode_args(parents=[], subparser=None):
 		)
 	
 	encode_args.add_argument(
-		'--dim', '-d',
+		'--bits_per_dim', '-B',
 		type=int,
+		nargs='*',
 		metavar='INT',
-		default=3,
-		help='The expected dimension of the datapoints'
+		default=[16, 16, 16],
+		help='The quantization size per dimension'
+		)
+	
+	encode_args.add_argument(
+		'--scale', '-S',
+		type=float,
+		nargs='*',
+		default=None,
+		metavar='FLOAT',
+		help='Scaleing factors for the kitti data'
+		)
+	
+	encode_args.add_argument(
+		'--offset', '-O',
+		type=float,
+		nargs='*',
+		default=None,
+		metavar='FLOAT',
+		help='Offsets for the kitti data'
 		)
 	
 	encode_args.add_argument(
 		'--qtype', '-q',
 		metavar='TYPE',
-		default='uint16',
+		default='uint64',
 		help='The quantization type for the datapoints'
 		)
 	
 	encode_args.add_argument(
-		'--breadth_first', '-b',
+		'--sort', '-s',
 		action='store_true',
-		help='Flag whether the tree-structure is either breadth first or (default) depth first'
-		)
-	
-	encode_args.add_argument(
-		'--payload', '-p',
-		action='store_true',
-		help='Flag whether or (default) not to separate a payload file'
+		help='Flag whether to sort the datapoints or (default) not'
 		)
 	
 	encode_args.add_argument(
@@ -122,19 +135,27 @@ def init_encode_args(parents=[], subparser=None):
 		run=encode
 		)
 	
+	encode_args.add_argument(
+		'--iterations', '-i',
+		type=int,
+		metavar='INT',
+		default=0,
+		help='The number of additional iterations'
+		)
+	
 	return encode_args
 
 
 def init_decode_args(parents=[], subparser=None):
 	if subparser:
 		decode_args = subparser.add_parser('decode',
-			help='Decode a TokenTree to datapoints',
+			help='Decode TokenSort to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		decode_args = ArgumentParser(
-			description='Decode a TokenTree to datapoints',
+			description='Decode TokenSort to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -175,18 +196,18 @@ def init_kitti_args(parents=[], subparser=None):
 		)
 	
 	kitti_args.add_argument(
-		'--limit', '-L',
+		'--chunk', '-C',
 		type=int,
 		metavar='INT',
-		default=0,
-		help='Limit chunk size'
+		default=1,
+		help='Chunk size'
 		)
 	
 	kitti_args.add_argument(
 		'--scale', '-S',
 		type=float,
 		nargs='*',
-		default=[200.0, 200.0, 30.0, 1.0],
+		default=None,
 		metavar='FLOAT',
 		help='Scaleing factors for the kitti data'
 		)
@@ -195,7 +216,7 @@ def init_kitti_args(parents=[], subparser=None):
 		'--offset', '-O',
 		type=float,
 		nargs='*',
-		default=[100.0, 100.0, 25.0, 0],
+		default=None,
 		metavar='FLOAT',
 		help='Offsets for the kitti data'
 		)
@@ -204,25 +225,26 @@ def init_kitti_args(parents=[], subparser=None):
 		'--bits_per_dim', '-B',
 		type=int,
 		nargs='*',
-		default=[16, 16, 8, 8],
+		default=[16, 16, 16, 8, 8],
 		metavar='INT',
 		help='Bits per dim for quantization'
 		)
 	
 	kitti_args.add_argument(
-		'--breadth_first', '-b',
-		action='store_true',
-		help='Flag whether the tree-structure is either breadth first or (default) depth first'
+		'--qtype', '-q',
+		metavar='TYPE',
+		default='uint64',
+		help='The quantization type for the datapoints'
 		)
 	
 	kitti_args.add_argument(
-		'--payload', '-p',
+		'--sort', '-s',
 		action='store_true',
-		help='Flag whether or (default) not to separate a payload file'
+		help='Flag whether to sort the datapoints or (default) not'
 		)
 	
 	kitti_args.add_argument(
-		'--sort_bits', '-P',
+		'--sort_bits', '-p',
 		action='store_true',
 		help='Flag whether the bits of the datapoints get either sorted by probability or (default) not'
 		)
@@ -231,6 +253,14 @@ def init_kitti_args(parents=[], subparser=None):
 		'--reverse', '-r',
 		action='store_true',
 		help='Flag whether the TokenTree starts from either heigher or (default) lower bit'
+		)
+	
+	kitti_args.add_argument(
+		'--iterations', '-i',
+		type=int,
+		metavar='INT',
+		default=0,
+		help='The number of additional iterations'
 		)
 	
 	kitti_args.set_defaults(
@@ -250,34 +280,16 @@ def load_header(header_file, **kwargs):
 	return Prototype(**header)
 
 
-def load_datapoints(datapoints, xtype=np.float, dim=3, **kwargs):
+def load_datapoints(datapoints, xtype=float, dim=3, **kwargs):
 	X = np.fromfile(datapoints, dtype=xtype)
 	X = X[:(len(X)//dim)*dim].reshape(-1,dim)
-	X = np.unique(X, axis=0)
 	return X
-
-
-def load_flags(flags, dim=3, **kwargs):
-	if dim == 3:
-		Y = np.fromfile(flags, dtype=np.uint8)
-	elif dim == 4:
-		Y = np.fromfile(flags, dtype=np.uint16)
-	elif dim == 5:
-		Y = np.fromfile(flags, dtype=np.uint32)
-	elif dim == 6:
-		Y = np.fromfile(flags, dtype=np.uint64)
-	else:
-		Y = BitBuffer(flags, 'rb', 1<<dim)
-	return Y
 	
 
-def encode(datapoints,
+def encode(datapoints, bits_per_dim,
 	output=None,
-	breadth_first=False,
-	sort_bits=False,
-	reverse=False,
-	xtype=np.float,
-	qtype=np.uint16,
+	xtype=float,
+	qtype=object,
 	**kwargs
 	):
 	"""
@@ -286,46 +298,32 @@ def encode(datapoints,
 		output = datapoints
 	if output:
 		output = path.splitext(output)[0]
+	payload_file = output + '.pyl.bin'
 
-	X = load_datapoints(datapoints, xtype=xtype, **kwargs)
-	X, offset, scale = bitops.quantization(X, qtype=qtype)
-	if sort_bits:
-		X, permute = bitops.sort(X, reverse, True)
-		permute = permute.tolist()
-	elif args.reverse:
-		X = reverse_bits(X)
-		permute = True
-	else:
-		permute = False
-
+	X = load_datapoints(datapoints, xtype, len(bits_per_dim))
 	log("\nData:", X.shape)
 	log(X)
 	log("\n---Encoding---\n")
-	
-	flags, payload = tokentree.encode(X,
-		output=output,
-		breadth_first=breadth_first,
-		**kwargs
-		)
+	X, offset, scale, permutes, zero_padding = tokensort.encode(X, bits_per_dim, qtype, **kwargs)
+	X.tofile(payload_file)
+	log(X)
 	
 	header_file, header = save_header(
 		output + '.hdr.pkl',
-		num_points = len(X),
-		flags = path.basename(flags.name),
-		payload = path.basename(payload.name) if payload else False,
-		breadth_first = breadth_first,
-		offset = offset.tolist(),
-		scale = scale.tolist(),
-		permute = permute,
-		xtype = xtype,
+		payload_file = payload_file,
+		bits_per_dim = bits_per_dim,
+		permutes = permutes,
+		zero_padding = zero_padding,
+		offset = offset,
+		scale = scale,
 		qtype = qtype,
+		xtype = xtype,
 		)
 	
 	log("\n")
 	log("Header saved to:", header_file)
-	log("Flags saved to:", flags.name)
-	log("Payload saved to:", payload.name)
-	return flags, payload, header
+	log("Payload saved to:", payload_file)
+	return X, header
 
 
 def decode(header_file, output=None, **kwargs):
@@ -337,55 +335,31 @@ def decode(header_file, output=None, **kwargs):
 		output = path.splitext(output)[0]
 	
 	header = load_header(header_file)
-	header.flags = path.join(path.dirname(header_file), header.flags)
-	header.payload = path.join(path.dirname(header_file), header.payload) if header.payload else None
+	header.payload = path.join(path.dirname(header_file), header.payload)
 	
-	Y = load_flags(**header.__dict__)
-	log("\nFlags:", Y.shape)
+	Y = np.fromfile(header.payload, dtype=header.qtype)
+	log("\nTokens:", Y.shape)
 	log(Y)
 	log("\n---Decoding---\n")
-	X = tokentree.decode(Y, **header.__dict__)
-	
-	if header.permute is True:
-		X = reverse_bits(X)
-	elif header.permute:
-		X = permute_bits(X, header.permute)
-	
-	X = realization(X, header.offset, header.scale)
+	X = tokensort.decode(Y, **header.__dict__)
 	X.tofile(output + '.bin')
+	
 	log("\nData:", X.shape)
 	log(X)
 	log("Datapoints saved to:", output)
 	return X
 
 
-def merge_frames(frames,
-	bits_per_dim=[16, 16, 8, 8],
-	offset=[100.0, 100.0, 25.0, 0,],
-	scale=[200.0, 200.0, 30.0, 1.0],
-	limit=0
-	):
-	"""
-	"""
-	scale = (1<<np.array(bits_per_dim) - 1).astype(float) / scale
+def tag_frames(frames, chunk=1):
 	for i, X in enumerate(frames):
-		X = bitops.serialize(X, bits_per_dim, qtype=np.uint64, offset=offset, scale=scale)[0]
-		X = np.ndarray((len(X), 4), dtype=np.uint16, buffer=X)
-		X[:,-1] = i
-		yield X
-		if limit and i >= limit-1:
-			break
+		if i < chunk:
+			yield np.hstack((X, np.full((len(X),1), i)))
 
 
-def kitti(kittidata,
-	bits_per_dim=[16, 16, 8, 8],
-	offset=[100.0, 100.0, 25.0, 0],
-	scale=[200.0, 200.0, 30.0, 1.0],
-	limit=0,
+def kitti(kittidata, bits_per_dim,
+	chunk=1,
 	output=None,
-	breadth_first=False,
-	sort_bits=False,
-	reverse=False,
+	qtype=np.uint64,
 	**kwargs
 	):
 	"""
@@ -401,52 +375,39 @@ def kitti(kittidata,
 	
 	i = 0
 	while True:
-		output_i = '{}_{:0>4}'.format(output, i)
-		X = [X for X in merge_frames(frames, bits_per_dim, offset, scale, limit)]
+		output_file = '{}_{:0>4}'.format(output, i)
+		payload_file = output_file + '.pyl.bin'
+		X = [X for X in tag_frames(frames, chunk)]
 		if len(X) == 0:
 			return
 		else:
 			i += 1
 		X = np.vstack(X)
 		X = np.unique(X, axis=0)
-		
-		if sort_bits:
-			X, permute = bitops.sort(X, reverse, True)
-			permute = permute.tolist()
-		elif args.reverse:
-			X = bitops.reverse(X)
-			permute = True
-		else:
-			permute = False
 
 		log("\nChunk No.", i)
 		log("Data:", X.shape)
-		log("Range:", X.max(axis=0))
 		log(X)
 		log("\n---Encoding---\n")
 		
-		flags, payload = tokentree.encode(X,
-			output=output_i,
-			breadth_first=breadth_first,
-			**kwargs
-			)
+		X, offset, scale, permutes, zero_padding = tokensort.encode(X, bits_per_dim, qtype=qtype, **kwargs)
+		X.tofile(payload_file)
 		
 		header_file, header = save_header(
-			output_i + '.hdr.pkl',
-			num_points = len(X),
-			flags = path.basename(flags.name),
-			payload = path.basename(payload.name) if payload else False,
-			breadth_first = breadth_first,
+			output + '.hdr.pkl',
+			payload_file = payload_file,
+			bits_per_dim = bits_per_dim,
+			permutes = permutes,
+			zero_padding = zero_padding,
 			offset = offset,
 			scale = scale,
-			permute = permute,
-			bits_per_dim=bits_per_dim
-			)
+			qtype = qtype,
+			xtype = float,
+		)
 		
 		log("\n")
 		log("Header saved to:", header_file)
-		log("Flags saved to:", flags.name)
-		log("Payload saved to:", payload.name)
+		log("Payload saved to:", payload_file)
 	pass
 
 

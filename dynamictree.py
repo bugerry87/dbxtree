@@ -80,14 +80,6 @@ def init_encode_args(parents=[], subparser=None):
 		)
 	
 	encode_args.add_argument(
-		'--dim', '-d',
-		type=int,
-		metavar='INT',
-		default=3,
-		help='The expected dimension of the datapoints'
-		)
-	
-	encode_args.add_argument(
 		'--dims', '-D',
 		type=int,
 		nargs='*',
@@ -221,16 +213,16 @@ def init_kitti_args(parents=[], subparser=None):
 		'--scale', '-S',
 		type=float,
 		nargs='*',
-		default=[200.0, 200.0, 30.0, 1.0],
+		default=[200.0, 200.0, 200.0, 1.0, 1.0],
 		metavar='FLOAT',
-		help='Scaleing factors for the kitti data'
+		help='Scaling factors for the kitti data'
 		)
 	
 	kitti_args.add_argument(
 		'--offset', '-O',
 		type=float,
 		nargs='*',
-		default=[-100.0, -100.0, -25.0, 0],
+		default=[100.0, 100.0, 100.0, 0, 0],
 		metavar='FLOAT',
 		help='Offsets for the kitti data'
 		)
@@ -239,7 +231,7 @@ def init_kitti_args(parents=[], subparser=None):
 		'--bits_per_dim', '-B',
 		type=int,
 		nargs='*',
-		default=[16, 16, 8, 8],
+		default=[16, 16, 16, 8, 8],
 		metavar='INT',
 		help='Bits per dim for quantization'
 		)
@@ -300,7 +292,7 @@ def load_header(header_file, **kwargs):
 	return Prototype(**header)
 
 
-def load_datapoints(datapoints, xtype=np.float, dim=3, **kwargs):
+def load_datapoints(datapoints, xtype=float, dim=3, **kwargs):
 	X = np.fromfile(datapoints, dtype=xtype)
 	X = X[:(len(X)//dim)*dim].reshape(-1,dim)
 	X = np.unique(X, axis=0)
@@ -326,10 +318,10 @@ def encode(datapoints,
 	if output:
 		output = path.splitext(output)[0]
 
-	X = load_datapoints(datapoints, xtype=xtype, **kwargs)
+	X = load_datapoints(datapoints, xtype, len(bits_per_dim))
 	X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
 	if sort_bits:
-		X, permute = bitops.sort_bits(X, reverse)
+		X, permute = bitops.sort(X, reverse)
 		permute = permute.tolist()
 	elif args.reverse:
 		X = reverse_bits(X)
@@ -385,42 +377,38 @@ def decode(header_file, output=None, **kwargs):
 	
 	header.flags = path.join(path.dirname(header_file), header.flags)
 	header.payload = path.join(path.dirname(header_file), header.payload) if header.payload else None
+	header.scale = ((1<<np.array(header.bits_per_dim)) - 1).astype(float) / header.scale
 	
 	flags = BitBuffer(header.flags, 'rb')
 	log("\n---Decoding---\n")
 	X = dynamictree.decode(flags, **header.__dict__)
 	
-	if log.verbose:
-		log()
-		X.sort()
-		log(X)
-	
 	if header.permute is True:
-		X = reverse_bits(X)
+		X = bitops.reverse(X)
 	elif header.permute:
-		X = bitops.permute_bits(X, header.permute)
+		X = bitops.permute(X, header.permute)
 	
 	X = bitops.deserialize(X, header.bits_per_dim, header.qtype)
 	X = bitops.realization(X, header.offset, header.scale)
 	log("\nData:", X.shape)
-	log(X)
+	log(np.round(X,2))
 	log("Datapoints saved to:", output)
 	return X
 
 
 def merge_frames(frames,
-	bits_per_dim=[16, 16, 8, 8],
-	offset=[-100.0, -100.0, -25.0, 0],
-	scale=[200.0, 200.0, 30.0, 1.0],
+	bits_per_dim=[16, 16, 16, 8],
+	offset=[100.0, 100.0, 100.0, 0],
+	scale=[200.0, 200.0, 200.0, 1.0],
 	limit=0,
 	qtype=np.uint64
 	):
 	"""
 	"""
-	scale = (1<<np.array(bits_per_dim) - 1).astype(float) / scale
+	scale = ((1<<np.array(bits_per_dim)) - 1).astype(float) / scale
 	for i, X in enumerate(frames):
 		X = bitops.serialize(X, bits_per_dim, qtype=qtype, offset=offset, scale=scale)[0]
-		X |= i << np.sum(bits_per_dim)
+		X |= 0x0 << int(np.sum(bits_per_dim))
 		yield X
 		if limit and i >= limit-1:
 			break
@@ -428,9 +416,9 @@ def merge_frames(frames,
 
 def kitti(kittidata,
 	dims=[],
-	bits_per_dim=[16, 16, 8, 8],
-	offset=[-100.0, -100.0, -25.0, 0],
-	scale=[200.0, 200.0, 30.0, 1.0],
+	bits_per_dim=[16, 16, 16, 8, 8],
+	offset=[100.0, 100.0, 100.0, 0, 0],
+	scale=[200.0, 200.0, 200.0, 1.0, 1.0],
 	limit=0,
 	qtype=np.uint64,
 	output=None,
@@ -454,7 +442,7 @@ def kitti(kittidata,
 	i = 0
 	while True:
 		output_i = '{}_{:0>4}'.format(output, i)
-		X = [X for X in merge_frames(frames, bits_per_dim, offset, scale, limit, qtype)]
+		X = [X for X in merge_frames(frames, bits_per_dim[:-1], offset[:-1], scale[:-1], limit, qtype)]
 		if len(X) == 0:
 			return
 		else:
@@ -463,10 +451,10 @@ def kitti(kittidata,
 		X = np.unique(X, axis=0)
 		
 		if sort_bits:
-			X, permute = bitops.sort_bits(X, reverse)
+			X, permute = bitops.sort(X, reverse, True)
 			permute = permute.tolist()
-		elif args.reverse:
-			X = reverse_bits(X)
+		elif reverse:
+			X = bitops.reverse(X)
 			permute = True
 		else:
 			permute = False

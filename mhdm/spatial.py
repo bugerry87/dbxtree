@@ -80,40 +80,6 @@ def face_magnitude(T=None, fN=None, normalize=False):
 		return mag
 
 
-def quantirize(P, m=1):
-	k = P[0]
-	p0 = P[1]
-	p0k = p0 - k
-	p0km = magnitude(p0k)
-	mag = p0km
-	mask = np.zeros(P.shape[0], dtype=bool)
-	m = m**2
-	
-	for i, p1 in enumerate(P[2:]):
-		pp = p1 - p0
-		ppm = magnitude(pp)
-		mag += ppm
-		
-		p1k = p1 - k
-		p1km = magnitude(p1k)
-		dot = np.dot(p0k, p1k)**2 / (p0km * p1km) 
-		
-		if dot < 1 - np.exp(-mag/m)**4:
-			#new keypoint detected
-			k = p0
-			p0 = p1
-			p0k = pp
-			p0km = ppm
-			mag = ppm
-			mask[i] = True
-		else:
-			#update
-			p0 = p1
-			p0k = p1k
-			p0km = p1km
-	return P[mask]
-
-
 def nn_point2point(X, P):
 	return cKDTree(X).query(P)
 

@@ -7,7 +7,6 @@ from collections import deque
 import numpy as np
 
 ## Local
-from . import bitops
 from .bitops import BitBuffer
 from .utils import Prototype, log
 
@@ -90,10 +89,8 @@ def decode(Y, num_points,
 		if flag == 0:
 			if payload:
 				x |= payload.read(tree_depth-pos) << pos
-			
-			xi = next(Xi, None)
-			if xi is not None:
-				X[xi] = x
+			xi = next(Xi)
+			X[xi] = x
 			local.points = xi+1
 		else:
 			for token in range(fbit):
