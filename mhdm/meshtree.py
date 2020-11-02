@@ -1,18 +1,26 @@
+"""
+A K(N)DTree for spatial queries on mesh like structures.
 
-#BuildIn
+Author: Gerald Baulig
+"""
+
+## BuildIn
+from sys import setrecursionlimit
 from argparse import ArgumentParser
 from multiprocessing import Pool, Lock
 from collections import deque
-import time
 
-#Installed
+## Installed
 import numpy as np
 
-#Local
-import spatial
+## Local
+from .spatial import magnitude
+__version__ = '0.0.1'
+__description__ = 'A K(N)DTree for spatial queries on mesh like structures.'
+setrecursionlimit(10000)
 
 
-def init_MeshTree_args(parents=[]):
+def init_meshtree_args(parents=[], subparser=None):
 	"""
 	Initialize an ArgumentParser for this module.
 	
@@ -22,51 +30,41 @@ def init_MeshTree_args(parents=[]):
 	Returns:
 		parser: The ArgumentParsers.
 	"""
-	parser = ArgumentParser(
-		#description="Demo for embedding data via LDA",
-		parents=parents
-		)
-	
-	parser.add_argument(
-		'--model_size', '-m',
-		metavar='INT',
-		type=int,
-		default=30000
-		)
-	
-	parser.add_argument(
-		'--query_size', '-q',
-		metavar='INT',
-		type=int,
-		default=30000
-		)
+	if subparser:
+		parser = subparser.add_parser(
+			description=__description__,
+			conflict_handler='resolve',
+			parents=parents
+			)
+	else:
+		parser = ArgumentParser(
+			description=__description__,
+			conflict_handler='resolve',
+			parents=parents
+			)
 	
 	parser.add_argument(
 		'--batch_size', '-b',
 		metavar='INT',
 		type=int,
-		default=0
+		default=0,
+		help='Split the query into sub queries (default=0)'
 		)
 	
 	parser.add_argument(
 		'--leaf_size', '-l',
 		metavar='INT',
 		type=int,
-		default=1000
+		default=1000,
+		help='Shapes per leaf node, swaps into brute force search (default=1000)'
 		)
 	
 	parser.add_argument(
 		'--jobs', '-j',
 		metavar='INT',
 		type=int,
-		default=1
-		)
-	
-	parser.add_argument(
-		'--seed', '-s',
-		metavar='INT',
-		type=int,
-		default=0
+		default=1,
+		help='Number of parallel jobs (default=1)'
 		)
 	
 	return parser
@@ -108,7 +106,7 @@ class Leaf:
 	
 	def query(self, tree, Pi):
 		def query_point(X, Xi, XP, Pi):
-			L = spatial.magnitude(XP).min(axis=-1)
+			L = magnitude(XP).min(axis=-1)
 			Lmin = L < tree.L[Pi]
 			if np.any(Lmin):
 				Pi = Pi[Lmin]
@@ -119,7 +117,7 @@ class Leaf:
 				tree.done[self.Ti] = True
 		
 		def query_line(Xi, Pi, mp):
-			L = spatial.magnitude(mp)
+			L = magnitude(mp)
 			L = L.min(axis=-1)
 			Lmin = L < tree.L[Pi]
 			if np.any(Lmin):
@@ -131,7 +129,7 @@ class Leaf:
 				tree.done[self.Ti] = True
 				
 		def query_face(Xi, Pi, mp):
-			L = spatial.magnitude(mp)
+			L = magnitude(mp)
 			L = L.min(axis=-1)
 			Lmin = L < tree.L[Pi]
 			if np.any(Lmin):
@@ -219,10 +217,10 @@ class Node:
 			if tree.N > 2:
 				k = np.random.choice(len(T)) #Better choice than random?
 				n = np.random.choice(tree.N)
-				self.norm = tree.eN[self.Ti[k],n].flatten()
+				self.norm = tree.fN[self.Ti[k],n].flatten()
 			else:
 				self.norm = np.random.randn(tree.D)
-			self.mag = spatial.magnitude(self.norm)
+			self.mag = magnitude(self.norm)
 			
 		a = np.sum(np.dot(T, self.norm) > 0.0, axis=-1)
 		left = self.Ti[a==0]
@@ -269,27 +267,27 @@ class Node:
 
 
 class MeshTree:
-	def __init__(self, X, Xi, j=1, leaf_size=None, batch_size=None, callback=None):
+	def __init__(self, X, Xi, jobs=1, leaf_size=None, batch_size=None, callback=None, **kwargs):
 		self.X = X
 		self.Xi = Xi
 		self.T = X[Xi]
 		self.K, self.N, self.D = self.T.shape
 		self.x = self.T[:,(*range(1,self.N),0)] - self.T
-		self.m = spatial.magnitude(self.x)
+		self.m = magnitude(self.x)
 		self.m[self.m==0] = 1 #fix for zero div
 		
 		if self.N > 2:
 			x = self.x.reshape(-1,self.D)
 			fN = np.cross(x, -self.x[:,range(-1,self.N-1)].reshape(-1,self.D))
 			self.eN = np.cross(x, fN).reshape(-1,self.N,self.D)
-			self.eM = spatial.magnitude(self.eN)
+			self.eM = magnitude(self.eN)
 			self.fN = fN.reshape(-1,self.N,self.D)
-			self.fM = spatial.magnitude(self.fN)
+			self.fM = magnitude(self.fN)
 			
-		self.roots = [Node(Ti, 0) for Ti in np.array_split(np.arange(len(Xi)), j)]
+		self.roots = [Node(Ti, 0) for Ti in np.array_split(np.arange(len(Xi)), jobs)]
 		self.batch_size = batch_size
 		self.callback = callback
-		self.leaf_size = leaf_size if leaf_size else 1 + self.K / 100
+		self.leaf_size = leaf_size if leaf_size else 1 + self.K // 100
 		self.done = np.zeros(self.K, dtype=bool)
 	
 	def __str__(self):
@@ -323,80 +321,10 @@ class MeshTree:
 		return self.L, self.mp, self.nn
 
 
-def query():
-	pass
-
-
-def demo(args):
-	pass
-
-
-def callback(tree):
-	last = 0
-	while last <= 50:
-		curr = int(tree.done.mean() * 50)
-		dif = curr - last
-		if curr > last:
-			print('#' * dif, end='', flush=True)
-		last = curr
-		yield
-
-###TEST
-if __name__ == '__main__':
-	from argparse import ArgumentParser
-	import matplotlib.pyplot as plt
-	from mpl_toolkits.mplot3d import Axes3D
-	from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-	from utils import time_delta
-	from time import time
-	
-	
-	
-	args, _ = init_argparse().parse_known_args()
-	
-	np.random.seed(args.seed)
-	X = np.random.randn(args.model_size,3)
-	P = np.random.randn(args.query_size,3)
-	Xi = np.arange(len(X)).reshape(-1,3)
-	
-	print("MeshTree")
-	print("Model size:", X.shape)
-	print("Query size:", P.shape)
-	
-	delta = time_delta(time())
-	tree = MeshTree(
+def query(X, Xi, P, **kwargs):
+	"""
+	"""
+	return MeshTree(
 		X, Xi,
-		args.jobs,
-		args.leaf_size,
-		args.batch_size,
-		callback=callback
-		)
-	
-	print("\n0%					  |50%					 |100%")
-	dist, mp, nn = tree.query(P)
-	
-	print("\nQuery time:", next(delta))
-	print("Mean loss:", np.sqrt(dist).mean())
-	
-	fig = plt.figure()
-	ax = fig.add_subplot((111), projection='3d')
-	mp -= P
-	typ = np.sum(nn == -1, axis=-1)
-	point = typ == 2
-	line = typ == 1
-	face = typ == 0
-	
-	poly = Poly3DCollection(X)
-	poly.set_alpha(0.5)
-	poly.set_edgecolor('b')
-	ax.add_collection3d(poly)
-	ax.scatter(*P.T, color='r')
-	ax.quiver(*P[point].T, *mp[point].T, color='g')
-	ax.quiver(*P[line].T, *mp[line].T, color='y')
-	ax.quiver(*P[face].T, *mp[face].T, color='b')
-	
-	ax.set_xlim3d(-3, 3)
-	ax.set_ylim3d(-3, 3)
-	ax.set_zlim3d(-2.4, 2.4)
-	plt.show()
-	print(tree)
+		**kwargs,
+		).query(P)

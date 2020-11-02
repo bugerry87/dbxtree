@@ -463,7 +463,10 @@ def kitti(kittidata,
 			log("\nChunk No.", i)
 			log("Data:", X.shape)
 			X.sort()
-			log(X)
+			#log(X)
+			for x in X[::len(X)//10]:
+				log("{:0>16}".format(hex(x)[2:]))
+			log("...")
 			log("\n---Encoding---\n")
 		
 		flags, payload = dynamictree.encode(X,

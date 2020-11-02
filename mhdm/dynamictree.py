@@ -25,11 +25,11 @@ def encode(X, dims=[], tree_depth=None, output=None, breadth_first=False, payloa
 
 	def expand(X, layer, tail):
 		flag = 0
-		dim = dims[layer] if layer < len(dims) else 1
+		dim = dims[layer] if layer < len(dims) else dims[-1]
 		fbit = 1<<dim
 		mask = (1<<dim)-1
 		
-		if len(X) == 0 or dim == 0:
+		if len(X) == 0 or dim == 0 or tail == 0:
 			pass
 		elif payload is not False and len(X) == 1:
 			payload.write(int(X), tail, soft_flush=True)
@@ -37,7 +37,7 @@ def encode(X, dims=[], tree_depth=None, output=None, breadth_first=False, payloa
 			for t in range(fbit):
 				m = X & mask == t
 				if np.any(m):
-					yield expand(X[m]>>dim, layer+1, tail-dim)
+					yield expand(X[m]>>dim, layer+1, max(0, tail-dim))
 					flag |= 1<<t
 		if log.verbose:
 			log(msg.format(layer, hex(flag)[2:], stack_size), end='\r', flush=True)
@@ -82,7 +82,7 @@ def decode(Y, num_points,
 		)
 	
 	def expand(x, layer, pos):
-		dim = dims[layer] if layer < len(dims) else 1
+		dim = dims[layer] if layer < len(dims) else dims[-1]
 		fbit = 1<<dim
 		flag = Y.read(fbit) if layer < tree_depth else 0
 		

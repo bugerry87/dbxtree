@@ -59,10 +59,11 @@ def edge_normals(T, fN=None, normalize=True, magnitude=False):
 		return eN
 
 
-def vec_normals(fN, Ti_flat, normalize=True, magnitude=False):
+def vec_normals(fN, Ti, normalize=True, magnitude=False):
+	Ti = Ti.flatten()
 	fN = fN.repeat(3, axis=0)
-	vN = np.zeros((Ti_flat.max()+1, 3))
-	for fn, i in zip(fN, Ti_flat):
+	vN = np.zeros((Ti.max()+1, 3))
+	for fn, i in zip(fN, Ti):
 		vN[i] += fn
 	if normalize:
 		return norm(vN, magnitude)
@@ -140,47 +141,12 @@ def raycast(T, rays, fN=None, eN=None, back=False):
 	return hit, idx, intrp
 
 
-def sphere_uvd(X, norm=False, z_off=0.0, r_off=0.0):
-	x, y, z = X.T
-	pi = np.where(x > 0.0, np.pi, -np.pi)
-	uvd = np.empty(X.shape)
-	with np.errstate(divide='ignore', over='ignore'):
-		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
-		uvd[:,2] = np.linalg.norm(X, axis=-1)
-		uvd[:,1] = np.arcsin((z - z_off) / uvd[:,2] - r_off)
-	
-	if norm is False:
-		pass
-	elif norm is True:
-		uvd = prob(uvd)
-	else:
-		uvd[:,norm] = prob(uvd[:,norm])
-	return uvd
-
-
-def cone_uvd(X, norm=False, z_off=0.0, r_off=0.0):
-	x, y, z = X.T
-	pi = np.where(x > 0.0, np.pi, -np.pi)
-	uvd = np.empty(X.shape)
-	with np.errstate(divide='ignore', over='ignore'):
-		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
-		uvd[:,2] = np.linalg.norm(X, axis=-1)
-		uvd[:,1] = (z - z_off) / (np.linalg.norm(X[:,:2], axis=-1) - r_off)
-	
-	if norm is False:
-		pass
-	elif norm is True:
-		uvd = prob(uvd)
-	else:
-		uvd[:,norm] = prob(uvd[:,norm])
-	return uvd
-
-
-def mask_planar(vN, fN, Ti_flat, min_dot=0.9, mask=None):
+def mask_planar(vN, fN, Ti, min_dot=0.9, mask=None):
+	Ti = Ti.flatten()
 	fN = fN.repeat(3, axis=0)
 	if mask is None:
-		mask = np.ones(Ti_flat.max()+1, dtype=bool)
-	for fn, i in zip(fN, Ti_flat):
+		mask = np.ones(Ti.max()+1, dtype=bool)
+	for fn, i in zip(fN, Ti):
 		if mask[i]:
 			mask[i] &= np.dot(vN[i], fn) <= min_dot
 		else:

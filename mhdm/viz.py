@@ -96,7 +96,7 @@ def vertices(X, Y, fig, plot=None, **kwargs):
 	return plot
 
 
-def lines(X, Y, fig, plot=None):
+def lines(X, Y, fig, plot=None, colormap='spectral', tube_radius=None, **kwargs):
 	if not len(X):
 		raise ValueError("Error: Empty frame!")
 
@@ -106,9 +106,10 @@ def lines(X, Y, fig, plot=None):
 			X[:,1],
 			X[:,2],
 			Y,
-			colormap='spectral',  # 'bone', 'copper',
-			tube_radius=None,
+			colormap=colormap,  # 'bone', 'copper',
+			tube_radius=tube_radius,
 			figure=fig,
+			**kwargs
 			)
 	else:
 		plot.mlab_source.reset(
