@@ -77,7 +77,7 @@ def reverse(X):
 	Y = np.zeros_like(X)
 	
 	for low, high in zip(range(shifts//2), range(shifts-1, shifts//2 - 1, -1)):
-		Y |= (X & 1<<low) << high | (X & 1<<high) >> high-low
+		Y |= (X & 1<<low) << (high-low) | (X & 1<<high) >> (high-low)
 	return Y
 
 

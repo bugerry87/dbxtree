@@ -14,6 +14,14 @@ def test_serialization():
 	assert(result)
 
 
+def test_reverse():
+	X = np.arange(256).astype(np.uint64)
+	Y = bitops.reverse(X)
+	Y = bitops.reverse(Y)
+	result = np.all(X == Y)
+	assert(result)
+
+
 def test_sort_n_permute():
 	X = np.arange(256).astype(np.uint8)
 	Y, p = bitops.sort(X)

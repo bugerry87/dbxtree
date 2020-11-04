@@ -11,12 +11,13 @@ import mhdm.viz as viz
 if __name__ == '__main__':
 	files = ifile('data/kitti_20110926_0005/*.bin')    
 	frame = yield_velo_scans(files)
-	X = next(frame)[:,:-1]
+	XI = next(frame)
+	X = XI[:,:-1]
 	U = lidar.xyz2uvd(X, z_off=-0.13, d_off=0.03, mode='cone')
 	Ti = Delaunay(U[:,:2]).simplices
 	fN = spatial.face_normals(X[Ti], True)
 	vN = spatial.vec_normals(fN, Ti, True)
-	m = spatial.mask_planar(vN, fN, Ti, 0.984375)
+	m = spatial.mask_planar(vN, fN, Ti, 0.975)
 	Ti = Delaunay(U[m,:2]).simplices
 	M = X[m]
 
@@ -25,6 +26,9 @@ if __name__ == '__main__':
 	L = np.sqrt(L)
 	m |= (L > 0.03).flatten()
 	Y[m] = X[m]
+	M = X[m]
+	print(len(M))
+	M.tofile('data/keypoints.bin')
 	L = spatial.magnitude(X - Y, True)
 	
 	print("Points:", m.sum())

@@ -11,7 +11,15 @@ from .bitops import BitBuffer
 from .utils import Prototype, log
 
 	
-def encode(X, dims=[], tree_depth=None, output=None, breadth_first=False, payload=False, **kwargs):
+def encode(X,
+	dims=[],
+	tree_depth=None,
+	output=None,
+	breadth_first=False,
+	payload=False,
+	features=False,
+	**kwargs
+	):
 	"""
 	"""
 	assert(X.ndim == 1)
@@ -22,8 +30,15 @@ def encode(X, dims=[], tree_depth=None, output=None, breadth_first=False, payloa
 	
 	if payload is True:
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
+	elif not isinstance(payload, BitBuffer):
+		payload = False
+	
+	if features is True:
+		features = np.zeros(len(X), dtype=object)
+	else:
+		features = False
 
-	def expand(X, layer, tail):
+	def expand(X, layer, tail, Xi):
 		flag = 0
 		dim = dims[layer] if layer < len(dims) else dims[-1]
 		fbit = 1<<dim
@@ -31,20 +46,28 @@ def encode(X, dims=[], tree_depth=None, output=None, breadth_first=False, payloa
 		
 		if len(X) == 0 or dim == 0 or tail == 0:
 			pass
-		elif payload is not False and len(X) == 1:
+		elif payload and len(X) == 1:
 			payload.write(int(X), tail, soft_flush=True)
+			if features is not False:
+				features[Xi] <<= tail
+				features[Xi] |= int(X)
 		else:
 			for t in range(fbit):
 				m = X & mask == t
 				if np.any(m):
-					yield expand(X[m]>>dim, layer+1, max(0, tail-dim))
+					yield expand(X[m]>>dim, layer+1, max(0, tail-dim), False if Xi is False else Xi[m])
 					flag |= 1<<t
+			if features is not False:
+				features[Xi] <<= fbit
+				features[Xi] |= flag
+		
+		flags.write(flag, fbit, soft_flush=True)
 		if log.verbose:
 			log(msg.format(layer, hex(flag)[2:], stack_size), end='\r', flush=True)
-		flags.write(flag, fbit, soft_flush=True)
 		pass
 	
-	nodes = deque(expand(X, 0, tree_depth))
+	Xi = False if features is False else np.arange(len(X))
+	nodes = deque(expand(X, 0, tree_depth, Xi))
 	while nodes:
 		node = nodes.popleft() if breadth_first else nodes.pop()
 		nodes.extend(node)
@@ -53,6 +76,8 @@ def encode(X, dims=[], tree_depth=None, output=None, breadth_first=False, payloa
 	flags.close()
 	if payload:
 		payload.close()
+	if features is not False:
+		np.save(output + '.feat.npy', features)
 	return flags, payload
 
 

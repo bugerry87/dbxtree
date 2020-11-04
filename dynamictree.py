@@ -359,7 +359,8 @@ def encode(datapoints,
 	log("\n")
 	log("Header saved to:", header_file)
 	log("Flags saved to:", flags.name)
-	log("Payload saved to:", payload.name)
+	if payload:
+		log("Payload saved to:", payload.name)
 	return flags, payload, header
 
 
@@ -481,7 +482,7 @@ def kitti(kittidata,
 			output_i + '.hdr.pkl',
 			dims = dims,
 			flags = path.basename(flags.name),
-			payload = path.basename(payload.name) if payload is not None else False,
+			payload = path.basename(payload.name) if payload else False,
 			num_points = len(X),
 			breadth_first = breadth_first,
 			offset = offset,
@@ -498,7 +499,8 @@ def kitti(kittidata,
 		
 		log("\nHeader saved to:", header_file)
 		log("Flags saved to:", flags.name)
-		log("Payload saved to:", payload.name)
+		if payload:
+			log("Payload saved to:", payload.name)
 	pass
 
 
