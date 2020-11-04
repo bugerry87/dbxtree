@@ -6,11 +6,26 @@ Author: Gerald Baulig
 
 ## Build in
 from __future__ import print_function
+from sys import version_info
 from time import time
-from glob import glob, iglob
 
 #Installed
 import numpy as np
+
+
+__python2__ = version_info[0] == 2
+
+
+if __python2__:
+	import glob as _glob
+	
+	def glob(wc, recursive=False):
+		return _glob.glob(wc)
+	
+	def iglob(wc, recursive=False):
+		return _glob.iglob(wc)	
+else:
+	from glob import glob, iglob
 
 
 def log(*nargs, **kwargs):
@@ -60,7 +75,7 @@ def ifile(wildcards, sort=False, recursive=True):
 		if sort:
 			wildcards = sorted(wildcards)
 		for wc in wildcards:
-			if any(('*?[' in c) for c in wc):
+			if any((c in '*?[') for c in wc):
 				for c in sglob(wc):
 					yield c
 			else:

@@ -390,9 +390,8 @@ def kitti(kittidata,
 	):
 	"""
 	"""
-	from pykitti.utils import yield_velo_scans
 	files = ifile(kittidata)    
-	frames = yield_velo_scans(files)
+	frames = (np.fromfile(f, dtype=np.float32).reshape(-1,4) for f in files)
 	
 	if output is None:
 		output = path.dirname(kittidata)

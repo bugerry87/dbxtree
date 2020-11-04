@@ -75,7 +75,7 @@ def init_encode_args(parents=[], subparser=None):
 	encode_args.add_argument(
 		'--xtype', '-t',
 		metavar='TYPE',
-		default='float',
+		default='float32',
 		help='The expected data-type of the datapoints'
 		)
 	
@@ -307,7 +307,7 @@ def encode(datapoints,
 	breadth_first=False,
 	sort_bits=False,
 	reverse=False,
-	xtype=np.float,
+	xtype=np.float32,
 	qtype=object,
 	**kwargs
 	):
@@ -431,9 +431,8 @@ def kitti(kittidata,
 	):
 	"""
 	"""
-	from pykitti.utils import yield_velo_scans
-	files = ifile(kittidata)    
-	frames = yield_velo_scans(files)
+	files = ifile(kittidata)
+	frames = (np.fromfile(f, dtype=np.float32).reshape(-1,4) for f in files)
 	
 	if output is None:
 		output = path.dirname(kittidata)
