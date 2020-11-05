@@ -50,7 +50,7 @@ def encode(X,
 			payload.write(int(X), tail, soft_flush=True)
 			if features is not False:
 				features[Xi] <<= tail
-				features[Xi] |= int(X)
+				features[Xi] = X
 		else:
 			for t in range(fbit):
 				m = X & mask == t

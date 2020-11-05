@@ -40,7 +40,7 @@ def init_main_args(parents=[]):
 	main_args.add_argument(
 		'--output', '-o',
 		metavar='PATH',
-		default=None,
+		default='',
 		help='A filename for the output data'
 		)
 	
@@ -67,16 +67,42 @@ def init_encode_args(parents=[], subparser=None):
 	
 	encode_args.add_argument(
 		'--datapoints', '-X',
-		required=True,
-		metavar='PATH',
-		help='A path to a file of datapoints as .bin'
+		nargs='+',
+		metavar='WILDCARD',
+		help='One or more wildcards to files of datapoints as .bin'
+		)
+	
+	encode_args.add_argument(
+		'--limit', '-L',
+		type=int,
+		metavar='INT',
+		default=1,
+		help='Limit chunk size (default=1)'
+		)
+	
+	encode_args.add_argument(
+		'--scale', '-S',
+		type=float,
+		nargs='*',
+		default=[],
+		metavar='FLOAT',
+		help='Scaling factors for the kitti data'
+		)
+	
+	encode_args.add_argument(
+		'--offset', '-O',
+		type=float,
+		nargs='*',
+		default=[],
+		metavar='FLOAT',
+		help='Offsets for the kitti data'
 		)
 	
 	encode_args.add_argument(
 		'--xtype', '-t',
 		metavar='TYPE',
 		default='float32',
-		help='The expected data-type of the datapoints'
+		help='The expected data-type of the datapoints (datault=float32)'
 		)
 	
 	encode_args.add_argument(
@@ -91,8 +117,8 @@ def init_encode_args(parents=[], subparser=None):
 	encode_args.add_argument(
 		'--qtype', '-q',
 		metavar='TYPE',
-		default='object',
-		help='The quantization type for the datapoints'
+		default='uint64',
+		help='The quantization type for the datapoints (dafault=uint64)'
 		)
 	
 	encode_args.add_argument(
@@ -102,14 +128,6 @@ def init_encode_args(parents=[], subparser=None):
 		metavar='INT',
 		default=[16, 16, 16],
 		help='The quantization size per dimension'
-		)
-	
-	encode_args.add_argument(
-		'--tree_depth', '-T',
-		type=int,
-		metavar='INT',
-		default=48,
-		help='The expected dimension of the datapoints'
 		)
 	
 	encode_args.add_argument(
@@ -292,76 +310,102 @@ def load_header(header_file, **kwargs):
 	return Prototype(**header)
 
 
-def load_datapoints(datapoints, xtype=float, dim=3, **kwargs):
-	X = np.fromfile(datapoints, dtype=xtype)
-	X = X[:(len(X)//dim)*dim].reshape(-1,dim)
-	X = np.unique(X, axis=0)
-	return X
+def load_datapoints(files, xtype=np.float32, dim=3, limit=0, **kwargs):
+	"""
+	"""
+	processed = []
+	def merge(file, i):
+		X = np.fromfile(file, dtype=xtype)
+		X = X[:(len(X)//dim)*dim].reshape(-1,dim)
+		file = path.basename(file)
+		file = path.splitext(file)[0]
+		processed.append(file)
+		return np.hstack((X, np.full((len(X),1), i, dtype=xtype)))
+	return np.vstack([merge(f, i) for f, i in zip(files, range(limit))]), processed
 	
 
 def encode(datapoints,
 	dims=[],
 	bits_per_dim=[16,16,16],
-	tree_depth=None,
-	output=None,
+	output='',
 	breadth_first=False,
 	sort_bits=False,
 	reverse=False,
 	xtype=np.float32,
 	qtype=object,
+	limit=1,
 	**kwargs
 	):
 	"""
 	"""
-	if output is None:
-		output = datapoints
-	if output:
-		output = path.splitext(output)[0]
+	output = path.splitext(output)[0]
+	files = ifile(datapoints, sort=True)
+	nfiles = len(files)
+	files iter(files)
+	dim = len(bits_per_dim)
+	tree_depth = int(np.sum(bits_per_dim))
+	
+	while files:
+		X, processed = load_datapoints(files, xtype, dim, limit)
+		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
+		if sort_bits:
+			X, permute = bitops.sort(X, tree_depth, reverse, True)
+			permute = permute.tolist()
+		elif args.reverse:
+			X = reverse_bits(X)
+			permute = True
+		else:
+			permute = False
+		X = np.unique(X)
+		
+		if nfiles == 1:
+			output_file = output if output else processed[0]
+		elif limit == 1:
+			output_file = "{}_{}".format(output, processed)
+		else:
+			output_file = "{}_{}-{}".format(output, processed[0], processed[-1])
 
-	X = load_datapoints(datapoints, xtype, len(bits_per_dim))
-	X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
-	if sort_bits:
-		X, permute = bitops.sort(X, reverse)
-		permute = permute.tolist()
-	elif args.reverse:
-		X = reverse_bits(X)
-		permute = True
-	else:
-		permute = False
-
-	log("\nData:", X.shape)
-	log(X)
-	log("\n---Encoding---\n")
-	
-	flags, payload = dynamictree.encode(X,
-		dims=dims,
-		tree_depth=tree_depth,
-		output=output,
-		breadth_first=breadth_first,
-		**kwargs
-		)
-	
-	header_file, header = save_header(
-		output + '.hdr.pkl',
-		dims=dims,
-		flags = path.basename(flags.name),
-		payload = path.basename(payload.name) if payload else False,
-		num_points = len(X),
-		breadth_first = breadth_first,
-		offset = offset.tolist(),
-		scale = scale.tolist(),
-		permute = permute,
-		bits_per_dim=bits_per_dim,
-		xtype = xtype,
-		qtype = qtype,
-		)
-	
-	log("\n")
-	log("Header saved to:", header_file)
-	log("Flags saved to:", flags.name)
-	if payload:
-		log("Payload saved to:", payload.name)
-	return flags, payload, header
+		if log.verbose:
+			log("\nChunk:",output_file )
+			log("Data:", X.shape)
+			for x in X[::len(X)//10]:
+				log("{:0>16}".format(hex(x)[2:]))
+			log("...")
+			log("\n---Encoding---\n")
+		
+		flags, payload = dynamictree.encode(X,
+			dims=dims,
+			tree_depth=tree_depth,
+			output=output_file,
+			breadth_first=breadth_first,
+			**kwargs
+			)
+		
+		header_file, header = save_header(
+			output_file + '.hdr.pkl',
+			dims=dims,
+			flags = path.basename(flags.name),
+			payload = path.basename(payload.name) if payload else False,
+			num_points = len(X),
+			breadth_first = breadth_first,
+			offset = offset.tolist(),
+			scale = scale.tolist(),
+			permute = permute,
+			bits_per_dim=bits_per_dim,
+			xtype = xtype,
+			qtype = qtype,
+			)
+		
+		log("\n")
+		log("---Header---")
+		log("\n".join(["{}: {}".format(k,v) for k,v in header.items()]))
+		
+		log("\n")
+		log("Header saved to:", header_file)
+		log("Flags saved to:", flags.name)
+		if payload:
+			log("Payload saved to:", payload.name)
+	pass
 
 
 def decode(header_file, output=None, **kwargs):
@@ -398,9 +442,9 @@ def decode(header_file, output=None, **kwargs):
 
 
 def merge_frames(frames,
-	bits_per_dim=[16, 16, 16, 8],
-	offset=[100.0, 100.0, 100.0, 0],
-	scale=[200.0, 200.0, 200.0, 1.0],
+	bits_per_dim=[16, 16, 16],
+	offset=[],
+	scale=[],
 	limit=0,
 	qtype=np.uint64
 	):
@@ -463,7 +507,6 @@ def kitti(kittidata,
 			log("\nChunk No.", i)
 			log("Data:", X.shape)
 			X.sort()
-			#log(X)
 			for x in X[::len(X)//10]:
 				log("{:0>16}".format(hex(x)[2:]))
 			log("...")

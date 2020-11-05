@@ -44,19 +44,20 @@ def deserialize(X, bits_per_dim, qtype=object):
 	return X
 
 
-def sort(X, reverse=False, absp=False):
-	shifts = np.iinfo(X.dtype).bits
+def sort(X, bits=None, reverse=False, absp=False):
+	if bits is None:
+		bits = np.iinfo(X.dtype).bits
 	shape = X.shape
 	X = X.flatten()
 	Y = np.zeros_like(X)
-	p = np.array([np.sum(X>>i & 1) for i in range(shifts)])
+	p = np.array([np.sum(X>>i & 1) for i in range(bits)])
 	if absp:
 		p = np.max((p, len(Y)-p), axis=0)
 	p = np.argsort(p)
 	if reverse:
 		p = p[::-1]
 	
-	for i in range(shifts):
+	for i in range(bits):
 		Y |= (X>>p[i] & 1) << i
 	return Y.reshape(shape), p.astype(np.uint8)
 
@@ -193,7 +194,7 @@ class BitBuffer():
 			self.buffer <<= n_tail
 			buf = self.buffer.to_bytes(n_bytes+bool(n_tail), 'big')
 			self.fid.write(buf[1:n_bytes])
-			self.buffer = (0xFF00 | buf[-1]) >> n_tail if n_tail else 0xFF
+			self.buffer = ((0xFF00 | buf[-1]) >> n_tail) if n_tail else 0xFF
 		pass
 	
 	def close(self, reset=True):
