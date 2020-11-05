@@ -73,14 +73,6 @@ def init_encode_args(parents=[], subparser=None):
 		)
 	
 	encode_args.add_argument(
-		'--limit', '-L',
-		type=int,
-		metavar='INT',
-		default=1,
-		help='Limit chunk size (default=1)'
-		)
-	
-	encode_args.add_argument(
 		'--scale', '-S',
 		type=float,
 		nargs='*',
@@ -128,6 +120,22 @@ def init_encode_args(parents=[], subparser=None):
 		metavar='INT',
 		default=[16, 16, 16],
 		help='The quantization size per dimension'
+		)
+	
+	encode_args.add_argument(
+		'--limit', '-L',
+		type=int,
+		metavar='INT',
+		default=1,
+		help='Limit chunk size (default=1)'
+		)
+	
+	encode_args.add_argument(
+		'--bits_for_scan_id', '-s',
+		type=int,
+		metavar='INT',
+		default=8,
+		help='Bit reservation for scan ID (default=8)'
 		)
 	
 	encode_args.add_argument(
@@ -189,115 +197,6 @@ def init_decode_args(parents=[], subparser=None):
 	return decode_args
 
 
-def init_kitti_args(parents=[], subparser=None):
-	if subparser:
-		kitti_args = subparser.add_parser('kitti',
-			help='Encode kitti data to a DynamicTree',
-			conflict_handler='resolve',
-			parents=parents
-			)
-	else:
-		kitti_args = ArgumentParser(
-			description='Encode kitti data to a DynamicTree',
-			conflict_handler='resolve',
-			parents=parents
-			)
-	
-	kitti_args.add_argument(
-		'--kittidata', '-X',
-		required=True,
-		metavar='WILDCARD',
-		help='A wildcard to kitti lidar scans'
-		)
-	
-	kitti_args.add_argument(
-		'--limit', '-L',
-		type=int,
-		metavar='INT',
-		default=0,
-		help='Limit chunk size'
-		)
-	
-	kitti_args.add_argument(
-		'--dims', '-D',
-		type=int,
-		nargs='*',
-		metavar='INT',
-		default=[],
-		help='Dimension per tree layer'
-		)
-	
-	kitti_args.add_argument(
-		'--scale', '-S',
-		type=float,
-		nargs='*',
-		default=[200.0, 200.0, 200.0, 1.0, 1.0],
-		metavar='FLOAT',
-		help='Scaling factors for the kitti data'
-		)
-	
-	kitti_args.add_argument(
-		'--offset', '-O',
-		type=float,
-		nargs='*',
-		default=[100.0, 100.0, 100.0, 0, 0],
-		metavar='FLOAT',
-		help='Offsets for the kitti data'
-		)
-	
-	kitti_args.add_argument(
-		'--bits_per_dim', '-B',
-		type=int,
-		nargs='*',
-		default=[16, 16, 16, 8, 8],
-		metavar='INT',
-		help='Bits per dim for quantization'
-		)
-	
-	kitti_args.add_argument(
-		'--qtype', '-q',
-		metavar='TYPE',
-		default='uint64',
-		help='The quantization type for the datapoints'
-		)
-	
-	kitti_args.add_argument(
-		'--tree_depth', '-T',
-		type=int,
-		metavar='INT',
-		default=64,
-		help='The expected dimension of the datapoints'
-		)
-	
-	kitti_args.add_argument(
-		'--breadth_first', '-b',
-		action='store_true',
-		help='Flag whether the tree-structure is either breadth first or (default) depth first'
-		)
-	
-	kitti_args.add_argument(
-		'--payload', '-p',
-		action='store_true',
-		help='Flag whether or (default) not to separate a payload file'
-		)
-	
-	kitti_args.add_argument(
-		'--sort_bits', '-P',
-		action='store_true',
-		help='Flag whether the bits of the datapoints get either sorted by probability or (default) not'
-		)
-	
-	kitti_args.add_argument(
-		'--reverse', '-r',
-		action='store_true',
-		help='Flag whether the DynamicTree starts from either heigher or (default) lower bit'
-		)
-	
-	kitti_args.set_defaults(
-		run=kitti
-		)
-
-
 def save_header(header_file, **kwargs):
 	with open(header_file, 'wb') as fid:
 		pickle.dump(kwargs, fid),
@@ -310,23 +209,33 @@ def load_header(header_file, **kwargs):
 	return Prototype(**header)
 
 
-def load_datapoints(files, xtype=np.float32, dim=3, limit=0, **kwargs):
+def yield_merged_data(files, xtype=np.float32, dim=3, limit=1, **kwargs):
 	"""
 	"""
-	processed = []
 	def merge(file, i):
 		X = np.fromfile(file, dtype=xtype)
 		X = X[:(len(X)//dim)*dim].reshape(-1,dim)
 		file = path.basename(file)
 		file = path.splitext(file)[0]
 		processed.append(file)
-		return np.hstack((X, np.full((len(X),1), i, dtype=xtype)))
-	return np.vstack([merge(f, i) for f, i in zip(files, range(limit))]), processed
+		if limit == 1:
+			return X
+		else:
+			return np.hstack((X, np.full((len(X),1), i, dtype=xtype)))
+	
+	while True:
+		processed = []
+		A = [merge(f, i) for f, i in zip(files, range(limit))]
+		if A:
+			yield np.vstack(A), processed
+		else:
+			break
 	
 
 def encode(datapoints,
 	dims=[],
 	bits_per_dim=[16,16,16],
+	bits_for_scan_id=8,
 	output='',
 	breadth_first=False,
 	sort_bits=False,
@@ -339,20 +248,21 @@ def encode(datapoints,
 	"""
 	"""
 	output = path.splitext(output)[0]
-	files = ifile(datapoints, sort=True)
+	files = [f for f in ifile(datapoints)]
 	nfiles = len(files)
-	files iter(files)
+	files = iter(files)
 	dim = len(bits_per_dim)
 	tree_depth = int(np.sum(bits_per_dim))
+	if limit > 1:
+		bits_per_dim = bits_per_dim + [bits_for_scan_id]
 	
-	while files:
-		X, processed = load_datapoints(files, xtype, dim, limit)
+	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
 		if sort_bits:
 			X, permute = bitops.sort(X, tree_depth, reverse, True)
 			permute = permute.tolist()
-		elif args.reverse:
-			X = reverse_bits(X)
+		elif reverse:
+			X = bitops.reverse(X, tree_depth)
 			permute = True
 		else:
 			permute = False
@@ -441,111 +351,6 @@ def decode(header_file, output=None, **kwargs):
 	return X
 
 
-def merge_frames(frames,
-	bits_per_dim=[16, 16, 16],
-	offset=[],
-	scale=[],
-	limit=0,
-	qtype=np.uint64
-	):
-	"""
-	"""
-	scale = ((1<<np.array(bits_per_dim)) - 1).astype(float) / scale
-	for i, X in enumerate(frames):
-		X = bitops.serialize(X, bits_per_dim, qtype=qtype, offset=offset, scale=scale)[0]
-		X |= 0x0 << int(np.sum(bits_per_dim))
-		yield X
-		if limit and i >= limit-1:
-			break
-
-
-def kitti(kittidata,
-	dims=[],
-	bits_per_dim=[16, 16, 16, 8, 8],
-	offset=[100.0, 100.0, 100.0, 0, 0],
-	scale=[200.0, 200.0, 200.0, 1.0, 1.0],
-	limit=0,
-	qtype=np.uint64,
-	output=None,
-	tree_depth=None,
-	breadth_first=False,
-	sort_bits=False,
-	reverse=False,
-	**kwargs
-	):
-	"""
-	"""
-	files = ifile(kittidata)
-	frames = (np.fromfile(f, dtype=np.float32).reshape(-1,4) for f in files)
-	
-	if output is None:
-		output = path.dirname(kittidata)
-	if output:
-		output = path.splitext(output)[0]
-	
-	i = 0
-	while True:
-		output_i = '{}_{:0>4}'.format(output, i)
-		X = [X for X in merge_frames(frames, bits_per_dim[:-1], offset[:-1], scale[:-1], limit, qtype)]
-		if len(X) == 0:
-			return
-		else:
-			i += 1
-		X = np.hstack(X)
-		X = np.unique(X, axis=0)
-		
-		if sort_bits:
-			X, permute = bitops.sort(X, reverse, True)
-			permute = permute.tolist()
-		elif reverse:
-			X = bitops.reverse(X)
-			permute = True
-		else:
-			permute = False
-
-		if log.verbose:
-			log("\nChunk No.", i)
-			log("Data:", X.shape)
-			X.sort()
-			for x in X[::len(X)//10]:
-				log("{:0>16}".format(hex(x)[2:]))
-			log("...")
-			log("\n---Encoding---\n")
-		
-		flags, payload = dynamictree.encode(X,
-			dims=dims,
-			tree_depth=tree_depth,
-			output=output_i,
-			breadth_first=breadth_first,
-			**kwargs
-			)
-		
-		header_file, header = save_header(
-			output_i + '.hdr.pkl',
-			dims = dims,
-			flags = path.basename(flags.name),
-			payload = path.basename(payload.name) if payload else False,
-			num_points = len(X),
-			breadth_first = breadth_first,
-			offset = offset,
-			scale = scale,
-			permute = permute,
-			bits_per_dim=bits_per_dim,
-			xtype = float,
-			qtype = qtype
-			)
-		
-		log("\n")
-		log("---Header---")
-		log("\n".join(["{}: {}".format(k,v) for k,v in header.items()]))
-		
-		log("\nHeader saved to:", header_file)
-		log("Flags saved to:", flags.name)
-		if payload:
-			log("Payload saved to:", payload.name)
-	pass
-
-
 def main(args, unparsed):
 	log.verbose = args.verbose
 	args.run(**args.__dict__)
@@ -556,6 +361,5 @@ if __name__ == '__main__':
 	subparser = main_args.add_subparsers(help='Application Modes:')
 	init_encode_args([main_args], subparser)
 	init_decode_args([main_args], subparser)
-	init_kitti_args([main_args], subparser)
 	main(*main_args.parse_known_args())
 	

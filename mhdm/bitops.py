@@ -17,7 +17,7 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 	if scale is None:
 		scale = X.max(axis=0)
 		m = scale != 0
-		scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / X.max(axis=0)[m]
+		scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
 	X *= scale
 	X = np.round(X).astype(qtype)
 	return X, offset, scale 
@@ -73,11 +73,12 @@ def permute(X, p):
 	return Y.reshape(shape)
 
 
-def reverse(X):
-	shifts = np.iinfo(X.dtype).bits
+def reverse(X, bits=None):
+	if bits is None:
+		bits = np.iinfo(X.dtype).bits
 	Y = np.zeros_like(X)
 	
-	for low, high in zip(range(shifts//2), range(shifts-1, shifts//2 - 1, -1)):
+	for low, high in zip(range(bits//2), range(bits-1, bits//2 - 1, -1)):
 		Y |= (X & 1<<low) << (high-low) | (X & 1<<high) >> (high-low)
 	return Y
 
