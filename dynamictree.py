@@ -9,6 +9,13 @@ import pickle
 ## Installed
 import numpy as np
 
+## Optional
+try:
+	import pcl
+except:
+	pcl = None
+	pass
+
 ## Local
 import mhdm.dynamictree as dynamictree
 import mhdm.bitops as bitops
@@ -190,6 +197,14 @@ def init_decode_args(parents=[], subparser=None):
 		help='A path to a header file as .hdr.pkl'
 		)
 	
+	decode_args.add_argument(
+		'--formats', '-f',
+		metavar='EXT',
+		nargs='*',
+		choices=('bin', 'npy', 'ply', 'pcd'),
+		help='A list of additional output formats'
+		)
+	
 	decode_args.set_defaults(
 		run=decode
 		)
@@ -318,36 +333,74 @@ def encode(datapoints,
 	pass
 
 
-def decode(header_file, output=None, **kwargs):
-	"""
-	"""
-	if output is None:
-		output = header_file
+def save(X, output, formats, *args):
+	if formats is None:
+		formats = {*args}
+	elif isinstance(formats, str):
+		formats = {formats, *args}
+	else:
+		formats = {*formats, *args}
+
 	if output:
-		output = path.splitext(path.splitext(output)[0])[0] + '.bin'
-	
+		output, format = path.splitext(output)
+		output = path.splitext(output)[0]
+		if format:
+			formats.add(format)
+
+	if not formats:
+		formats.add('bin')
+
+	for format in formats:
+		output_file = "{}.{}".format(output, format.split('.')[-1])
+		if 'bin' in format:
+			X.tofile(output_file)
+		elif 'npy' in format:
+			np.save(output_file, X)
+		elif 'ply' in format or 'pcd' in format and pcl:
+			if X.n_dim == 3:
+				P = pcl.PointCloud(X)
+			elif X.n_dim == 4:
+				P = pcl.PointCloud_PointXYZI(X)
+			else:
+				raise Warning("Unsupported dimension: {} (skipped)".format(X.n_dim))
+				continue
+			pcl.save(P, output_file, binary=True)
+		elif format:
+			raise Warning("Unsupported format: {} (skipped)".format(format))
+			continue
+		else:
+			continue
+		log("Datapoints saved to:", output_file)
+	pass
+
+
+def decode(header_file, output=None, formats=None, **kwargs):
+	"""
+	"""
+	if not output:
+		output = path.splitext(header_file)[0]
 	header = load_header(header_file)
 	log("\n---Header---")
 	log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
 	
 	header.flags = path.join(path.dirname(header_file), header.flags)
 	header.payload = path.join(path.dirname(header_file), header.payload) if header.payload else None
-	header.scale = ((1<<np.array(header.bits_per_dim)) - 1).astype(float) / header.scale
+	tree_depth = sum(header.bits_per_dim)
 	
 	flags = BitBuffer(header.flags, 'rb')
 	log("\n---Decoding---\n")
-	X = dynamictree.decode(flags, **header.__dict__)
+	X = dynamictree.decode(flags, tree_depth=tree_depth, **header.__dict__)
 	
 	if header.permute is True:
-		X = bitops.reverse(X)
+		X = bitops.reverse(X, tree_depth)
 	elif header.permute:
 		X = bitops.permute(X, header.permute)
 	
 	X = bitops.deserialize(X, header.bits_per_dim, header.qtype)
-	X = bitops.realization(X, header.offset, header.scale)
+	X = bitops.realization(X, header.offset, header.scale, header.xtype)
 	log("\nData:", X.shape)
 	log(np.round(X,2))
-	log("Datapoints saved to:", output)
+	save(X, output, formats)
 	return X
 
 

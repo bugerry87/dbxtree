@@ -107,13 +107,14 @@ def decode(Y, num_points,
 		)
 	
 	def expand(x, layer, pos):
+		tail = tree_depth-pos
 		dim = dims[layer] if layer < len(dims) else dims[-1]
 		fbit = 1<<dim
-		flag = Y.read(fbit) if layer < tree_depth else 0
+		flag = Y.read(fbit) if tail > 0 else 0
 		
 		if flag == 0:
-			if payload:
-				x |= payload.read(tree_depth-pos) << pos
+			if payload and tail:
+				x |= payload.read(tail) << pos
 			xi = next(Xi)
 			X[xi] = x
 			local.points = xi+1

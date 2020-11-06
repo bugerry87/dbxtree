@@ -23,8 +23,11 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 	return X, offset, scale 
 
 
-def realization(X, offset, scale):
-	X = X.astype(float) / scale
+def realization(X, offset, scale, xtype=float):
+	scale = np.array(scale)
+	m = scale != 0
+	X = X.astype(xtype)
+	X[:,m] /= scale[m]
 	X -= offset
 	return X
 
@@ -63,13 +66,12 @@ def sort(X, bits=None, reverse=False, absp=False):
 
 
 def permute(X, p):
-	shifts = np.iinfo(X.dtype).bits
 	shape = X.shape
 	X = X.flatten()
 	Y = np.zeros_like(X)
 	
-	for i in range(shifts):
-		Y |= (X>>i & 1) << p[i]
+	for i, p in enumerate(p):
+		Y |= (X>>i & 1) << p
 	return Y.reshape(shape)
 
 
@@ -183,7 +185,7 @@ class BitBuffer():
 	
 		n_bits = self.buffer.bit_length()
 		n_bytes = n_bits // 8
-		n_tail = 8-n_bits % 8
+		n_tail = -n_bits % 8
 		
 		if hard:
 			self.buffer <<= n_tail
@@ -194,7 +196,7 @@ class BitBuffer():
 		elif n_bytes > self.buf:
 			self.buffer <<= n_tail
 			buf = self.buffer.to_bytes(n_bytes+bool(n_tail), 'big')
-			self.fid.write(buf[1:n_bytes])
+			self.fid.write(buf[1:-1])
 			self.buffer = ((0xFF00 | buf[-1]) >> n_tail) if n_tail else 0xFF
 		pass
 	
