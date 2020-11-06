@@ -6,7 +6,6 @@ Author: Gerald Baulig
 
 # Installed
 import numpy as np
-from scipy.spatial import cKDTree
 
 
 def magnitude(X, sqrt=False):
@@ -79,35 +78,6 @@ def face_magnitude(T=None, fN=None, normalize=False):
 		return mag / 2
 	else:
 		return mag
-
-
-def nn_point2point(X, P):
-	return cKDTree(X).query(P)
-
-
-def nn_point2line(X, Xi, P):
-	nn = -np.ones((P.shape[0],2), dtype=int)
-	dist, nn[:,0] = nn_point2point(X, P)
-	dist = dist**2
-	mp = X[nn[:,0]]
-	A = X[Xi[:,0]]
-	B = X[Xi[:,1]]
-	AB = B - A
-	ABm = magnitude(AB)
-	for i, p in enumerate(P):
-		Ap = p - A
-		a = np.sum(AB * Ap, axis=1) / ABm.flatten()
-		m = ((a > 0) * (a < 1)).astype(bool)
-		if any(m):
-			ap = AB[m] * a[m][:,None] - Ap[m]
-			L = magnitude(ap)
-			Larg = np.argmin(L)
-			Lmin = L[Larg]
-			if Lmin < dist[i]:
-				nn[i] = Xi[m][Larg]
-				dist[i] = Lmin
-				mp[i] = p + ap[Larg]
-	return dist, mp, nn
 
 
 def raycast(T, rays, fN=None, eN=None, back=False):
