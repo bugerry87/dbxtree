@@ -337,8 +337,20 @@ def encode(datapoints,
 def decode(header_file, output=None, formats=None, payload=True, **kwargs):
 	"""
 	"""
-	if not output:
+	if formats:
+		formats = {*formats}
+	else:
+		formats = set()
+	
+	if output:
+		output, format = path.splitext(output)
+		formats.add(format.split('.')[-1])
+	else:
 		output = path.splitext(header_file)[0]
+		output = path.splitext(output)[0]
+		if not formats:
+			formats.add('bin')
+	
 	header = load_header(header_file)
 	log("\n---Header---")
 	log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
@@ -363,7 +375,10 @@ def decode(header_file, output=None, formats=None, payload=True, **kwargs):
 	X = bitops.realization(X, header.offset, header.scale, header.xtype)
 	log("\nData:", X.shape)
 	log(np.round(X,2))
-	save(X, output, formats)
+	
+	for format in formats:
+		output_file = save(X, output, format)
+		log("Datapoints saved to:", output_file)
 	return X
 
 

@@ -4,10 +4,13 @@ Operations for LiDAR data.
 Author: Gerald Baulig
 """
 
-# Installed
+## Build in
+import os.path as path
+
+## Installed
 import numpy as np
 
-# Local
+## Local
 from . import spatial
 
 ## Optional
@@ -104,39 +107,28 @@ def dot_keypoints(X, m=1, o=0):
 	return X[mask], mask
 
 
-def save(X, output, formats, *args):
-	if formats is None:
-		formats = {*args}
-	elif isinstance(formats, str):
-		formats = {formats, *args}
-	else:
-		formats = {*formats, *args}
+def save(X, output, format=None):
+	if format is None:
+		output, format = path.splitext(output)
+		format = format.split('.')[-1]
+	if not format:
+		format = 'bin'
 
-	if output:
-		output = path.splitext(output)[0]
-
-	if not formats:
-		formats.add('bin')
-
-	for format in formats:
-		output_file = "{}.{}".format(output, format.split('.')[-1])
-		if 'bin' in format:
-			X.tofile(output_file)
-		elif 'npy' in format:
-			np.save(output_file, X)
-		elif 'ply' in format or 'pcd' in format and pcl:
-			if X.n_dim == 3:
-				P = pcl.PointCloud(X)
-			elif X.n_dim == 4:
-				P = pcl.PointCloud_PointXYZI(X)
-			else:
-				raise Warning("Unsupported dimension: {} (skipped)".format(X.n_dim))
-				continue
-			pcl.save(P, output_file, binary=True)
-		elif format:
-			raise Warning("Unsupported format: {} (skipped)".format(format))
-			continue
+	output = "{}.{}".format(output, format)
+	if 'bin' in format:
+		X.tofile(output)
+	elif 'npy' in format:
+		np.save(output, X)
+	elif 'ply' in format or 'pcd' in format and pcl:
+		if X.n_dim == 3:
+			P = pcl.PointCloud(X)
+		elif X.n_dim == 4:
+			P = pcl.PointCloud_PointXYZI(X)
 		else:
-			continue
-		log("Datapoints saved to:", output_file)
-	pass
+			raise Warning("Unsupported dimension: {} (skipped)".format(X.n_dim))
+			return
+		pcl.save(P, output, binary=True)
+	else:
+		raise Warning("Unsupported format: {} (skipped)".format(format))
+		return
+	return output
