@@ -10,6 +10,13 @@ import numpy as np
 # Local
 from . import spatial
 
+## Optional
+try:
+	import pcl
+except:
+	pcl = None
+	pass
+
 
 def psnr(A, B=None, peek=100):
 	if B is None:
@@ -97,17 +104,39 @@ def dot_keypoints(X, m=1, o=0):
 	return X[mask], mask
 
 
-def kalman_filter(Z, order=2, R=0.03, dt=1.0):
-	from filterpy.common import kinematic_kf
-	x_dim = Z.shape[-1]
-	z_dim = Z.shape[-1]
-	kf = kinematic_kf(x_dim, z_dim, dt, order, order_by_dim=False)
-	X = np.empty((len(Z), len(kf.F)))
-	p = np.empty((len(Z), len(kf.F)))
-	
-	for i, z in enumerate(Z):
-		kf.predict()
-		kf.update(z.reshape(-1,1))
-		X[i] = kf.x.flatten()
-		p[i] = kf.x_prior.flatten()
-	return X, p
+def save(X, output, formats, *args):
+	if formats is None:
+		formats = {*args}
+	elif isinstance(formats, str):
+		formats = {formats, *args}
+	else:
+		formats = {*formats, *args}
+
+	if output:
+		output = path.splitext(output)[0]
+
+	if not formats:
+		formats.add('bin')
+
+	for format in formats:
+		output_file = "{}.{}".format(output, format.split('.')[-1])
+		if 'bin' in format:
+			X.tofile(output_file)
+		elif 'npy' in format:
+			np.save(output_file, X)
+		elif 'ply' in format or 'pcd' in format and pcl:
+			if X.n_dim == 3:
+				P = pcl.PointCloud(X)
+			elif X.n_dim == 4:
+				P = pcl.PointCloud_PointXYZI(X)
+			else:
+				raise Warning("Unsupported dimension: {} (skipped)".format(X.n_dim))
+				continue
+			pcl.save(P, output_file, binary=True)
+		elif format:
+			raise Warning("Unsupported format: {} (skipped)".format(format))
+			continue
+		else:
+			continue
+		log("Datapoints saved to:", output_file)
+	pass

@@ -9,18 +9,12 @@ import pickle
 ## Installed
 import numpy as np
 
-## Optional
-try:
-	import pcl
-except:
-	pcl = None
-	pass
-
 ## Local
 import mhdm.dynamictree as dynamictree
 import mhdm.bitops as bitops
 from mhdm.utils import Prototype, log, ifile
 from mhdm.bitops import BitBuffer
+from mhdm.lidar import save
 
 
 def init_main_args(parents=[]):
@@ -205,6 +199,13 @@ def init_decode_args(parents=[], subparser=None):
 		help='A list of additional output formats'
 		)
 	
+	decode_args.add_argument(
+		'--payload', '-p',
+		type=bool,
+		default=True,
+		help="Set to 'False' for ignoring payload!"
+		)
+	
 	decode_args.set_defaults(
 		run=decode
 		)
@@ -333,48 +334,7 @@ def encode(datapoints,
 	pass
 
 
-def save(X, output, formats, *args):
-	if formats is None:
-		formats = {*args}
-	elif isinstance(formats, str):
-		formats = {formats, *args}
-	else:
-		formats = {*formats, *args}
-
-	if output:
-		output, format = path.splitext(output)
-		output = path.splitext(output)[0]
-		if format:
-			formats.add(format)
-
-	if not formats:
-		formats.add('bin')
-
-	for format in formats:
-		output_file = "{}.{}".format(output, format.split('.')[-1])
-		if 'bin' in format:
-			X.tofile(output_file)
-		elif 'npy' in format:
-			np.save(output_file, X)
-		elif 'ply' in format or 'pcd' in format and pcl:
-			if X.n_dim == 3:
-				P = pcl.PointCloud(X)
-			elif X.n_dim == 4:
-				P = pcl.PointCloud_PointXYZI(X)
-			else:
-				raise Warning("Unsupported dimension: {} (skipped)".format(X.n_dim))
-				continue
-			pcl.save(P, output_file, binary=True)
-		elif format:
-			raise Warning("Unsupported format: {} (skipped)".format(format))
-			continue
-		else:
-			continue
-		log("Datapoints saved to:", output_file)
-	pass
-
-
-def decode(header_file, output=None, formats=None, **kwargs):
+def decode(header_file, output=None, formats=None, payload=True, **kwargs):
 	"""
 	"""
 	if not output:
@@ -384,7 +344,10 @@ def decode(header_file, output=None, formats=None, **kwargs):
 	log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
 	
 	header.flags = path.join(path.dirname(header_file), header.flags)
-	header.payload = path.join(path.dirname(header_file), header.payload) if header.payload else None
+	if header.payload and payload:
+		header.payload = path.join(path.dirname(header_file), header.payload)
+	else:
+		header.payload = None
 	tree_depth = sum(header.bits_per_dim)
 	
 	flags = BitBuffer(header.flags, 'rb')

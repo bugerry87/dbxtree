@@ -110,7 +110,7 @@ class BitBuffer():
 		filename=None,
 		mode='rb',
 		interval=8,
-		buf=1000
+		buf=1024
 		):
 		"""
 		Init a BitBuffer.
@@ -196,7 +196,7 @@ class BitBuffer():
 		elif n_bytes > self.buf:
 			self.buffer <<= n_tail
 			buf = self.buffer.to_bytes(n_bytes+bool(n_tail), 'big')
-			self.fid.write(buf[1:-1])
+			self.fid.write(buf[1:n_bytes])
 			self.buffer = ((0xFF00 | buf[-1]) >> n_tail) if n_tail else 0xFF
 		pass
 	
@@ -262,7 +262,7 @@ class BitBuffer():
 			if len(buffer) < n_bytes:
 				raise EOFError()
 			elif buffer:
-				self.buffer <<= len(buffer*8)
+				self.buffer <<= len(buffer)*8
 				self.buffer |= int.from_bytes(buffer, 'big')
 		
 		n_bits = self.__len__()
