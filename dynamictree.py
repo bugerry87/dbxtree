@@ -148,7 +148,7 @@ def init_encode_args(parents=[], subparser=None):
 	encode_args.add_argument(
 		'--payload', '-p',
 		action='store_true',
-		help='Flag whether or (default) not to separate a payload file'
+		help='Flag whether to separate a payload file or (default) not'
 		)
 	
 	encode_args.add_argument(
@@ -201,9 +201,8 @@ def init_decode_args(parents=[], subparser=None):
 	
 	decode_args.add_argument(
 		'--payload', '-p',
-		type=bool,
-		default=True,
-		help="Set to 'False' for ignoring payload!"
+		action='store_false',
+		help='Flag whether to ignore payload or (default) not'
 		)
 	
 	decode_args.set_defaults(

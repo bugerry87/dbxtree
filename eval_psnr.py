@@ -53,11 +53,11 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--peek', '-p',
+		'--peak', '-p',
 		metavar='FLOAT',
 		type=float,
 		default=100.0,
-		help='The expected peek of the PSNR (default=100m)'
+		help='The expected peak of the PSNR (default=100m)'
 		)
 	
 	main_args.add_argument(
@@ -111,7 +111,7 @@ def main(args):
 		delta, nn = tree.query(X, n_jobs=args.jobs)
 		
 		points = len(X)
-		psnr = lidar.psnr(np.mean(delta**2), peek=args.peek)
+		psnr = lidar.psnr(np.mean(delta**2), peak=args.peak)
 		acc = np.sum(delta <= args.acc) * 100.0 / points
 		max_delta = delta.max() * 1000
 		if y:
@@ -124,7 +124,7 @@ def main(args):
 		report.append(entry)
 		log(("{}:"
 			"\n\tpoints={}"
-			"\n\tpsnr={:2.2f}%"
+			"\n\tpsnr={:2.2f}dB"
 			"\n\tacc={:2.2f}%"
 			"\n\tmax={:2.2f}mm"
 			"\n\tsize={}"
@@ -144,9 +144,9 @@ def main(args):
 	
 	axl = axes[1]
 	axl.grid()
-	axl.set_ylabel('PSNR%, Acc%, Max(mm)')
+	axl.set_ylabel('PSNR(dB), Acc(%), Max(mm)')
 	axl.set_xticklabels(files, rotation=45, ha='right')
-	axl.plot(files, psnr.astype(float), label='PSNR(100m)')
+	axl.plot(files, psnr.astype(float), label='PSNR({}m)'.format(args.peak))
 	axl.plot(files, acc.astype(float), label='Acc(3cm)')
 	axl.plot(files, max_delta.astype(float), label='Max(mm)')
 	axl.legend(loc='center left')

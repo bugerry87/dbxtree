@@ -25,7 +25,7 @@ def encode(X,
 	tree_depth = tree_depth if tree_depth else np.iinfo(X.dtype).bits
 	flags = BitBuffer(output + '.flg.bin', 'wb')
 	stack_size = 0
-	msg = "Layer: {:>2}, BranchFlag: {:>16}, StackSize: {:>10}, Points: {:>10}"
+	msg = "Layer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}"
 	local = Prototype(
 		points = 0
 		)
@@ -91,7 +91,7 @@ def decode(Y, num_points,
 		payload = None
 
 	tree_depth = tree_depth if tree_depth else np.iinfo(qtype).bits
-	msg = "Layer: {:>2}, BranchFlag: {:>16}, Points: {:>10}, Done: {:>3.2f}%"
+	msg = "Layer: {:>2}, Flag: {:>16}, Points: {:>8}, Done: {:>3.2f}%"
 	X = np.zeros(num_points, dtype=qtype)
 	local = Prototype(
 		points = 0

@@ -21,7 +21,7 @@ except:
 	pass
 
 
-def psnr(A, B=None, peek=100):
+def psnr(A, B=None, peak=100):
 	if B is None:
 		MSE = A
 	else:
@@ -29,7 +29,7 @@ def psnr(A, B=None, peek=100):
 	if MSE == 0:
 		return 100
 	else:
-		return 20 * np.log10(peek / np.sqrt(MSE))
+		return 10 * np.log10(peak**2 / MSE)
 
 
 def xyz2uvd(X, norm=False, z_off=0.0, d_off=0.0, mode='sphere'):
