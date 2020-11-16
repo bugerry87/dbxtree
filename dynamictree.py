@@ -67,7 +67,7 @@ def init_encode_args(parents=[], subparser=None):
 			)
 	
 	encode_args.add_argument(
-		'--datapoints', '-X',
+		'--files', '-X',
 		nargs='+',
 		metavar='WILDCARD',
 		help='One or more wildcards to files of datapoints as .bin'
@@ -132,7 +132,7 @@ def init_encode_args(parents=[], subparser=None):
 		)
 	
 	encode_args.add_argument(
-		'--bits_for_scan_id', '-s',
+		'--bits_for_chunk_id', '-s',
 		type=int,
 		metavar='INT',
 		default=8,
@@ -238,19 +238,32 @@ def yield_merged_data(files, xtype=np.float32, dim=3, limit=1, **kwargs):
 		else:
 			return np.hstack((X, np.full((len(X),1), i, dtype=xtype)))
 	
-	while True:
-		processed = []
-		A = [merge(f, i) for f, i in zip(files, range(limit))]
-		if A:
-			yield np.vstack(A), processed
-		else:
-			break
+	def split(X):
+		for i, low in enumerate(range(0, len(X), limit)):
+			high = min(low+limit, len(X))
+			i = np.full((high-low,1), i, dtype=xtype)
+			yield np.hstack((X[low:high] - X[low], i))
+	
+	files = [f for f in ifile(files)]
+	if len(files) == 1 and limit != 1:
+		X = np.fromfile(files[0], dtype=xtype)
+		X = X[:(len(X)//dim)*dim].reshape(-1,dim)
+		yield np.vstack([x for x in split(X)]), files
+	else:
+		files = iter(files)
+		while True:
+			processed = []
+			A = [merge(f, i) for f, i in zip(files, range(limit))]
+			if A:
+				yield np.vstack(A), processed
+			else:
+				break
 	
 
-def encode(datapoints,
+def encode(files,
 	dims=[],
 	bits_per_dim=[16,16,16],
-	bits_for_scan_id=8,
+	bits_for_chunk_id=8,
 	output='',
 	breadth_first=False,
 	sort_bits=False,
@@ -263,13 +276,10 @@ def encode(datapoints,
 	"""
 	"""
 	output = path.splitext(output)[0]
-	files = [f for f in ifile(datapoints)]
-	nfiles = len(files)
-	files = iter(files)
 	dim = len(bits_per_dim)
-	tree_depth = int(np.sum(bits_per_dim))
 	if limit > 1:
-		bits_per_dim = bits_per_dim + [bits_for_scan_id]
+		bits_per_dim = bits_per_dim + [bits_for_chunk_id]
+	tree_depth = sum(bits_per_dim)
 	
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
@@ -283,7 +293,7 @@ def encode(datapoints,
 			permute = False
 		X = np.unique(X)
 		
-		if nfiles == 1:
+		if processed[0] is processed[-1]:
 			output_file = output if output else processed[0]
 		elif limit == 1:
 			output_file = "{}_{}".format(output, processed)

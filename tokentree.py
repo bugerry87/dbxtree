@@ -367,7 +367,7 @@ def merge_frames(frames,
 	):
 	"""
 	"""
-	scale = (1<<np.array(bits_per_dim) - 1).astype(float) / scale
+	scale = ((1<<np.array(bits_per_dim)) - 1).astype(float) / scale
 	for i, X in enumerate(frames):
 		X = bitops.serialize(X, bits_per_dim, qtype=np.uint64, offset=offset, scale=scale)[0]
 		X = np.ndarray((len(X), 4), dtype=np.uint16, buffer=X)
@@ -412,7 +412,7 @@ def kitti(kittidata,
 		if sort_bits:
 			X, permute = bitops.sort(X, reverse, True)
 			permute = permute.tolist()
-		elif args.reverse:
+		elif reverse:
 			X = bitops.reverse(X)
 			permute = True
 		else:

@@ -1,4 +1,8 @@
 
+
+## Build In
+import os.path as path
+
 ## Installed
 import numpy as np
 
@@ -127,13 +131,14 @@ class BitBuffer():
 		self.buffer = 0xFF
 		self.interval = interval
 		self.buf = buf
+		self.size = 0
 		
 		if filename:
 			self.open(filename, mode)
 		pass
 	
 	def __len__(self):
-		return self.buffer.bit_length() - 8
+		return self.size
 	
 	def __del__(self):
 		self.close()
@@ -161,6 +166,9 @@ class BitBuffer():
 	@property
 	def closed(self):
 		return self.fid.closed if self.fid else False
+	
+	def tell(self):
+		return self.fid.tell() if self.fid else 0
 	
 	def reset(self):
 		"""
@@ -230,6 +238,10 @@ class BitBuffer():
 			mode += 'b'
 		self.close(reset)
 		self.fid = open(filename, mode)
+		if 'r' in mode:
+			self.size = path.getsize(self.name)
+		else:
+			self.size = 0
 		return self
 	
 	def write(self, bits, shift, soft_flush=False):
@@ -255,8 +267,9 @@ class BitBuffer():
 		"""
 		"""
 		bits = int(bits)
+		n_bits = self.buffer.bit_length() - 8
 		
-		if self.__len__() < bits and not self.closed:
+		if n_bits < bits and not self.closed:
 			n_bytes = max(bits//8, 1)
 			buffer = self.fid.read(self.buf + n_bytes)
 			if len(buffer) < n_bytes:
@@ -264,8 +277,8 @@ class BitBuffer():
 			elif buffer:
 				self.buffer <<= len(buffer)*8
 				self.buffer |= int.from_bytes(buffer, 'big')
+			n_bits = self.buffer.bit_length() - 8
 		
-		n_bits = self.__len__()
 		if n_bits >= bits:
 			mask = (1<<bits) - 1
 			result = (self.buffer >> n_bits-bits) & mask
