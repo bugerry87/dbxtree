@@ -58,15 +58,18 @@ def sort(X, bits=None, reverse=False, absp=False):
 	X = X.flatten()
 	Y = np.zeros_like(X)
 	p = np.array([np.sum(X>>i & 1) for i in range(bits)])
+	pattern = np.argmax((p, len(Y)-p), axis=0)
 	if absp:
 		p = np.max((p, len(Y)-p), axis=0)
 	p = np.argsort(p)
 	if reverse:
 		p = p[::-1]
+	pattern = np.packbits(pattern[p], bitorder='little')
+	pattern = int.from_bytes(pattern.tobytes(), 'little')
 	
 	for i in range(bits):
 		Y |= (X>>p[i] & 1) << i
-	return Y.reshape(shape), p.astype(np.uint8)
+	return Y.reshape(shape), p.astype(np.uint8), pattern
 
 
 def permute(X, p):

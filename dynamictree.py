@@ -283,8 +283,9 @@ def encode(files,
 	
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
+		pattern = 0
 		if sort_bits:
-			X, permute = bitops.sort(X, tree_depth, reverse, True)
+			X, permute, pattern = bitops.sort(X, tree_depth, reverse, True)
 			permute = permute.tolist()
 		elif reverse:
 			X = bitops.reverse(X, tree_depth)
@@ -313,6 +314,7 @@ def encode(files,
 			tree_depth=tree_depth,
 			output=output_file,
 			breadth_first=breadth_first,
+			pattern=pattern,
 			**kwargs
 			)
 		
@@ -326,6 +328,7 @@ def encode(files,
 			offset = offset.tolist(),
 			scale = scale.tolist(),
 			permute = permute,
+			pattern = pattern,
 			bits_per_dim=bits_per_dim,
 			xtype = xtype,
 			qtype = qtype,
