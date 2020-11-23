@@ -154,13 +154,19 @@ def init_encode_args(parents=[], subparser=None):
 	encode_args.add_argument(
 		'--sort_bits', '-P',
 		action='store_true',
-		help='Flag whether the bits of the datapoints get either sorted by probability or (default) not'
+		help="Flag whether the bits of the datapoints get either sorted by the probability to be '1' or (default) not"
+		)
+	
+	encode_args.add_argument(
+		'--absolute', '-A',
+		action='store_true',
+		help='Flag whether the bits of the datapoints get either sorted by absolute probability or (default) not'
 		)
 	
 	encode_args.add_argument(
 		'--reverse', '-r',
 		action='store_true',
-		help='Flag whether the DynamicTree starts from either heigher or (default) lower bit'
+		help='Flag whether to start from either heigher or (default) lower bit'
 		)
 	
 	encode_args.set_defaults(
@@ -267,6 +273,7 @@ def encode(files,
 	output='',
 	breadth_first=False,
 	sort_bits=False,
+	absolute=False,
 	reverse=False,
 	xtype=np.float32,
 	qtype=object,
@@ -283,9 +290,8 @@ def encode(files,
 	
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
-		pattern = 0
-		if sort_bits:
-			X, permute, pattern = bitops.sort(X, tree_depth, reverse, True)
+		if sort_bits or absolute:
+			X, permute = bitops.sort(X, tree_depth, reverse, absolute)
 			permute = permute.tolist()
 		elif reverse:
 			X = bitops.reverse(X, tree_depth)
@@ -314,7 +320,6 @@ def encode(files,
 			tree_depth=tree_depth,
 			output=output_file,
 			breadth_first=breadth_first,
-			pattern=pattern,
 			**kwargs
 			)
 		
@@ -328,7 +333,6 @@ def encode(files,
 			offset = offset.tolist(),
 			scale = scale.tolist(),
 			permute = permute,
-			pattern = pattern,
 			bits_per_dim=bits_per_dim,
 			xtype = xtype,
 			qtype = qtype,

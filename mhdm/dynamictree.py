@@ -17,7 +17,6 @@ def encode(X,
 	output=None,
 	breadth_first=False,
 	payload=False,
-	pattern=0,
 	**kwargs
 	):
 	"""
@@ -45,17 +44,18 @@ def encode(X,
 		elif dim == 0:
 			fbit = len(X).bit_length()
 			if tail > 1:
-				m = X & 1 == t & 1
+				m = (X & 1).astype(bool)
 				flag = np.sum(m)
 				if len(X) != flag:
-					yield expand(X[~m]>>1, layer+1, max(tail-1, 0), t>>1)
+					yield expand(X[~m]>>1, layer+1, max(tail-1, 0))
 				if flag:
-					yield expand(X[m]>>1, layer+1, max(tail-1, 0), t>>1)
+					yield expand(X[m]>>1, layer+1, max(tail-1, 0))
 			else:
 				flag = np.sum((X & 1).astype(bool))
 				local.points += len(X)
 		elif payload and len(X) == 1:
-			payload.write(int(X), tail, soft_flush=True)
+			payload.write(int(X), 64, soft_flush=True)
+			print('\n', bin(int(X)), int(X).bit_length())
 			local.points += 1
 		else:
 			for t in range(fbit):
@@ -73,7 +73,7 @@ def encode(X,
 			log(msg.format(layer, flag, stack_size, local.points), end='\r', flush=True)
 		pass
 	
-	nodes = deque(expand(X, 0, tree_depth, pattern))
+	nodes = deque(expand(X, 0, tree_depth))
 	while nodes:
 		node = nodes.popleft() if breadth_first else nodes.pop()
 		nodes.extend(node)
@@ -91,7 +91,6 @@ def decode(Y, num_points,
 	payload=None,
 	breadth_first=False,
 	qtype=np.uint64,
-	pattern=0,
 	**kwargs
 	):
 	"""
@@ -116,14 +115,13 @@ def decode(Y, num_points,
 		
 		if dim == 0:
 			right = n - flag
-			t = pattern & 1<<pos
 			if tail > 1:
 				if right > 0:
-					yield expand(x | (t^1<<pos), layer+1, pos+1, right)
+					yield expand(x.copy(), layer+1, pos+1, right)
 				if flag > 0:
-					yield expand(x | t, layer+1, pos+1, flag)
+					yield expand(x | 1<<pos, layer+1, pos+1, flag)
 			else:
-				X[local.points] = x | t
+				X[local.points] = x | bool(flag)<<pos
 				local.points += 1
 		elif flag == 0:
 			if payload:

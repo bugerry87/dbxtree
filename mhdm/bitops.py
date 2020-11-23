@@ -51,6 +51,17 @@ def deserialize(X, bits_per_dim, qtype=object):
 	return X
 
 
+def pattern(X, bits=None):
+	if bits is None:
+		bits = np.iinfo(X.dtype).bits
+	X = X.flatten()
+	p = np.array([np.sum(X>>i & 1) for i in range(bits)])
+	p = np.argmax((p, len(X)-p), axis=0)
+	p = np.packbits(p, bitorder='little')
+	p = int.from_bytes(p.tobytes(), 'little')
+	return p
+
+
 def sort(X, bits=None, reverse=False, absp=False):
 	if bits is None:
 		bits = np.iinfo(X.dtype).bits
@@ -58,18 +69,15 @@ def sort(X, bits=None, reverse=False, absp=False):
 	X = X.flatten()
 	Y = np.zeros_like(X)
 	p = np.array([np.sum(X>>i & 1) for i in range(bits)])
-	pattern = np.argmax((p, len(Y)-p), axis=0)
 	if absp:
 		p = np.max((p, len(Y)-p), axis=0)
 	p = np.argsort(p)
 	if reverse:
 		p = p[::-1]
-	pattern = np.packbits(pattern[p], bitorder='little')
-	pattern = int.from_bytes(pattern.tobytes(), 'little')
 	
 	for i in range(bits):
 		Y |= (X>>p[i] & 1) << i
-	return Y.reshape(shape), p.astype(np.uint8), pattern
+	return Y.reshape(shape), p.astype(np.uint8)
 
 
 def permute(X, p):
