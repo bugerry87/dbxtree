@@ -23,22 +23,29 @@ def encode(X,
 	"""
 	assert(X.ndim == 1)
 	tree_depth = tree_depth if tree_depth else np.iinfo(X.dtype).bits
-	flags = BitBuffer(output + '.flg.bin', 'wb')
 	stack_size = 0
 	local = Prototype(points = 0)
 	msg = "Layer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}"
+	
+	if output is None:
+		flags = BitBuffer()
+	elif isinstance(output, str):
+		flags = BitBuffer(output + '.flg.bin', 'wb') if output else BitBuffer()
+	else:
+		flags = output
+		output = flags.name
 	
 	if payload is True:
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
 	elif not isinstance(payload, BitBuffer):
 		payload = False
 
-	def expand(X, layer, tail, t=0):
+	def expand(X, layer, tail):
 		dim = dims[layer] if layer < len(dims) else dims[-1]
 		mask = (1<<dim)-1
 		fbit = 1<<dim
 		flag = 0
-		
+
 		if len(X) == 0:
 			pass
 		elif dim == 0:
@@ -47,15 +54,14 @@ def encode(X,
 				m = (X & 1).astype(bool)
 				flag = np.sum(m)
 				if len(X) != flag:
-					yield expand(X[~m]>>1, layer+1, max(tail-1, 0))
+					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
 				if flag:
-					yield expand(X[m]>>1, layer+1, max(tail-1, 0))
+					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
 				flag = np.sum((X & 1).astype(bool))
 				local.points += len(X)
 		elif payload and len(X) == 1:
-			payload.write(int(X), 64, soft_flush=True)
-			print('\n', bin(int(X)), int(X).bit_length())
+			payload.write(int(X), tail, soft_flush=True)
 			local.points += 1
 		else:
 			for t in range(fbit):
@@ -63,7 +69,7 @@ def encode(X,
 				if np.any(m):
 					flag |= 1<<t
 					if tail > dim:
-						yield expand(X[m]>>dim, layer+1, max(tail - dim, 0))
+						yield expand(X[m]>>dim, layer+1, max(tail - dim, 1))
 					else:
 						local.points += 1
 		

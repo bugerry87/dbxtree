@@ -15,6 +15,7 @@ import mhdm.bitops as bitops
 from mhdm.utils import Prototype, log, ifile
 from mhdm.bitops import BitBuffer
 from mhdm.lidar import save
+from mhdm.probtree import ProbTree
 
 
 def init_main_args(parents=[]):
@@ -220,7 +221,7 @@ def init_decode_args(parents=[], subparser=None):
 
 def save_header(header_file, **kwargs):
 	with open(header_file, 'wb') as fid:
-		pickle.dump(kwargs, fid),
+		pickle.dump(kwargs, fid)
 	return header_file, kwargs
 
 
@@ -287,6 +288,7 @@ def encode(files,
 	if limit > 1:
 		bits_per_dim = bits_per_dim + [bits_for_chunk_id]
 	tree_depth = sum(bits_per_dim)
+	model = ProbTree()
 	
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
@@ -308,7 +310,7 @@ def encode(files,
 			output_file = "{}_{}-{}".format(output, processed[0], processed[-1])
 
 		if log.verbose:
-			log("\nChunk:",output_file )
+			log("\nChunk:", output_file)
 			log("Data:", X.shape)
 			for x in X[::len(X)//10]:
 				log("{:0>16}".format(hex(x)[2:]))
@@ -318,7 +320,7 @@ def encode(files,
 		flags, payload = dynamictree.encode(X,
 			dims=dims,
 			tree_depth=tree_depth,
-			output=output_file,
+			output=model, #output_file,
 			breadth_first=breadth_first,
 			**kwargs
 			)
