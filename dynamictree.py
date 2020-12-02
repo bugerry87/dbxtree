@@ -147,9 +147,22 @@ def init_encode_args(parents=[], subparser=None):
 		)
 	
 	encode_args.add_argument(
+		'--flags', '-f',
+		action='store_false',
+		help='Flag whether to store branching-flags (default) or not'
+		)
+	
+	encode_args.add_argument(
 		'--payload', '-p',
 		action='store_true',
 		help='Flag whether to separate a payload file or (default) not'
+		)
+	
+	encode_args.add_argument(
+		'--model', '-M',
+		metavar='PATH',
+		default=None,
+		help='A filename for the model data'
 		)
 	
 	encode_args.add_argument(
@@ -279,6 +292,7 @@ def encode(files,
 	xtype=np.float32,
 	qtype=object,
 	limit=1,
+	model=None,
 	**kwargs
 	):
 	"""
@@ -288,7 +302,9 @@ def encode(files,
 	if limit > 1:
 		bits_per_dim = bits_per_dim + [bits_for_chunk_id]
 	tree_depth = sum(bits_per_dim)
-	model = ProbTree()
+	
+	if isinstance(model, str):
+			model = ProbTree(model, breadth_first)
 	
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
@@ -320,35 +336,40 @@ def encode(files,
 		flags, payload = dynamictree.encode(X,
 			dims=dims,
 			tree_depth=tree_depth,
-			output=model, #output_file,
+			output=output_file,
 			breadth_first=breadth_first,
+			model=model,
 			**kwargs
 			)
 		
-		header_file, header = save_header(
-			output_file + '.hdr.pkl',
-			dims=dims,
-			flags = path.basename(flags.name),
-			payload = path.basename(payload.name) if payload else False,
-			num_points = len(X),
-			breadth_first = breadth_first,
-			offset = offset.tolist(),
-			scale = scale.tolist(),
-			permute = permute,
-			bits_per_dim=bits_per_dim,
-			xtype = xtype,
-			qtype = qtype,
-			)
-		
 		log("\n")
-		log("---Header---")
-		log("\n".join(["{}: {}".format(k,v) for k,v in header.items()]))
+		if flags:
+			header_file, header = save_header(
+				output_file + '.hdr.pkl',
+				dims=dims,
+				flags = path.basename(flags.name),
+				payload = path.basename(payload.name) if payload else False,
+				num_points = len(X),
+				breadth_first = breadth_first,
+				offset = offset.tolist(),
+				scale = scale.tolist(),
+				permute = permute,
+				bits_per_dim=bits_per_dim,
+				xtype = xtype,
+				qtype = qtype,
+				)
+			log("---Header---")
+			log("\n".join(["{}: {}".format(k,v) for k,v in header.items()]))		
+			log("\n")
+			log("Header saved to:", header_file)
 		
-		log("\n")
-		log("Header saved to:", header_file)
-		log("Flags saved to:", flags.name)
+		if flags:
+			log("Flags saved to:", flags.name)
 		if payload:
 			log("Payload saved to:", payload.name)
+		if model:
+			model.save(model.name)
+			log("Model saved to:", model.name)
 	pass
 
 

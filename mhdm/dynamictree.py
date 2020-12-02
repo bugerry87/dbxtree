@@ -13,10 +13,12 @@ from .utils import Prototype, log
 	
 def encode(X,
 	dims=[],
-	tree_depth=None,
 	output=None,
-	breadth_first=False,
+	flags=True,
 	payload=False,
+	model=None,
+	tree_depth=None,
+	breadth_first=False,
 	**kwargs
 	):
 	"""
@@ -27,18 +29,11 @@ def encode(X,
 	local = Prototype(points = 0)
 	msg = "Layer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}"
 	
-	if output is None:
-		flags = BitBuffer()
-	elif isinstance(output, str):
+	if flags is True:
 		flags = BitBuffer(output + '.flg.bin', 'wb') if output else BitBuffer()
-	else:
-		flags = output
-		output = flags.name
 	
 	if payload is True:
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
-	elif not isinstance(payload, BitBuffer):
-		payload = False
 
 	def expand(X, layer, tail):
 		dim = dims[layer] if layer < len(dims) else dims[-1]
@@ -73,7 +68,10 @@ def encode(X,
 					else:
 						local.points += 1
 		
-		flags.write(flag, fbit, soft_flush=True)
+		if flags:
+			flags.write(flag, fbit, soft_flush=True)
+		if model:
+			model.update(flag, fbit)
 		if log.verbose:
 			flag = hex(flag)[2:] if dim else flag
 			log(msg.format(layer, flag, stack_size, local.points), end='\r', flush=True)
@@ -85,7 +83,8 @@ def encode(X,
 		nodes.extend(node)
 		stack_size = len(nodes)
 	
-	flags.close()
+	if flags:
+		flags.close()
 	if payload:
 		payload.close()
 	return flags, payload

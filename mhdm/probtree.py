@@ -2,7 +2,12 @@
 
 ## Build in
 from collections import deque
+import os.path as path
 import pickle
+
+## Installed
+import numpy as np
+
 
 
 class ProbTree():
@@ -15,14 +20,16 @@ class ProbTree():
 		self.state = deque()
 		self.model = {}
 		self.msg = None
+		self.reset()
 		
-		if filename:
-			self.name = filename
+		if path.isfile(filename):
 			self.load(filename)
 		else:
-			self.name = None
-		self.reset()
+			self.name = filename
 		pass
+	
+	def __bool__(self):
+		return True
 	
 	def reset(self):
 		"""
@@ -36,10 +43,8 @@ class ProbTree():
 				yield next_state(condition)
 			else:
 				symbol, bits = self.msg
+				dim = bits.bit_length() - 1
 				self.msg = None
-				mask = (1<<bits) - 1
-				condition <<= bits
-				condition |= symbol & mask
 				
 				if condition not in self.model:
 					self.model[condition] = {symbol:1}
@@ -48,17 +53,14 @@ class ProbTree():
 				else:
 					self.model[condition][symbol] += 1
 				
-				print('\n', hex(condition), self.model[condition])
-				input()
-				
 				for i in range(bits):
 					if symbol>>i & 1:
-						yield next_state(condition)
+						yield next_state(condition<<dim | i)
 		
-		self.state.extend(next_state(0xFF))
+		self.state.extend(next_state(1))
 		pass
 	
-	def write(self, symbol, bits, **kwargs):
+	def update(self, symbol, bits):
 		"""
 		"""
 		self.msg = (symbol, bits)
@@ -68,11 +70,13 @@ class ProbTree():
 	def load(self, filename):
 		"""
 		"""
+		self.name = filename
 		with open(filename, 'rb') as fid:
-			self.model |= pickle.load(fid).items()
+			self.model.update(pickle.load(fid))
 	
 	def save(self, filename):
 		"""
 		"""
+		self.name = filename
 		with open(filename, 'wb') as fid:
 			pickle.dump(self.model, fid)
