@@ -3,30 +3,27 @@
 ## Build in
 from collections import deque
 import os.path as path
-import pickle
-
-## Installed
-import numpy as np
-
+import sqlite3 as sql
 
 
 class ProbTree():
 	"""
 	"""
-	def __init__(self, filename=None, breadth_first=True):
+	def __init__(self, filename, breadth_first=True):
 		"""
 		"""
+		self.name = filename
 		self.breadth_first = breadth_first
 		self.state = deque()
-		self.model = {}
+		self.con = sql.connect(filename)
+		self.cur = self.con.cursor()
 		self.msg = None
 		self.reset()
-		
-		if path.isfile(filename):
-			self.load(filename)
-		else:
-			self.name = filename
+		self.cur.execute("CREATE TABLE IF NOT EXISTS model(cond text, symb int)")
 		pass
+	
+	def __del__(self):
+		self.con.close()
 	
 	def __bool__(self):
 		return True
@@ -35,7 +32,6 @@ class ProbTree():
 		"""
 		"""
 		self.msg = None
-		self.model.clear()
 		self.state.clear()
 		
 		def next_state(condition):
@@ -43,15 +39,10 @@ class ProbTree():
 				yield next_state(condition)
 			else:
 				symbol, bits = self.msg
-				dim = bits.bit_length() - 1
 				self.msg = None
-				
-				if condition not in self.model:
-					self.model[condition] = {symbol:1}
-				elif symbol not in self.model[condition]:
-					self.model[condition][symbol] = 1
-				else:
-					self.model[condition][symbol] += 1
+				dim = bits.bit_length() - 1
+				args = (hex(condition)[2:], symbol)
+				self.cur.execute('INSERT INTO model VALUES (?, ?)', args)
 				
 				for i in range(bits):
 					if symbol>>i & 1:
@@ -66,17 +57,6 @@ class ProbTree():
 		self.msg = (symbol, bits)
 		state = self.state.popleft() if self.breadth_first else self.state.pop()
 		self.state.extend(state)
-	
-	def load(self, filename):
-		"""
-		"""
-		self.name = filename
-		with open(filename, 'rb') as fid:
-			self.model.update(pickle.load(fid))
-	
-	def save(self, filename):
-		"""
-		"""
-		self.name = filename
-		with open(filename, 'wb') as fid:
-			pickle.dump(self.model, fid)
+
+	def save(self):
+		self.con.commit()

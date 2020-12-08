@@ -264,7 +264,6 @@ def yield_merged_data(files, xtype=np.float32, dim=3, limit=1, **kwargs):
 			i = np.full((high-low,1), i, dtype=xtype)
 			yield np.hstack((X[low:high] - X[low], i))
 	
-	files = [f for f in ifile(files)]
 	if len(files) == 1 and limit != 1:
 		X = np.fromfile(files[0], dtype=xtype)
 		X = X[:(len(X)//dim)*dim].reshape(-1,dim)
@@ -273,7 +272,7 @@ def yield_merged_data(files, xtype=np.float32, dim=3, limit=1, **kwargs):
 		files = iter(files)
 		while True:
 			processed = []
-			A = [merge(f, i) for f, i in zip(files, range(limit))]
+			A = [merge(f, i) for i, f in zip(range(limit), files)]
 			if A:
 				yield np.vstack(A), processed
 			else:
@@ -297,6 +296,7 @@ def encode(files,
 	):
 	"""
 	"""
+	files = [f for f in ifile(files)]
 	output = path.splitext(output)[0]
 	dim = len(bits_per_dim)
 	if limit > 1:
@@ -304,7 +304,7 @@ def encode(files,
 	tree_depth = sum(bits_per_dim)
 	
 	if isinstance(model, str):
-			model = ProbTree(model, breadth_first)
+		model = ProbTree(model, breadth_first)
 	
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
@@ -318,10 +318,10 @@ def encode(files,
 			permute = False
 		X = np.unique(X)
 		
-		if processed[0] is processed[-1]:
+		if len(files) == 1:
 			output_file = output if output else processed[0]
 		elif limit == 1:
-			output_file = "{}_{}".format(output, processed)
+			output_file = "{}_{}".format(output, processed[0])
 		else:
 			output_file = "{}_{}-{}".format(output, processed[0], processed[-1])
 
@@ -368,7 +368,8 @@ def encode(files,
 		if payload:
 			log("Payload saved to:", payload.name)
 		if model:
-			model.save(model.name)
+			model.save()
+			model.reset()
 			log("Model saved to:", model.name)
 	pass
 
