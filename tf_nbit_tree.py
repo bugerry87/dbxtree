@@ -1,75 +1,100 @@
 
+## BuildIn
+import sys
 
 ## Installed
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Input
-from tensorflow.python.ops.bitwise_ops import bitwise_and, bitwise_or, right_shift, left_shift
+from tensorflow.bitwise import *
 
-
-def serialize(X, bits_per_dim):
-	assert(sum(bits_per_dim) < 64)
-	with tf.name_scope("serialize"):
-		offset = tf.math.reduce_min(X, axis=0)
-		X = X - offset
-		scale = tf.math.reduce_max(X, axis=0)
-		X = tf.where(scale == 0, 0.0, X / scale)
-		X *= (1<<np.array(bits_per_dim)) - 1
-		X = tf.math.round(X)
-		X = tf.cast(X, tf.int64)
-		shifts = np.cumsum([0] + bits_per_dim[:-1], dtype=np.int8)
-		X = left_shift(X, shifts)
-		X = tf.math.reduce_sum(X, axis=-1)
-		X = tf.unique(X, out_idx=tf.int64)[0]
-		X = tf.reshape(X, (-1,1))
-	return X
-
-
-def sort_bits(X, bits=64, reverse=False, absolute=False):
-	with tf.name_scope("sort_bits"):
-		Y = right_shift(X, np.arange(bits))
-		Y = bitwise_and(Y, 1)
-		if absolute:
-			p = tf.math.reduce_sum(Y, axis=0)
-		
-		
-	return X, p
-
-
-def tokenize(X, dim, depth):
-	with tf.name_scope("tokenize"):
-		shifts = np.arange(depth, dtype=np.int64) * dim
-		mask = (1<<shifts+dim) - 1
-		tokens = bitwise_and(X, mask)
-		tokens = tf.transpose(tokens)
-	return tokens
+## Local
+from mhdm import tfbitops
+from mhdm import utils
 
 
 class NbitTree():
 	"""
 	"""
-	def __init__(self, *args, build_encoder=True, build_decoder=True, **kwargs):
-		"""
-		"""		
-		if build_encoder:
-			self.build_encoder(*args, **kwargs)
-		
-		if build_decoder:
-			self.build_decoder(*args, **kwargs)
-		pass
-	
-	def build_encoder(self, dim, bits_per_dim, *args,
-		xtype=tf.float32,
-		ftype=tf.uint8,
-		reverse=True,
+	def __init__(self, dim, bits_per_dim, *args,
+		encoder_input=True,
+		decoder_input=True,
+		xtype=np.float32,
+		ftype=np.uint8,
 		**kwargs
 		):
 		"""
 		"""
-		bits = 1<<dim
-		tree_depth = int(np.ceil(sum(bits_per_dim) / dim))
-		tokens = np.arange(bits, dtype=np.uint8)
+		self._dim = dim
+		self._bits_per_dim = bits_per_dim
+		self._xtype = xtype
+		self._ftype = ftype
+		self._has_encoder = False
+		self._has_decoder = False
+		
+		with tf.name_scope("{}bitTree".format(self.fbits)):
+			if encoder_input is not None:
+				self.build_encoder(encoder_input, **kwargs)
+			if decoder_input is not None:
+				self.build_decoder(decoder_input)	
+		pass
+	
+	@property
+	def xtype(self):
+		return self._xtype
+	
+	@property
+	def ftype(self):
+		return self._ftype
+	
+	@property
+	def dim(self):
+		return self._dim
+	
+	@property
+	def fbits(self):
+		return 1<<self.dim
+	
+	@property
+	def bits_per_dim(self):
+		return tuple(self._bits_per_dim)
+	
+	@property
+	def xdim(self):
+		return len(self._bits_per_dim)
+	
+	@property
+	def word_length(self):
+		return sum(self.bits_per_dim)
+	
+	@property
+	def tree_depth(self):
+		return int(np.ceil(self.word_length / self.dim))
+	
+	@property
+	def has_encoder(self):
+		return self._has_encoder
+	
+	@property
+	def has_decoder(self):
+		return self._has_decoder
+	
+	def build_encoder(self,
+		encoder_input=None,
+		sort_bits=True,
+		reverse=True,
+		absolute=True,
+		**kwargs
+		):
+		"""
+		"""
+		if self._has_encoder:
+			return
+		else:
+			self._has_encoder = True
+		
+		tokens = tf.constant(np.arange(self.fbits, dtype=self.ftype))
 		t_list = tf.TensorShape([None])
 		
 		def until_tree_end(*args):
@@ -77,46 +102,147 @@ class NbitTree():
 		
 		def iterate_layer(flags0, idx0, dummy0, layer):
 			flags1 = nodes[layer]
-			dummy1, idx1 = tf.unique(flags1, out_idx=tf.int64)
-			dummy1 = tf.one_hot(dummy1, bits, dtype=ftype)
-			flags1 = right_shift(flags1, layer*dim)
-			flags1 = tf.one_hot(flags1, bits, dtype=ftype)
+			dummy1, idx1 = tf.unique(flags1, out_idx=nodes.dtype)
+			dummy1 = dummy1[:,None] * tf.zeros(self.fbits, dtype=nodes.dtype)
+			dummy1 = tf.cast(dummy1, flags0.dtype)
+			flags1 = tfbitops.right_shift(flags1, layer*self.dim)
+			flags1 = tf.one_hot(flags1, self.fbits, dtype=flags0.dtype)
 			flags1 = tf.tensor_scatter_nd_max(dummy0, idx0[:,None], flags1)
-			flags1 = left_shift(flags1, tokens)
+			flags1 = tfbitops.left_shift(flags1, tokens)
 			flags1 = tf.math.reduce_sum(flags1, axis=1)
 			flags1 = tf.reshape(flags1, (-1,))
 			flags1 = tf.concat([flags0, flags1], axis=0)
-			return flags1, idx1, dummy1 * 0, layer+1
+			return flags1, idx1, dummy1, layer+1
 		
-		self._encoder_input = tf.compat.v1.placeholder(shape=(None,len(bits_per_dim)), dtype=xtype, name='encoder_input')
-		with tf.name_scope("{}bitTree".format(bits)):
+		if encoder_input is None or encoder_input is True:
+			self._encoder_input = tf.compat.v1.placeholder(shape=[None,self.xdim], dtype=self.xtype, name='encoder_input')
+		else:
+			self._encoder_input = encoder_input
+		
+		with tf.name_scope("Encoder"):
+			X, self._offset_output, self._scale_output = tfbitops.serialize(self._encoder_input, self.bits_per_dim)
+			if sort_bits or absolute:
+				X, self._permute_output = tfbitops.sort(X, self.word_length, reverse, absolute)
+			elif reverse:
+				self._permute_output = tf.range(self.word_length, dtype=X.dtype)[::-1]
+				X = tfbitops.permute(X, self._permute_output, self.word_length)
+			else:
+				self._permute_output = tf.range(self.word_length, dtype=X.dtype)
+			
+			nodes = tfbitops.tokenize(X, self.dim, self.tree_depth)
+		
 			with tf.name_scope("boot_encoder"):
-				nodes = serialize(self._encoder_input, bits_per_dim)
-				nodes = tokenize(nodes, dim, tree_depth)
-				flags, idx = tf.unique(nodes[0], out_idx=tf.int64)
-				flags = tf.cast(flags, ftype)
-				dummy = tf.one_hot(flags, bits, dtype=ftype) * 0
-				flags = left_shift(tf.constant(1, dtype=ftype), flags)
+				flags, idx = tf.unique(nodes[0], out_idx=nodes.dtype)
+				flags = tf.cast(flags, self.ftype)
+				dummy = flags[:,None] * tf.zeros(self.fbits, dtype=flags.dtype)
+				flags = tfbitops.left_shift(tf.constant(1, dtype=flags.dtype), flags)
 				flags = tf.math.reduce_sum(flags)[None,]
-				layer = tf.constant(0, dtype=tf.int64)
+				layer = tf.constant(1, dtype=nodes.dtype)
 			
 			self._encoder_output, idx, dummy, layer = tf.while_loop(
 				until_tree_end, iterate_layer,
 				loop_vars=(flags, idx, dummy, layer),
 				shape_invariants=(t_list, idx.get_shape(), dummy.get_shape(), layer.get_shape()),
-				maximum_iterations=tree_depth-1,
-				name='encoder'
+				maximum_iterations=self.tree_depth-1,
+				name='loop_encoder'
 				)
 		pass
 	
-	def build_decoder(self, *args, **kwargs):
+	def build_decoder(self, decoder_input=None):
+		"""
+		"""
+		if self._has_decoder:
+			return
+		else:
+			self._has_decoder = True
+		
+		tokens = tf.constant(np.arange(self.fbits, dtype=self.ftype))
+		t_list = tf.TensorShape([None])
+		
+		def until_data_end(*args):
+			return True
+		
+		def iterate_data(X, pos, layer):
+			size = tf.constant([0]) + tf.size(X)
+			flags = tf.slice(data, pos, size)
+			flags = tf.reshape(flags, (-1,1))
+			flags = tfbitops.right_shift(flags, tokens)
+			flags = tfbitops.bitwise_and(flags, 1)
+			x = tf.where(flags)
+			i = x[:,0]
+			x = x[:,1]
+			x = left_shift(x, layer)
+			pos += tf.size(X)
+			X = x + tf.gather(X, i)
+			return X, pos, layer+self.dim
+		
+		if decoder_input is None or decoder_input is True:
+			self._decoder_input = tf.compat.v1.placeholder(shape=[None], dtype=self.ftype, name='decoder_input')
+			self._offset_input = tf.compat.v1.placeholder(shape=self.xdim, dtype=self.xtype, name='offset_input')
+			self._scale_input = tf.compat.v1.placeholder(shape=self.xdim, dtype=self.xtype, name='scale_input')
+			self._permute_input = tf.compat.v1.placeholder(shape=self.word_length, dtype=tf.int64, name='scale_input')
+		else:
+			self._decoder_input, self._offset_input, self._scale_input, self._permute_input = decoder_input
+		
+		with tf.name_scope("Decoder"):
+			with tf.name_scope("boot_decoder"):
+				data = self._decoder_input
+				X = tf.zeros([1], dtype=tf.int64, name='points')
+				pos = tf.constant([0], dtype=tf.int32, name='pos')
+				layer = tf.constant(0, dtype=X.dtype, name='layer')
+			
+			X, self.pos, self.layer = tf.while_loop(
+				until_data_end, iterate_data,
+				loop_vars=(X, pos, layer),
+				shape_invariants=(t_list, pos.get_shape(), layer.get_shape()),
+				maximum_iterations=self.tree_depth,
+				name='loop_decoder'
+				)
+			
+			X = tfbitops.permute(X[:,None], self._permute_input, self.word_length)
+			X = tfbitops.realize(X, self.bits_per_dim, self._offset_input, self._scale_input, self.xtype)
+			self._decoder_output = X
 		pass
 	
-	def encode(self, X, callbacks=None):
+	def encode(self, X):
+		if not self.has_encoder:
+			raise RuntimeError("Encoder was not built!")
 		with tf.compat.v1.Session() as sess:
-			with tf.compat.v1.summary.FileWriter("output", sess.graph) as writer:
-				output = sess.run(self._encoder_output, feed_dict={self._encoder_input:X})
-		return output
+			with tf.compat.v1.summary.FileWriter("logs", sess.graph) as writer:
+				timer = utils.time_delta()
+				next(timer)
+				output, offset, scale, permute = sess.run(
+					(self._encoder_output, self._offset_output, self._scale_output, self._permute_output),
+					feed_dict={self._encoder_input:X}
+					)
+				print("Encoding time:", next(timer))
+				
+		header = utils.Prototype(
+			offset=offset.tolist(),
+			scale=scale.tolist(),
+			permute=permute.tolist()
+			)
+		return output, header
+	
+	def decode(self, Y, header):
+		if not self.has_decoder:
+			raise RuntimeError("Decoder was not built!")
+		
+		with tf.compat.v1.Session() as sess:
+			with tf.compat.v1.summary.FileWriter("logs", sess.graph) as writer:
+				timer = utils.time_delta()
+				next(timer)
+				X, layer = sess.run(
+					(self._decoder_output, self.layer),
+					feed_dict={
+						self._decoder_input:Y, 
+						self._offset_input:header.offset,
+						self._scale_input:header.scale,
+						self._permute_input:header.permute
+						}
+					)
+				print("Decoding time:", next(timer))
+		return X, layer
 
 
 import datetime
@@ -125,5 +251,10 @@ tf.compat.v1.disable_eager_execution()
 #tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
 X = np.fromfile('data/0000000000.bin', dtype=np.float32).reshape(-1, 4)
 tree = NbitTree(3, [16,16,16,0])
-output = tree.encode(X)
-print(output[-1000:], len(output))
+flags, header = tree.encode(X)
+print(flags[:1000], len(flags))
+print("-----Header\n ", '\n  '.join(['{}={}'.format(k,v) for k,v in header.__dict__.items()]), '\n-----')
+
+Y, layer = tree.decode(flags, header)
+Y.tofile('data/NbitTree_result.bin')
+print(Y[:100], len(Y), layer)
