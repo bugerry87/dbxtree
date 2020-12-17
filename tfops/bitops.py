@@ -75,3 +75,17 @@ def tokenize(X, dim, depth):
 		tokens = right_shift(X, shifts[::-1])
 		tokens = tf.transpose(tokens)
 	return tokens
+
+
+def encode(nodes, idx, dim, dtype=tf.uint8):
+	bits = 1<<dim
+	with tf.name_scope("encode"):
+		flags = tfbitops.bitwise_and(nodes, bits-1)
+		flags = tf.one_hot(flags, bits, dtype=dtype)
+		flags = tf.math.unsorted_segment_max(flags, idx, idx[-1] + 1)
+		flags = tf.math.reduce_sum(flags, axis=-1)
+		idx = tf.concat((nodes[:,0], nodes), axis=-1)
+		idx = idx[:,:-1] == idx[:,1:]
+		idx = tf.cast(idx, tf.int32)
+		idx = tf.math.cumsum(idx)
+	return flags, idx

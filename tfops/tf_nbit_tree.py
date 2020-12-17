@@ -102,11 +102,6 @@ class NbitTree():
 		
 		def iterate_layer(flags0, idx0, size0, layer):
 			flags1 = nodes[layer]
-			#idx1 = flags1[:-1] != flags1[1:]
-			#idx1 = tf.cast(idx1, tf.int64)
-			#idx1 = tf.math.cumsum(idx1)
-			#idx1 = tf.concat([[0], idx1], axis=0)
-			#size1 = idx1[-1] + 1
 			size1, idx1 = tf.unique(flags1, out_idx=nodes.dtype)
 			size1 = tf.size(size1)
 			flags1 = tfbitops.bitwise_and(flags1, self.fbits-1)
@@ -247,22 +242,3 @@ class NbitTree():
 					)
 				print("Decoding time:", next(timer))
 		return X
-
-
-import datetime
-tf.compat.v1.disable_eager_execution()
-#log_dir = "logs\\" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-#tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-X = np.fromfile('data/0000000000.bin', dtype=np.float32).reshape(-1, 4)
-tree = NbitTree(3, [16,16,16,0])
-flags, header = tree.encode(X)
-print("-----Header\n ", '\n  '.join(['{}={}'.format(k,v) for k,v in header.__dict__.items()]), '\n-----')
-flags.tofile('data/NbitTree_flags.bin')
-print('Before:\n', flags)
-
-Y = tree.decode(flags, header)
-Y.tofile('data/NbitTree_result.bin')
-print('After:\n', Y)
-fig = viz.create_figure()
-viz.vertices(Y[:,:3], Y[:,2], fig)
-viz.show_figure()
