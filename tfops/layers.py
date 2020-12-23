@@ -2,35 +2,195 @@
 ## Installed
 import numpy as np
 import tensorflow as tf
-import tensorflow.keras as keras
 from tensorflow.keras.layers import Layer, Dense, Permute, Dot
 
+## Local
+from . import bitops
 
-class NbitTreeEncoder(Layer):
+
+class NbitTreeLayer(Layer):
 	"""
 	"""
-	def __init__(self, dim, 
+	def __init__(self, dim,
+		encoder=True,
 		name=None,
 		**kwargs
 		):
 		"""
 		"""
-		super(NbitTreeEncoder, name=name if name else "{}bitTreeEncoder".format(dim))
+		super(NbitTreeLayer, self).__init__(
+			name=name if name else "{}bitTreeLayer".format(dim),
+			trainable=False,
+			**kwargs
+			)
 		self.dim = dim
-		self.fbits = 1<<dim
+		self.is_encoder = encoder
 		pass
 	
-	def __call__(self, inputs):
-		idx = tf.concat((inputs[:,0], inputs), axis=-1)
-		idx = idx[:,:-1] == idx[:,1:]
-		idx = tf.cast(idx, tf.int32)
-		idx = tf.math.cumsum(idx)
-		size = idx[-1] + 1
-		flags = tfbitops.bitwise_and(inputs, self.fbits-1)
-		flags = tf.one_hot(flags, self.fbits, dtype=self.ftype)
-		flags = tf.math.unsorted_segment_max(flags, idx, size)
-		flags = tf.math.reduce_sum(flags, axis=-1)
-		return flags, idx
+	def __call__(self, *args):
+		if self.is_encoder:
+			X, idx, flags = args
+			flags, idx, uids = bitops.encode(X, idx, self.dim, flags)
+			return nodes, idx, flags
+		else:
+			flags, pos, X = args
+			X, pos = bitops.decode(flags, pos, self.dim, X)
+			return flags, pos, X
+		pass
+
+
+class NbitTreeEncoder(Layer):
+	"""
+	"""
+	def __init__(self, dim, bits_per_dim,
+		offset=None,
+		scale=None,
+		permute=True,
+		absolute=True,
+		reverse=False,
+		dtype='uint8',
+		name=None,
+		**kwargs
+		):
+		"""
+		"""
+		super(NbitTreeEncoder, self).__init__(
+			name=name if name else "{}bitTreeEncoder".format(dim),
+			trainable=False,
+			dtype=dtype,
+			**kwargs
+			)
+		self.dim = dim
+		self.bits_per_dim = bits_per_dim
+		self.offset=offset
+		self.scale=scale
+		self.permute = permute
+		self.absolute = absolute
+		self.reverse = reverse
+		pass
+	
+	@property
+	def fbits(self):
+		return 1<<self.dim
+	
+	@property
+	def xdim(self):
+		return len(self.bits_per_dim)
+	
+	@property
+	def word_length(self):
+		return sum(self.bits_per_dim)
+	
+	@property
+	def tree_depth(self):
+		return int(np.ceil(self.word_length / self.dim))
+	
+	def __call__(self, X):
+		X, offset, scale = bitops.serialize(X, self.bits_per_dim, offset=self.offset, scale=self.scale)
+		
+		if self.permute is True or self.absolute:
+			X, permute = bitops.sort(X, self.word_length, self.reverse, self.absolute)
+		elif self.permute is False or self.permute is None:
+			if self.reverse:
+				permute = tf.range(self.word_length, dtype=X.dtype)[::-1]
+				X = bitops.permute(X, permute, self.word_length)
+			else:
+				permute = tf.range(self.word_length, dtype=X.dtype)
+		else:
+			permute = self.permute[::-1] if self.reverse else self.permute
+			X = bitops.permute(X, permute, self.word_length)
+		
+		cond = lambda *args: True
+		nodes = bitops.tokenize(X, self.dim, self.tree_depth)
+		idx = tf.zeros_like(nodes[0], name='idx')
+		flags = tf.constant([], dtype=self.dtype, name='flags')
+		layer = tf.constant(0, name='layer')
+		
+		def body(idx, flags, layer):
+			flags, idx, uids = bitops.encode(nodes[layer], idx, self.dim, flags)
+			return idx, flags, layer+1
+		
+		idx, flags, layer = tf.while_loop(
+			cond, body,
+			loop_vars=(idx, flags, layer),
+			shape_invariants=(idx.get_shape(), [None], layer.get_shape()),
+			maximum_iterations=self.tree_depth,
+			name='encoder_loop'
+			)
+		
+		return flags, permute, offset, scale
+
+
+class NbitTreeDecoder(Layer):
+	"""
+	"""
+	def __init__(self, dim, bits_per_dim,
+		offset=None,
+		scale=None,
+		permute=None,
+		dtype='float32',
+		name=None,
+		**kwargs
+		):
+		"""
+		"""
+		super(NbitTreeDecoder, self).__init__(
+			name=name if name else "{}bitTreeDecoder".format(dim),
+			trainable=False,
+			dtype=dtype,
+			**kwargs
+			)
+		self.dim = dim
+		self.bits_per_dim = bits_per_dim
+		self.offset=offset
+		self.scale=scale
+		self.permute = permute
+		self.decoder = NbitTreeLayer(self.dim, encoder=False, dtype=self.dtype)
+		pass
+	
+	@property
+	def fbits(self):
+		return 1<<self.dim
+	
+	@property
+	def xdim(self):
+		return len(self.bits_per_dim)
+	
+	@property
+	def word_length(self):
+		return sum(self.bits_per_dim)
+	
+	@property
+	def tree_depth(self):
+		return int(np.ceil(self.word_length / self.dim))
+	
+	def __call__(self, flags, permute=None, offset=None, scale=None):
+		if offset is None:
+			offset = self.offset
+		if scale is None:
+			scale = self.scale
+		if permute is None:
+			permute = self.permute
+		
+		cond = lambda *args: True
+		X = tf.constant([0], dtype=tf.int64, name='X')
+		pos = tf.constant([0], dtype=tf.int32, name='pos')
+		
+		def body(X, pos):
+			return bitops.decode(flags, pos, self.dim, X)
+		
+		X, pos = tf.while_loop(
+			cond, body,
+			loop_vars=(X, pos),
+			shape_invariants=([None], pos.get_shape()),
+			maximum_iterations=self.tree_depth,
+			name='decoder_loop'
+			)
+		
+		if permute is not None:
+			X = bitops.permute(X[:,None], permute, self.word_length)
+		X = bitops.realize(X, self.bits_per_dim, offset, scale, self.dtype)
+		return X
 
 
 class Transformer(Layer):
@@ -46,20 +206,23 @@ class Transformer(Layer):
 		"""
 		"""
 		super(Transformer, self).__init__(name=name, **kwargs)
-		self.permute = Permute(axes[::-1], **kwargs)
+		self.axes = axes
+		#self.permute = Permute(axes[::-1], **kwargs)
 		self.dot = Dot(axes, normalize, **kwargs)
 		self.dense_n = Dense(k, activation=activation, **kwargs)
 		self.dense_m = Dense(k, activation=activation, **kwargs)
 		self.dense_t = Dense(k, activation=activation, **kwargs)
 		pass
 	
-	def __call__(self, inputs)
+	def __call__(self, inputs):
 		"""
 		"""
 		n = self.dense_n(inputs) #(b, n, k)
 		m = self.dense_m(inputs) #(b, m, k)
 		t = self.dense_t(inputs) #(b, t, k)
-		m = self.permute(m) #(b, k, m)
-		t = self.permute(t) #(b, k, t)
+		#m = self.permute(m) #(b, k, m)
+		m = tf.transform(m, self.axes[::-1])
+		t = tf.transform(t, self.axes[::-1])
+		#t = self.permute(t) #(b, k, t)
 		T = self.dot((n,m)) #(b, k, k) Transformer!
 		return self.dot((t,T)) #(b, t, k)
