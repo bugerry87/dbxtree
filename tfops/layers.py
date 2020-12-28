@@ -8,37 +8,6 @@ from tensorflow.keras.layers import Layer, Dense, Permute, Dot
 from . import bitops
 
 
-class NbitTreeLayer(Layer):
-	"""
-	"""
-	def __init__(self, dim,
-		encoder=True,
-		name=None,
-		**kwargs
-		):
-		"""
-		"""
-		super(NbitTreeLayer, self).__init__(
-			name=name if name else "{}bitTreeLayer".format(dim),
-			trainable=False,
-			**kwargs
-			)
-		self.dim = dim
-		self.is_encoder = encoder
-		pass
-	
-	def __call__(self, *args):
-		if self.is_encoder:
-			X, idx, flags = args
-			flags, idx, uids = bitops.encode(X, idx, self.dim, flags)
-			return nodes, idx, flags
-		else:
-			flags, pos, X = args
-			X, pos = bitops.decode(flags, pos, self.dim, X)
-			return flags, pos, X
-		pass
-
-
 class NbitTreeEncoder(Layer):
 	"""
 	"""
@@ -107,7 +76,7 @@ class NbitTreeEncoder(Layer):
 		layer = tf.constant(0, name='layer')
 		
 		def body(idx, flags, layer):
-			flags, idx, uids = bitops.encode(nodes[layer], idx, self.dim, flags)
+			flags, idx, uids = bitops.encode(nodes[layer], idx, self.dim, self.dtype, flags)
 			return idx, flags, layer+1
 		
 		idx, flags, layer = tf.while_loop(
@@ -145,7 +114,6 @@ class NbitTreeDecoder(Layer):
 		self.offset=offset
 		self.scale=scale
 		self.permute = permute
-		self.decoder = NbitTreeLayer(self.dim, encoder=False, dtype=self.dtype)
 		pass
 	
 	@property
@@ -207,12 +175,17 @@ class Transformer(Layer):
 		"""
 		super(Transformer, self).__init__(name=name, **kwargs)
 		self.axes = axes
-		#self.permute = Permute(axes[::-1], **kwargs)
+		self.permute = Permute(axes[::-1], **kwargs)
 		self.dot = Dot(axes, normalize, **kwargs)
 		self.dense_n = Dense(k, activation=activation, **kwargs)
 		self.dense_m = Dense(k, activation=activation, **kwargs)
 		self.dense_t = Dense(k, activation=activation, **kwargs)
 		pass
+	
+	def count_params(self):
+		return self.dense_n.count_params() \
+			+ self.dense_m.count_params() \
+			+ self.dense_t.count_params()
 	
 	def __call__(self, inputs):
 		"""
@@ -220,9 +193,7 @@ class Transformer(Layer):
 		n = self.dense_n(inputs) #(b, n, k)
 		m = self.dense_m(inputs) #(b, m, k)
 		t = self.dense_t(inputs) #(b, t, k)
-		#m = self.permute(m) #(b, k, m)
-		m = tf.transform(m, self.axes[::-1])
-		t = tf.transform(t, self.axes[::-1])
-		#t = self.permute(t) #(b, k, t)
-		T = self.dot((n,m)) #(b, k, k) Transformer!
-		return self.dot((t,T)) #(b, t, k)
+		m = self.permute(m) #(b, k, m)
+		t = self.permute(t) #(b, k, t)
+		T = self.dot([n,m]) #(b, k, k) Transformer!
+		return self.dot([t,T]) #(b, t, k)

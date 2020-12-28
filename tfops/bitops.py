@@ -2,7 +2,11 @@
 ## Installed
 import numpy as np
 import tensorflow as tf
-from tensorflow.bitwise import *
+
+right_shift = tf.bitwise.right_shift
+left_shift = tf.bitwise.left_shift
+bitwise_and = tf.bitwise.bitwise_and
+bitwise_or = tf.bitwise.bitwise_or
 
 
 def serialize(X, bits_per_dim, offset=None, scale=None, axis=0):
@@ -83,15 +87,16 @@ def tokenize(X, dim, depth, axis=0):
 	return tokens
 
 
-def encode(nodes, idx, dim, buffer=tf.constant([], dtype=tf.uint8)):
+def encode(nodes, idx, dim, dtype=tf.uint8, buffer=None):
 	with tf.name_scope("encode"):
 		bits = 1<<dim
 		flags = bitwise_and(nodes, bits-1)
-		flags = tf.one_hot(flags, bits, dtype=buffer.dtype)
+		flags = tf.one_hot(flags, bits, dtype=dtype)
 		flags = tf.math.unsorted_segment_max(flags, idx, idx[-1]+1)
 		flags = left_shift(flags, np.arange(bits))
 		flags = tf.math.reduce_sum(flags, axis=-1)
-		flags = tf.concat([buffer, flags], axis=-1)
+		if buffer is not None:
+			flags = tf.concat([buffer, flags], axis=-1)
 		uids, idx = tf.unique(nodes, out_idx=nodes.dtype)
 	return flags, idx, uids
 

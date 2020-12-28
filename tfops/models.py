@@ -17,15 +17,15 @@ class NbitTreeProbEncoder(Model):
 	"""
 	def __init__(self, 
 		dim=3,
-		dtype=tf.float16,
+		dtype=tf.float32,
 		**kwargs
 		):
 		"""
 		"""
 		super(NbitTreeProbEncoder, self).__init__()
 		self.dim = dim
-		self.kernel_size = (1<<(1<<dim))-1
-		self.transformer = layers.Transformer(self.kernel_size, axes=(0,1), dtype=dtype, **kwargs)
+		self.kernel_size = (1<<(1<<dim))
+		self.transformer = layers.Transformer(self.kernel_size, dtype=dtype, **kwargs)
 		pass
 	
 	def gen_train_data(self, index_txt, bits_per_dim,
@@ -40,41 +40,33 @@ class NbitTreeProbEncoder(Model):
 		xdims = len(bits_per_dim)
 		word_length = sum(bits_per_dim)
 		tree_depth = word_length // self.dim + (word_length % self.dim != 0)
-		
-		files = utils.ifile(index_txt)
-		for file in files:
-			X = np.fromfile(file, dtype=xtype).reshape(-1, xdims)
+
+		def parse(filename):
+			X = tf.io.read_file(filename)
+			X = tf.io.decode_raw(X, xtype)
+			X = tf.reshape(X, (-1, xdims))
 			X = bitops.serialize(X, bits_per_dim, scale, offset)[0]
 			if permute is not None:
 				X = bitops.permute(X, permute, word_length)
-			nodes = bitops.tokenize(X, self.dim, tree_depth)
-			idx = tf.zeros_like(nodes[0])
-
-			for layer in range(tree_depth):
-				uids = bitops.left_shift(uids, (tree_depth-layer-1)*self.dim)
-				uids = bitops.right_shift(uids[:,None], np.arange(word_length))
-				uids = bitops.bitwise_and(uids, 1)
-				uids = bitops.cast(uids, self.dtype)
-				flags idx, uids = bitops.encode(nodes[layer+1], idx, self.dim, dtype=ftype)
-				labels = tf.one_hot(flags, self.kernel_size, dtype=self.dtype)
-				yield uids, labels
-	
-	def build(self, inputs):
-		"""
-		"""
-		if self.is_build:
-			return self
+			X = bitops.tokenize(X, self.dim, tree_depth+1)
+			return X, tf.roll(X, -1, 0), tf.range(tree_depth, -1, -1, dtype=X.dtype)
 		
-		nodes, idx, uids = inputs
-		self.probs = self.transformer(uids)
-		self.
-		self.is_build = True
-		return self
+		def encode(X0, X1, shifts):
+			uids, idx0 = tf.unique(X0, out_idx=X0.dtype)
+			flags, idx1, _ = bitops.encode(X1, idx0, self.dim, ftype)
+			uids = bitops.left_shift(uids, shifts*self.dim)
+			uids = bitops.right_shift(uids[:,None], np.arange(word_length))
+			uids = bitops.bitwise_and(uids, 1)
+			uids = tf.cast(uids, self.dtype)
+			return uids, flags
+		
+		dataset = tf.data.TextLineDataset(index_txt)
+		dataset = dataset.map(parse)
+		dataset = dataset.unbatch()
+		dataset = dataset.map(encode)
+		return dataset
 	
-	def call(self, inputs, training=False):
-		if training:
-			probs = self.transformer(uids)
-			return self.probs
-		else:
-			return self.flags, self.probs, inputs
-
+	def call(self, inputs):
+		return self.transformer(inputs)
+		
+	

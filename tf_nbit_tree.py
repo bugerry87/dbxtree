@@ -82,9 +82,9 @@ class NbitTree():
 	
 	def build_encoder(self,
 		encoder_input=None,
-		sort_bits=True,
+		sort_bits=False,
 		reverse=False,
-		absolute=True,
+		absolute=False,
 		**kwargs
 		):
 		"""
@@ -258,7 +258,7 @@ tree = NbitTree(3, [16,16,16,0])
 flags, header = tree.encode(X)
 print("-----Header\n ", '\n  '.join(['{}={}'.format(k,v) for k,v in header.__dict__.items()]), '\n-----')
 flags.tofile('data/NbitTree_flags.bin')
-print('Before:\n', flags)
+print('Before:\n', flags, flags.shape)
 
 Y = tree.decode(flags, header)
 Y.tofile('data/NbitTree_result.bin')
