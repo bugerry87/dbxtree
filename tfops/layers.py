@@ -166,26 +166,27 @@ class Transformer(Layer):
 	"""
 	def __init__(self, k,
 		axes=(1,2),
-		activation='relu',
-		normalize=True,
+		#activation='relu',
+		activation=None,
+		normalize=False,
 		name='Transformer',
 		**kwargs
 		):
 		"""
 		"""
 		super(Transformer, self).__init__(name=name, **kwargs)
-		self.axes = axes
 		self.permute = Permute(axes[::-1], **kwargs)
 		self.dot = Dot(axes, normalize, **kwargs)
 		self.dense_n = Dense(k, activation=activation, **kwargs)
 		self.dense_m = Dense(k, activation=activation, **kwargs)
 		self.dense_t = Dense(k, activation=activation, **kwargs)
+		
+		self.config = kwargs
+		self.config['k'] = k
+		self.config['activation'] = activation
+		self.config['normalize'] = normalize
+		self.config['name'] = name
 		pass
-	
-	def count_params(self):
-		return self.dense_n.count_params() \
-			+ self.dense_m.count_params() \
-			+ self.dense_t.count_params()
 	
 	def __call__(self, inputs):
 		"""
@@ -197,3 +198,11 @@ class Transformer(Layer):
 		t = self.permute(t) #(b, k, t)
 		T = self.dot([n,m]) #(b, k, k) Transformer!
 		return self.dot([t,T]) #(b, t, k)
+	
+	def count_params(self):
+		return self.dense_n.count_params() \
+			+ self.dense_m.count_params() \
+			+ self.dense_t.count_params()
+	
+	def get_config(self):
+		return self.config
