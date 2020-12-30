@@ -164,7 +164,8 @@ class NbitTreeDecoder(Layer):
 class Transformer(Layer):
 	"""
 	"""
-	def __init__(self, k,
+	def __init__(self,
+		k=None,
 		axes=(1,2),
 		#activation='relu',
 		activation=None,
@@ -177,9 +178,12 @@ class Transformer(Layer):
 		super(Transformer, self).__init__(name=name, **kwargs)
 		self.permute = Permute(axes[::-1], **kwargs)
 		self.dot = Dot(axes, normalize, **kwargs)
-		self.dense_n = Dense(k, activation=activation, **kwargs)
-		self.dense_m = Dense(k, activation=activation, **kwargs)
-		self.dense_t = Dense(k, activation=activation, **kwargs)
+		self.k = k
+		
+		if k is not None:
+			self.n = Dense(k, activation=activation, name='dense_n', **kwargs)
+			self.m = Dense(k, activation=activation, name='dense_m', **kwargs)
+			self.t = Dense(k, activation=activation, name='dense_t', **kwargs)
 		
 		self.config = kwargs
 		self.config['k'] = k
@@ -191,18 +195,24 @@ class Transformer(Layer):
 	def __call__(self, inputs):
 		"""
 		"""
-		n = self.dense_n(inputs) #(b, n, k)
-		m = self.dense_m(inputs) #(b, m, k)
-		t = self.dense_t(inputs) #(b, t, k)
+		if self.k is None:
+			n, m, t = inputs
+		else:
+			n = self.n(inputs) #(b, n, k)
+			m = self.m(inputs) #(b, m, k)
+			t = self.t(inputs) #(b, t, k)
 		m = self.permute(m) #(b, k, m)
 		t = self.permute(t) #(b, k, t)
 		T = self.dot([n,m]) #(b, k, k) Transformer!
 		return self.dot([t,T]) #(b, t, k)
 	
 	def count_params(self):
-		return self.dense_n.count_params() \
-			+ self.dense_m.count_params() \
-			+ self.dense_t.count_params()
+		if self.k is None:
+			return 0
+		else:
+			return self.n.count_params() \
+				+ self.m.count_params() \
+				+ self.t.count_params()
 	
 	def get_config(self):
 		return self.config
