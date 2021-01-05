@@ -5,7 +5,17 @@ import tensorflow as tf
 from tensorflow.keras.layers import Layer, Dense, Permute, Dot
 
 ## Local
+from . import batched_identity, range_like
 from . import bitops
+from .. import utils
+
+
+def arg_filter(trainable=True, dtype=None, dynamic=False, **kwargs):
+	return {
+		'trainable':trainable,
+		'dtype':dtype,
+		'dynamic':dynamic
+		}
 
 
 class NbitTreeEncoder(Layer):
@@ -54,7 +64,7 @@ class NbitTreeEncoder(Layer):
 	def tree_depth(self):
 		return int(np.ceil(self.word_length / self.dim))
 	
-	def __call__(self, X):
+	def call(self, X):
 		X, offset, scale = bitops.serialize(X, self.bits_per_dim, offset=self.offset, scale=self.scale)
 		
 		if self.permute is True or self.absolute:
@@ -132,7 +142,7 @@ class NbitTreeDecoder(Layer):
 	def tree_depth(self):
 		return int(np.ceil(self.word_length / self.dim))
 	
-	def __call__(self, flags, permute=None, offset=None, scale=None):
+	def call(self, flags, permute=None, offset=None, scale=None):
 		if offset is None:
 			offset = self.offset
 		if scale is None:
@@ -161,53 +171,170 @@ class NbitTreeDecoder(Layer):
 		return X
 
 
+class Euclidean(Layer):
+	"""
+	"""
+	def __init__(self, units,
+		initializer='random_normal',
+		regularizer=None,
+		inverted=False,
+		name='Euclidean',
+		**kwargs
+		):
+		"""
+		"""
+		super(Euclidean, self).__init__(name=name, **arg_filter(**kwargs))
+		self.units = units
+		self.initializer = initializer
+		self.regularizer = regularizer
+		self.inverted=inverted
+		
+		self.config = utils.Prototype(**kwargs)
+		self.config.units = units
+		self.config.initializer = initializer
+		self.config.regularizer = regularizer
+		self.config.inverted = inverted
+		pass
+	
+	def call(self, inputs):
+		a = tf.expand_dims(inputs, axis=-1)
+		a = tf.math.reduce_sum((a - self.w)**2, axis=-2)
+		if self.inverted:
+			a = tf.math.exp(-a)
+		return a
+	
+	def build(self, input_shape):
+		self.w = self.add_weight(
+			shape=(input_shape[-1], self.units),
+			initializer=self.initializer,
+			regularizer=self.regularizer,
+			trainable=self.trainable
+			)
+		return self
+	
+	def get_config(self):
+		return self.config.__dict__
+
+
+class Mahalanobis(Layer):
+	"""
+	"""
+	def __init__(self, units,
+		kernel_initializer='random_normal',
+		kernel_regularizer=None,
+		bias_initializer=batched_identity,
+		bias_regularizer=None,
+		inverted=False,
+		name='Mahalanobis',
+		**kwargs
+		):
+		"""
+		"""
+		super(Mahalanobis, self).__init__(name=name, **arg_filter(**kwargs))
+		self.units = units
+		self.kernel_initializer = kernel_initializer
+		self.kernel_regularizer = kernel_regularizer
+		self.bias_initializer = bias_initializer
+		self.bias_regularizer = bias_regularizer
+		self.inverted=inverted
+		
+		self.config = utils.Prototype(**kwargs)
+		self.config.units = units
+		self.config.kernel_initializer = kernel_initializer
+		self.config.kernel_regularizer = kernel_regularizer
+		self.config.bias_initializer = bias_initializer
+		self.config.bias_regularizer = bias_regularizer
+		self.config.inverted = inverted
+		pass
+	
+	def call(self, inputs):
+		x = tf.expand_dims(inputs, axis=-1) #b,n,d,1
+		x = x - self.w #b,n,d,k
+		x = tf.transpose(x, (0,1,3,2)) #b,n,k,d
+		x = tf.expand_dims(x, axis=-1) #b,n,d,k,1
+		z = tf.matmul(x, self.b, transpose_a=True) #b,n,k,1,d
+		z = tf.matmul(z, x) #b,n,k,1,1
+		z = tf.math.reduce_sum(z, axis=(-2,-1)) #b,n,k
+		if self.inverted:
+			z = tf.math.exp(-z)
+		return z
+	
+	def build(self, input_shape):
+		self.w = self.add_weight(
+			shape=(input_shape[-1], self.units),
+			initializer=self.kernel_initializer,
+			regularizer=self.kernel_regularizer,
+			trainable=self.trainable
+			)
+
+		self.b = self.add_weight(
+			shape=(1, self.units, input_shape[-1], input_shape[-1]),
+			initializer=self.bias_initializer,
+			regularizer=self.bias_regularizer,
+			trainable=self.trainable
+			)
+		
+		return self
+	
+	def get_config(self):
+		return self.config.__dict__
+
+
 class Transformer(Layer):
 	"""
 	"""
 	def __init__(self,
-		k=None,
+		args=[],
 		axes=(1,2),
-		#activation='relu',
-		activation=None,
 		normalize=False,
+		layer_type=None,
 		name='Transformer',
 		**kwargs
 		):
 		"""
 		"""
-		super(Transformer, self).__init__(name=name, **kwargs)
-		self.permute = Permute(axes[::-1], **kwargs)
-		self.dot = Dot(axes, normalize, **kwargs)
-		self.k = k
+		super(Transformer, self).__init__(name=name, **arg_filter(**kwargs))
+		self.permute = Permute(axes[::-1], **arg_filter(**kwargs))
+		self.dot = Dot(axes, normalize, **arg_filter(**kwargs))
+		self.layer_type = layer_type
 		
-		if k is not None:
-			self.n = Dense(k, activation=activation, name='dense_n', **kwargs)
-			self.m = Dense(k, activation=activation, name='dense_m', **kwargs)
-			self.t = Dense(k, activation=activation, name='dense_t', **kwargs)
+		if layer_type is not None:
+			self.n = layer_type(*args, name='N', **kwargs)
+			self.m = layer_type(*args, name='M', **kwargs)
+			self.t = layer_type(*args, name='T', **kwargs)
 		
-		self.config = kwargs
-		self.config['k'] = k
-		self.config['activation'] = activation
-		self.config['normalize'] = normalize
-		self.config['name'] = name
+		self.config = utils.Prototype(**kwargs)
+		self.config.args = args
+		self.config.normalize = normalize
+		self.config.layer_type = layer_type
+		self.config.name = name
 		pass
 	
-	def __call__(self, inputs):
+	def call(self, inputs):
 		"""
 		"""
-		if self.k is None:
+		if self.layer_type is None:
 			n, m, t = inputs
 		else:
-			n = self.n(inputs) #(b, n, k)
-			m = self.m(inputs) #(b, m, k)
-			t = self.t(inputs) #(b, t, k)
+			n = self.n(inputs)
+			m = self.m(inputs)
+			t = self.t(inputs)
+			#t = range_like(inputs[:,:,0], 0, 1)
+			#t = self.t(t) #(b, t, k)
 		m = self.permute(m) #(b, k, m)
 		t = self.permute(t) #(b, k, t)
 		T = self.dot([n,m]) #(b, k, k) Transformer!
 		return self.dot([t,T]) #(b, t, k)
 	
+	def build(self, input_shape):
+		if self.layer_type is not None:
+			self.n.build(input_shape)
+			self.m.build(input_shape)
+			self.t.build(input_shape)
+		return self
+	
 	def count_params(self):
-		if self.k is None:
+		if self.layer_type is None:
 			return 0
 		else:
 			return self.n.count_params() \
@@ -215,4 +342,4 @@ class Transformer(Layer):
 				+ self.t.count_params()
 	
 	def get_config(self):
-		return self.config
+		return self.config.__dict__

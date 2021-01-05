@@ -9,7 +9,7 @@ from tensorflow.keras.layers import Dense, LayerNormalization, Concatenate
 ## Local
 from . import bitops
 from . import layers
-from . import utils
+from .. import utils
 	
 
 class NbitTreeProbEncoder(Model):
@@ -31,9 +31,10 @@ class NbitTreeProbEncoder(Model):
 		self.kernel_size = k if k else self.output_size
 		
 		self.transformers = [layers.Transformer(
-			k=self.kernel_size,
+			units=self.kernel_size,
 			dtype=dtype,
 			normalize=normalize,
+			layer_type=Dense,
 			**kwargs
 			) for i in range(transformers)]
 		
@@ -49,15 +50,13 @@ class NbitTreeProbEncoder(Model):
 			)
 		pass
 	
-	#def build(self, input_shape):
-	#	return super(NbitTreeProbEncoder, self).build(input_shape)
-	
-	def encoder(self, filenames, bits_per_dim,
+	def encoder(self, filenames, bits_per_dim, *args,
 		permute=None,
 		offset=None,
 		scale=None,
 		xtype='float32',
-		ftype='uint8'
+		ftype='uint8',
+		**kwargs
 		):
 		"""
 		"""
@@ -91,7 +90,7 @@ class NbitTreeProbEncoder(Model):
 			_scale = tf.repeat(_scale[:,None], n_layers, axis=0)
 			return X0, X1, layer, _offset, _scale
 		
-		def encode(X0, X1, layer, offset, scale):
+		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0, out_idx=X0.dtype)
 			flags, idx1, _ = bitops.encode(X1, idx0, meta.dim, ftype)
 			labels = tf.one_hot(flags, meta.output_size)
@@ -99,7 +98,7 @@ class NbitTreeProbEncoder(Model):
 			uids = bitops.right_shift(uids[:,None], np.arange(meta.word_length))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, flags, layer, offset, scale), labels
+			return (uids, labels, flags, layer, *args)
 		
 		if isinstance(filenames, str) and filenames.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(filenames)
@@ -110,9 +109,22 @@ class NbitTreeProbEncoder(Model):
 		encoder = encoder.map(encode)
 		return encoder, meta
 	
+	def trainer(self, *args, encoder=None, **kwargs):
+		"""
+		"""
+		def filter(uids, labels, *args):
+			return uids, labels
+	
+		if encoder is None:
+			encoder = self.encoder(*args, **kwargs)
+		encoder = encoder.map(filter)
+		encoder = encoder.batch(1)
+		return encoder
+	
 	def call(self, inputs, training=False):
-		uids = inputs[0]
-		X = [t(uids) for t in self.transformers]
+		"""
+		"""
+		X = [t(inputs) for t in self.transformers]
 		X = self.concatenate(X)
 		#X = self.normalization(X)
 		X = self.output_layer(X)
@@ -127,3 +139,29 @@ class NbitTreeProbEncoder(Model):
 	@property
 	def output_size(self):
 		return 1<<(self.flag_size)
+	
+	@staticmethod
+	def decode(flags, meta,
+		buffer=tf.constant([0], dtype=tf.int64)
+		):
+		"""
+		"""
+		flags = tf.reshape(flags, (-1,1))
+		flags = bitops.right_shift(flags, np.arange(1<<meta.dim))
+		flags = bitops.bitwise_and(flags, 1)
+		X = tf.where(flags)
+		i = X[:,0]
+		X = X[:,1]
+		buffer = bitops.left_shift(buffer, meta.dim)
+		X = X + tf.gather(buffer, i)
+		return X
+	
+	@staticmethod
+	def finalize(X, meta):
+		"""
+		"""
+		if meta.permute is not None:
+			X = bitops.permute(X[:,None], meta.permute, meta.word_length)
+		X = bitops.realize(X, meta.bits_per_dim, meta.offset, meta.scale, meta.xtype)
+		return X
+		
