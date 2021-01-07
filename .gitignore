@@ -157,5 +157,5 @@ media/
 models/
 
 #VC
-.vs/
-.vscode/
+*.vs/
+*.vscode/
