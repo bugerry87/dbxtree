@@ -4,7 +4,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Dense, LayerNormalization, Concatenate
+from tensorflow.keras.layers import Dense, Activation, LayerNormalization, Concatenate
 
 ## Local
 from . import bitops
@@ -30,22 +30,32 @@ class NbitTreeProbEncoder(Model):
 		self.dim = dim
 		self.kernel_size = k if k else self.output_size
 		
-		self.transformers = [layers.Transformer(
-			units=self.kernel_size,
-			dtype=dtype,
-			normalize=normalize,
-			layer_type=Dense,
-			**kwargs
-			) for i in range(transformers)]
-		
-		self.concatenate = Concatenate()
-			
-		#self.normalization = LayerNormalization()
-		self.output_layer = Dense(
-			self.output_size,
+		self.embedding_layer = Dense(
+			self.kernel_size * transformers,
 			#activation='relu',
 			dtype=dtype,
+			name='embedding_layer',
+			kernel_initializer='glorot_normal',
+			**kwargs
+			)
+		self.transformers = [layers.Transformer(
+			units=self.kernel_size,
+			normalize=normalize,
+			layer_type=layers.Euclidean,
+			kernel_initializer='glorot_normal',
+			inverted=True,
+			dtype=dtype,
+			**kwargs
+			) for i in range(transformers)]
+		if transformers > 1:
+			self.concatenate = Concatenate()
+		#self.activation = Activation('elu')
+		self.output_layer = Dense(
+			self.output_size,
+			#activation='elu',
+			dtype=dtype,
 			name='output_layer',
+			#kernel_initializer='ones',
 			**kwargs
 			)
 		pass
@@ -93,12 +103,11 @@ class NbitTreeProbEncoder(Model):
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0, out_idx=X0.dtype)
 			flags, idx1, _ = bitops.encode(X1, idx0, meta.dim, ftype)
-			labels = tf.one_hot(flags, meta.output_size)
 			uids = bitops.left_shift(uids, meta.tree_depth-layer*meta.dim)
 			uids = bitops.right_shift(uids[:,None], np.arange(meta.word_length))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, labels, flags, layer, *args)
+			return (uids, flags, layer, *args)
 		
 		if isinstance(filenames, str) and filenames.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(filenames)
@@ -109,11 +118,19 @@ class NbitTreeProbEncoder(Model):
 		encoder = encoder.map(encode)
 		return encoder, meta
 	
-	def trainer(self, *args, encoder=None, **kwargs):
+	def trainer(self, *args,
+		encoder=None,
+		relax=10000,
+		**kwargs
+		):
 		"""
 		"""
-		def filter(uids, labels, *args):
-			return uids, labels
+		def filter(uids, flags, *args):
+			weights = tf.size(flags)
+			weights = tf.cast(weights, tf.float32)
+			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
+			labels = tf.one_hot(flags, self.output_size)
+			return uids, labels, weights
 	
 		if encoder is None:
 			encoder = self.encoder(*args, **kwargs)
@@ -121,12 +138,36 @@ class NbitTreeProbEncoder(Model):
 		encoder = encoder.batch(1)
 		return encoder
 	
+	def validator(self, *args,
+		encoder=None,
+		**kwargs
+		):
+		"""
+		"""
+		def filter_uids(uids, *args):
+			return uids
+		
+		def filter_args(uids, *args):
+			return (*args,)
+		
+		if encoder is None:
+			encoder = self.encoder(*args, **kwargs)
+		validator = encoder.map(filter_uids)
+		validator = validator.batch(1)
+		args = encoder.map(filter_args)
+		return validator, args
+	
 	def call(self, inputs, training=False):
 		"""
 		"""
-		X = [t(inputs) for t in self.transformers]
-		X = self.concatenate(X)
-		#X = self.normalization(X)
+		X = inputs
+		X = self.embedding_layer(X)
+		X = [t(X) for t in self.transformers]
+		if len(self.transformers) > 1:
+			X = self.concatenate(X)
+		else:
+			X = X[0]
+		#X = self.activation(X)
 		X = self.output_layer(X)
 		X -= tf.math.reduce_min(X - 1.e-16)
 		X /= tf.math.reduce_max(X + 1.e-16)
@@ -157,11 +198,12 @@ class NbitTreeProbEncoder(Model):
 		return X
 	
 	@staticmethod
-	def finalize(X, meta):
+	def finalize(X, meta, offset=None, scale=None):
 		"""
 		"""
+		X = tf.reshape(X, (-1,1))
 		if meta.permute is not None:
-			X = bitops.permute(X[:,None], meta.permute, meta.word_length)
-		X = bitops.realize(X, meta.bits_per_dim, meta.offset, meta.scale, meta.xtype)
+			X = bitops.permute(X, meta.permute, meta.word_length)
+		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
 		return X
 		
