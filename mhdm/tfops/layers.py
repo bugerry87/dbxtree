@@ -1,4 +1,7 @@
 
+## Build In
+from collections import Iterable
+
 ## Installed
 import numpy as np
 import tensorflow as tf
@@ -217,16 +220,14 @@ class Euclidean(Layer):
 				return True
 			
 			def body(a, i):
-				dim = i // self.units
-				unit = i % self.units
-				a += (inputs[:,:,dim] - self.w[dim, unit])**2
+				a += (inputs[:,:,i,None] - self.w[i])**2
 				return a, i+1
-		
-			i = tf.constant(self.units)
+			
+			i = tf.constant(1)
 			a = (inputs[:,:,0,None] - self.w[0])**2 #b,n,k
 			a, i = tf.while_loop(cond, body,
 				loop_vars=(a, i),
-				maximum_iterations=(self.dims-1) * self.units,
+				maximum_iterations=self.dims-1,
 				name='sum_loop'
 			)
 		
@@ -235,6 +236,7 @@ class Euclidean(Layer):
 		return a
 	
 	def build(self, input_shape):
+		self.batch_size = input_shape[0]
 		self.dims = input_shape[-1]
 		self.w = self.add_weight(
 			shape=(self.dims, self.units),
@@ -242,7 +244,7 @@ class Euclidean(Layer):
 			regularizer=self.regularizer,
 			trainable=self.trainable,
 			name='kernel'
-			)
+		)
 		return self
 	
 	def get_config(self):
@@ -329,10 +331,13 @@ class Transformer(Layer):
 	"""
 	"""
 	def __init__(self,
-		args=[],
+		*args,
 		axes=(1,2),
 		normalize=False,
-		layer_type=None,
+		layer_types=(Dense, Dense, Euclidean),
+		layer_n_args={},
+		layer_m_args={},
+		layer_t_args={},
 		name='Transformer',
 		**kwargs
 		):
@@ -341,17 +346,25 @@ class Transformer(Layer):
 		super(Transformer, self).__init__(name=name, **arg_filter(**kwargs))
 		self.permute = Permute(axes[::-1], **arg_filter(**kwargs))
 		self.dot = Dot(axes, normalize, **arg_filter(**kwargs))
-		self.layer_type = layer_type
+		self.layer_types = layer_types
 		
-		if layer_type is not None:
-			self.n = layer_type(*args, name='N', **kwargs)
-			self.m = layer_type(*args, name='M', **kwargs)
-			self.t = layer_type(*args, name='T', **kwargs)
+		if layer_types is not None:
+			try:
+				self.n = layer_types[0](*args, name='N', **layer_n_args, **kwargs)
+				self.m = layer_types[1](*args, name='M', **layer_m_args, **kwargs)
+				self.t = layer_types[2](*args, name='T', **layer_t_args, **kwargs)
+			except TypeError:
+				self.n = layer_types(*args, name='N', **layer_n_args, **kwargs)
+				self.m = layer_types(*args, name='M', **layer_m_args, **kwargs)
+				self.t = layer_types(*args, name='T', **layer_t_args, **kwargs)
 		
 		self.config = dict(
 			args = args,
 			normalize = normalize,
-			layer_type = layer_type,
+			layer_types = layer_types,
+			layer_n_args = layer_n_args,
+			layer_m_args = layer_m_args,
+			layer_t_args = layer_t_args,
 			name = name,
 			**kwargs
 			)
@@ -360,28 +373,29 @@ class Transformer(Layer):
 	def call(self, inputs):
 		"""
 		"""
-		if self.layer_type is None:
+		if self.layer_types is None:
 			n, m, t = inputs
 		else:
 			n = self.n(inputs)
 			m = self.m(inputs)
-			t = self.t(inputs)
-			#t = range_like(inputs[:,:,0], 0, 1)
-			#t = self.t(t) #(b, t, k)
+			#t = self.t(inputs)
+			t = range_like(inputs[:,:,0], 0, 1)
+			t = tf.expand_dims(t, axis=-1)
+			t = self.t(t) #(b, t, k)
 		m = self.permute(m) #(b, k, m)
 		t = self.permute(t) #(b, k, t)
 		T = self.dot([n,m]) #(b, k, k) Transformer!
-		return self.dot([t,T]) #(b, t, k)
+		return self.dot([t,T]) #(b, t, k) Positional query
 	
 	def build(self, input_shape):
-		if self.layer_type is not None:
+		if self.layer_types is not None:
 			self.n.build(input_shape)
 			self.m.build(input_shape)
-			self.t.build(input_shape)
+			self.t.build((*input_shape[:2],1))
 		return self
 	
 	def count_params(self):
-		if self.layer_type is None:
+		if self.layer_types is None:
 			return 0
 		else:
 			return self.n.count_params() \

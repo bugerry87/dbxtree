@@ -30,32 +30,22 @@ class NbitTreeProbEncoder(Model):
 		self.dim = dim
 		self.kernel_size = k if k else self.output_size
 		
-		self.embedding_layer = Dense(
-			self.kernel_size * transformers,
-			#activation='relu',
-			dtype=dtype,
-			name='embedding_layer',
-			kernel_initializer='glorot_normal',
-			**kwargs
-			)
 		self.transformers = [layers.Transformer(
 			units=self.kernel_size,
 			normalize=normalize,
-			layer_type=layers.Euclidean,
+			layer_types=(layers.Dense, layers.Dense, layers.Euclidean),
 			kernel_initializer='glorot_normal',
-			inverted=True,
+			layer_t_args=dict(inverted=True),
 			dtype=dtype,
 			**kwargs
 			) for i in range(transformers)]
 		if transformers > 1:
 			self.concatenate = Concatenate()
-		#self.activation = Activation('elu')
+		self.activation = Activation('elu')
 		self.output_layer = Dense(
 			self.output_size,
-			#activation='elu',
 			dtype=dtype,
 			name='output_layer',
-			#kernel_initializer='ones',
 			**kwargs
 			)
 		pass
@@ -161,13 +151,12 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
-		X = self.embedding_layer(X)
 		X = [t(X) for t in self.transformers]
 		if len(self.transformers) > 1:
 			X = self.concatenate(X)
 		else:
 			X = X[0]
-		#X = self.activation(X)
+		X = self.activation(X)
 		X = self.output_layer(X)
 		X -= tf.math.reduce_min(X - 1.e-16)
 		X /= tf.math.reduce_max(X + 1.e-16)

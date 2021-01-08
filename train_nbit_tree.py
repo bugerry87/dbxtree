@@ -11,6 +11,7 @@ import tensorflow as tf
 
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
+from mhdm.tfops.metrics import FlatTopKAccuracy
 
 
 if __name__ == '__main__':
@@ -19,13 +20,17 @@ if __name__ == '__main__':
 	index_txt = 'data/index.txt'
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	logdir = path.join("logs", "scalars", timestamp)
-	k = 16
+	quali_inverval = 9
+	k = 64
 	
-	model = NbitTreeProbEncoder(2, k, transformers=1, normalize=False)
+	loss = tf.keras.metrics.CategoricalCrossentropy(label_smoothing=0.2)
+	topk = FlatTopKAccuracy(classes=16, name='top5')
+	optimizer = tf.keras.optimizers.Adam(learning_rate=0.5)
+	model = NbitTreeProbEncoder(2, k, transformers=2, normalize=False)
 	model.compile(
-		optimizer='adam', 
-		loss='categorical_crossentropy',
-		metrics=['accuracy'],
+		optimizer=optimizer, 
+		loss=loss,
+		metrics=['accuracy', topk],
 		sample_weight_mode='temporal'
 		)
 	model.build(tf.TensorShape([1,None,48]))
@@ -44,6 +49,8 @@ if __name__ == '__main__':
 		pass
 	
 	def qualitative_validation(epoch, *args):
+		if epoch % quali_inverval:
+			return
 		writer = tensorboard._writers['train']
 		flag_map = np.zeros((1, meta.tree_depth+1, meta.output_size, 1))
 		args = val_args.as_numpy_iterator()
