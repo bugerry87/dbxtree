@@ -4,7 +4,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Dense, Activation, LayerNormalization, Concatenate
+from tensorflow.keras.layers import Dense, Activation, Concatenate, Conv1D
 
 ## Local
 from . import bitops
@@ -33,17 +33,24 @@ class NbitTreeProbEncoder(Model):
 		self.transformers = [layers.Transformer(
 			units=self.kernel_size,
 			normalize=normalize,
-			layer_types=(layers.Dense, layers.Dense, layers.Euclidean),
-			kernel_initializer='glorot_normal',
-			layer_t_args=dict(inverted=True),
+			layer_types=layers.Dense,
+			kernel_initializer='random_normal',
 			dtype=dtype,
 			**kwargs
 			) for i in range(transformers)]
 		if transformers > 1:
 			self.concatenate = Concatenate()
 		self.activation = Activation('elu')
+		self.conv = Conv1D(
+			self.output_size*2, 3,
+			activation='relu',
+			padding='same',
+			name='conv1D',
+			**kwargs
+		)
 		self.output_layer = Dense(
 			self.output_size,
+			activation='relu',
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -99,6 +106,9 @@ class NbitTreeProbEncoder(Model):
 			uids = tf.cast(uids, meta.dtype)
 			return (uids, flags, layer, *args)
 		
+		def filter(uids, flags, layer, *args):
+			return layer < meta.tree_depth
+		
 		if isinstance(filenames, str) and filenames.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(filenames)
 		else:
@@ -106,11 +116,13 @@ class NbitTreeProbEncoder(Model):
 		encoder = encoder.map(parse)
 		encoder = encoder.unbatch()
 		encoder = encoder.map(encode)
+		encoder = encoder.filter(filter)
 		return encoder, meta
 	
 	def trainer(self, *args,
 		encoder=None,
 		relax=10000,
+		smoothing=0,
 		**kwargs
 		):
 		"""
@@ -120,6 +132,9 @@ class NbitTreeProbEncoder(Model):
 			weights = tf.cast(weights, tf.float32)
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
 			labels = tf.one_hot(flags, self.output_size)
+			if smoothing:
+				labels *= 1.0 - smoothing
+				labels += smoothing / 2
 			return uids, labels, weights
 	
 		if encoder is None:
@@ -155,11 +170,12 @@ class NbitTreeProbEncoder(Model):
 		if len(self.transformers) > 1:
 			X = self.concatenate(X)
 		else:
-			X = X[0]
+			X = X[0]	
 		X = self.activation(X)
+		X += 1.0
+		X = self.conv(X)
 		X = self.output_layer(X)
-		X -= tf.math.reduce_min(X - 1.e-16)
-		X /= tf.math.reduce_max(X + 1.e-16)
+		X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
 		return X
 	
 	@property

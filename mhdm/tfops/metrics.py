@@ -1,18 +1,19 @@
 
 ## Installed
 import tensorflow as tf
-from tensorflow.keras.metrics import MeanMetricWrapper, top_k_categorical_accuracy
+from tensorflow.keras.metrics import TopKCategoricalAccuracy
 
 
-class FlatTopKAccuracy(MeanMetricWrapper):
+class FlatTopKAccuracy(TopKCategoricalAccuracy):
 	"""
 	"""
 	def __init__(self, k, classes,
-		name='flat_topk_accuracy'
+		name='flat_topk_accuracy',
+		**kwargs
 		):
 		"""
 		"""
-		super(FlatTopKAccuracy, self).__init__(top_k_categorical_accuracy, name=name, k=k, **kwargs)
+		super(FlatTopKAccuracy, self).__init__(name=name, k=k, **kwargs)
 		self.classes = classes
 		pass
 
@@ -22,9 +23,3 @@ class FlatTopKAccuracy(MeanMetricWrapper):
 		if sample_weight is not None:
 			sample_weight = tf.reshape(sample_weight, (-1, self.classes))
 		super(FlatTopKAccuracy, self).update_state(y_true, y_pred)
-	
-	#def call(self, y_true, y_pred, sample_weight):
-	#	super(FlatTopKAccuracy, self).call(y_true, y_pred)
-	#
-	#def __call__(self, y_true, y_pred, sample_weight):
-	#	super(FlatTopKAccuracy, self).__call__(y_true, y_pred)

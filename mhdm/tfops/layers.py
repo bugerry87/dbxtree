@@ -338,6 +338,7 @@ class Transformer(Layer):
 		layer_n_args={},
 		layer_m_args={},
 		layer_t_args={},
+		embedding=False,
 		name='Transformer',
 		**kwargs
 		):
@@ -347,6 +348,7 @@ class Transformer(Layer):
 		self.permute = Permute(axes[::-1], **arg_filter(**kwargs))
 		self.dot = Dot(axes, normalize, **arg_filter(**kwargs))
 		self.layer_types = layer_types
+		self.embedding = embedding
 		
 		if layer_types is not None:
 			try:
@@ -365,10 +367,21 @@ class Transformer(Layer):
 			layer_n_args = layer_n_args,
 			layer_m_args = layer_m_args,
 			layer_t_args = layer_t_args,
+			embedding = embedding,
 			name = name,
 			**kwargs
 			)
 		pass
+
+	def build(self, input_shape):
+		if self.layer_types is not None:
+			self.n.build(input_shape)
+			self.m.build(input_shape)
+			if self.embedding:
+				self.t.build((*input_shape[:2],1))
+			else:
+				self.t.build(input_shape)
+		return self
 	
 	def call(self, inputs):
 		"""
@@ -378,21 +391,16 @@ class Transformer(Layer):
 		else:
 			n = self.n(inputs)
 			m = self.m(inputs)
-			#t = self.t(inputs)
-			t = range_like(inputs[:,:,0], 0, 1)
-			t = tf.expand_dims(t, axis=-1)
-			t = self.t(t) #(b, t, k)
+			if self.embedding:
+				t = range_like(inputs[:,:,0], 0, 1)
+				t = tf.expand_dims(t, axis=-1)
+				t = self.t(t) #(b, t, k)
+			else:
+				t = self.t(inputs)
 		m = self.permute(m) #(b, k, m)
 		t = self.permute(t) #(b, k, t)
 		T = self.dot([n,m]) #(b, k, k) Transformer!
 		return self.dot([t,T]) #(b, t, k) Positional query
-	
-	def build(self, input_shape):
-		if self.layer_types is not None:
-			self.n.build(input_shape)
-			self.m.build(input_shape)
-			self.t.build((*input_shape[:2],1))
-		return self
 	
 	def count_params(self):
 		if self.layer_types is None:

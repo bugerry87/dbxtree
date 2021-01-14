@@ -21,15 +21,14 @@ if __name__ == '__main__':
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	logdir = path.join("logs", "scalars", timestamp)
 	quali_inverval = 9
-	k = 64
+	k = 16
 	
-	loss = tf.keras.metrics.CategoricalCrossentropy(label_smoothing=0.2)
-	topk = FlatTopKAccuracy(classes=16, name='top5')
-	optimizer = tf.keras.optimizers.Adam(learning_rate=0.5)
-	model = NbitTreeProbEncoder(2, k, transformers=2, normalize=False)
+	optimizer = 'adam' #tf.keras.optimizers.Adam(learning_rate=0.5**6)
+	topk = FlatTopKAccuracy(5, classes=16, name='top5')
+	model = NbitTreeProbEncoder(2, k, transformers=4, normalize=False)
 	model.compile(
 		optimizer=optimizer, 
-		loss=loss,
+		loss='categorical_crossentropy',
 		metrics=['accuracy', topk],
 		sample_weight_mode='temporal'
 		)
