@@ -19,6 +19,7 @@ class NbitTreeProbEncoder(Model):
 		dim=3,
 		k=None,
 		transformers=1,
+		convolutions=0,
 		normalize=False,
 		dtype=tf.float32,
 		name=None,
@@ -36,18 +37,22 @@ class NbitTreeProbEncoder(Model):
 			layer_types=layers.Dense,
 			kernel_initializer='random_normal',
 			dtype=dtype,
+			name='transformer_{}'.format(i),
 			**kwargs
 			) for i in range(transformers)]
 		if transformers > 1:
 			self.concatenate = Concatenate()
-		self.activation = Activation('elu')
-		self.conv = Conv1D(
-			self.output_size*2, 3,
+		if transformers > 0:
+			self.activation = Activation('elu')
+
+		self.convolutions = [Conv1D(
+			self.kernel_size, 3,
 			activation='relu',
 			padding='same',
-			name='conv1D',
+			name='conv1d_{}'.format(i),
 			**kwargs
-		)
+			) for i in range(convolutions)]
+
 		self.output_layer = Dense(
 			self.output_size,
 			activation='relu',
@@ -57,12 +62,13 @@ class NbitTreeProbEncoder(Model):
 			)
 		pass
 	
-	def encoder(self, filenames, bits_per_dim, *args,
+	def encoder(self, index, bits_per_dim, *args,
 		permute=None,
 		offset=None,
 		scale=None,
 		xtype='float32',
 		ftype='uint8',
+		shuffle=0,
 		**kwargs
 		):
 		"""
@@ -87,9 +93,9 @@ class NbitTreeProbEncoder(Model):
 			X0 = tf.io.read_file(filename)
 			X0 = tf.io.decode_raw(X0, xtype)
 			X0 = tf.reshape(X0, (-1, meta.input_dims))
-			X0, _offset, _scale = bitops.serialize(X0, bits_per_dim, offset, scale)
+			X0, _offset, _scale = bitops.serialize(X0, meta.bits_per_dim, offset, scale)
 			if permute is not None:
-				X0 = bitops.permute(X0, permute, meta.word_length)
+				X0 = bitops.permute(X0, meta.permute, meta.word_length)
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers, dtype=X0.dtype)
@@ -109,10 +115,18 @@ class NbitTreeProbEncoder(Model):
 		def filter(uids, flags, layer, *args):
 			return layer < meta.tree_depth
 		
-		if isinstance(filenames, str) and filenames.endswith('.txt'):
-			encoder = tf.data.TextLineDataset(filenames)
+		if isinstance(index, str) and index.endswith('.txt'):
+			encoder = tf.data.TextLineDataset(index)
+			with open(index, 'r') as fid:
+				meta.num_of_files = sum(len(L) > 0 for L in fid)
 		else:
-			encoder = tf.data.Dataset.from_tensor_slices([f for f in ifile(filenames)])
+			index = [f for f in utils.ifile(index)]
+			meta.num_of_files = len(index)
+			encoder = tf.data.Dataset.from_tensor_slices(index)
+		
+		meta.num_of_samples = meta.num_of_files * meta.tree_depth
+		if shuffle:
+			encoder = encoder.shuffle(shuffle)
 		encoder = encoder.map(parse)
 		encoder = encoder.unbatch()
 		encoder = encoder.map(encode)
@@ -127,7 +141,7 @@ class NbitTreeProbEncoder(Model):
 		):
 		"""
 		"""
-		def filter(uids, flags, *args):
+		def filter_labels(uids, flags, *args):
 			weights = tf.size(flags)
 			weights = tf.cast(weights, tf.float32)
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
@@ -136,12 +150,21 @@ class NbitTreeProbEncoder(Model):
 				labels *= 1.0 - smoothing
 				labels += smoothing / 2
 			return uids, labels, weights
+		
+		def filter_args(uids, *args):
+			return (*args,)
 	
 		if encoder is None:
-			encoder = self.encoder(*args, **kwargs)
-		encoder = encoder.map(filter)
-		encoder = encoder.batch(1)
-		return encoder
+			encoder, meta = self.encoder(*args, **kwargs)
+		else:
+			meta = None
+		trainer = encoder.map(filter_labels)
+		trainer = trainer.batch(1)
+		trainer_args = encoder.map(filter_args)
+		if meta is None:
+			return trainer, trainer_args
+		else:
+			return trainer, trainer_args, meta
 	
 	def validator(self, *args,
 		encoder=None,
@@ -149,31 +172,32 @@ class NbitTreeProbEncoder(Model):
 		):
 		"""
 		"""
-		def filter_uids(uids, *args):
-			return uids
-		
-		def filter_args(uids, *args):
-			return (*args,)
-		
-		if encoder is None:
-			encoder = self.encoder(*args, **kwargs)
-		validator = encoder.map(filter_uids)
-		validator = validator.batch(1)
-		args = encoder.map(filter_args)
-		return validator, args
+		return self.trainer(*args, encoder=encoder, **kwargs)
+	
+	def tester(self, *args,
+		encoder=None,
+		**kwargs
+		):
+		"""
+		"""
+		return self.trainer(*args, encoder=encoder, **kwargs)
 	
 	def call(self, inputs, training=False):
 		"""
 		"""
 		X = inputs
-		X = [t(X) for t in self.transformers]
-		if len(self.transformers) > 1:
-			X = self.concatenate(X)
-		else:
-			X = X[0]	
-		X = self.activation(X)
-		X += 1.0
-		X = self.conv(X)
+		if len(self.transformers) > 0:
+			X = [t(X) for t in self.transformers]
+			if len(self.transformers) > 1:
+				X = self.concatenate(X)
+			else:
+				X = X[0]
+			X = self.activation(X)
+			X += 1.0
+
+		for conv in self.convolutions:
+			X = conv(X)
+		
 		X = self.output_layer(X)
 		X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
 		return X

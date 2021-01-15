@@ -449,7 +449,7 @@ def kitti(kittidata,
 	pass
 
 
-def main(args, unparsed):
+def main(args, unparsed=None):
 	log.verbose = args.verbose
 	args.run(**args.__dict__)
 
