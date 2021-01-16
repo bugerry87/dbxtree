@@ -179,7 +179,7 @@ def main(
 	val_index=None,
 	test_index=None,
 	epochs=1,
-	training_steps=0,
+	steps_per_epoch=0,
 	validation_freq=1,
 	validation_steps=0,
 	test_freq=1,
@@ -231,8 +231,8 @@ def main(
 	elif val_meta is not None:
 		validation_steps = val_meta.num_of_samples
 	
-	if train_steps and train_meta is not None:
-		train_steps
+	if test_steps:
+		pass
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
 
@@ -242,7 +242,7 @@ def main(
 		metrics=['accuracy', topk],
 		sample_weight_mode='temporal'
 		)
-	model.build(tf.TensorShape([1, None, 48]))
+	model.build(tf.TensorShape([1, None, train_meta.word_length]))
 	model.summary()
 	
 	tensorboard = tf.keras.callbacks.TensorBoard(log_dir=log_scalars)
@@ -269,6 +269,9 @@ def main(
 			log_model,
 			save_best_only=True,
 			monitor='val_accuracy' if validator is not None else 'accuracy'
+			),
+		tf.keras.callbacks.EarlyStopping(
+			monitor='val_accuracy' if validator is not None else 'accuracy'
 			)
 		]
 	if tester is not None:
@@ -280,8 +283,8 @@ def main(
 		steps_per_epoch=steps_per_epoch,
 		callbacks=callbacks,
 		validation_freq=validation_freq,
-		validation_data=validation_steps,
-		validation_steps=val_meta.num_of_samples,
+		validation_data=validator.repeat(epochs),
+		validation_steps=validation_steps,
 		verbose=verbose
 		)
 	return 0
