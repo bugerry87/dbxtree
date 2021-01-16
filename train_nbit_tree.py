@@ -7,7 +7,6 @@ from argparse import ArgumentParser
 
 ## Installed
 import numpy as np
-import matplotlib.pyplot as plt
 import tensorflow as tf
 
 ## Local
@@ -64,6 +63,46 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--steps_per_epoch',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Define to train on a subset'
+		)
+	
+	main_args.add_argument(
+		'--validation_freq',
+		metavar='INT',
+		type=int,
+		default=1,
+		help="Validation frequency (default=9)"
+		)
+	
+	main_args.add_argument(
+		'--validation_steps',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Define to validate on a subset'
+		)
+	
+	main_args.add_argument(
+		'--test_freq',
+		metavar='INT',
+		type=int,
+		default=1,
+		help="Test frequency (default=9)"
+		)
+	
+	main_args.add_argument(
+		'--test_steps',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Define for test on a subset'
+		)
+	
+	main_args.add_argument(
 		'--dim', '-d',
 		metavar='INT',
 		type=int,
@@ -111,22 +150,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--validation_freq',
-		metavar='INT',
-		type=int,
-		default=1,
-		help="Validation frequency (default=9)"
-		)
-	
-	main_args.add_argument(
-		'--test_freq',
-		metavar='INT',
-		type=int,
-		default=1,
-		help="Test frequency (default=9)"
-		)
-	
-	main_args.add_argument(
 		'--topk',
 		metavar='INT',
 		type=int,
@@ -156,14 +179,17 @@ def main(
 	val_index=None,
 	test_index=None,
 	epochs=1,
+	training_steps=0,
+	validation_freq=1,
+	validation_steps=0,
+	test_freq=1,
+	test_steps=0,
 	dim=2,
 	bits_per_dim=[16,16,16,0],
 	kernel=16,
 	transformers=4,
 	convolutions=2,
 	normalize=False,
-	validation_freq=1,
-	test_freq=1,
 	topk=5,
 	log_dir='logs',
 	verbose=2,
@@ -191,9 +217,24 @@ def main(
 		)
 	
 	trainer, train_args, train_meta = model.trainer(train_index, bits_per_dim)
-	validator, val_args, val_meta = model.validator(val_index, bits_per_dim) if val_index else None
-	tester, tester_args, test_meta = model.tester(test_index, bits_per_dim) if test_index else (None, None)
+	validator, val_args, val_meta = model.validator(val_index, bits_per_dim) if val_index else (None, None, None)
+	tester, tester_args, test_meta = model.tester(test_index, bits_per_dim) if test_index else (None, None, None)
 	topk = FlatTopKAccuracy(topk, classes=train_meta.output_size, name='top5')
+
+	if steps_per_epoch:
+		trainer = trainer.take(steps_per_epoch)
+	else:
+		steps_per_epoch = train_meta.num_of_samples
+	
+	if validation_steps:
+		validator = validator.take(validation_steps)
+	elif val_meta is not None:
+		validation_steps = val_meta.num_of_samples
+	
+	if train_steps and train_meta is not None:
+		train_steps
+	elif test_meta is not None:
+		test_steps = test_meta.num_of_samples
 
 	model.compile(
 		optimizer='adam', 
@@ -210,7 +251,7 @@ def main(
 			return
 		writer = tensorboard._writers['train']
 		flag_map = np.zeros((1, train_meta.tree_depth, train_meta.output_size, 1))
-		for i, sample, args in zip(range(test_meta.num_of_samples), tester, tester_args):
+		for i, sample, args in zip(range(test_steps), tester, tester_args):
 			uids = sample[0]
 			layer = args[1]
 			pred = model.predict_on_batch(uids)
@@ -236,10 +277,10 @@ def main(
 	history = model.fit(
 		trainer.repeat(epochs),
 		epochs=epochs,
-		steps_per_epoch=train_meta.num_of_samples,
+		steps_per_epoch=steps_per_epoch,
 		callbacks=callbacks,
 		validation_freq=validation_freq,
-		validation_data=validator.repeat(epochs),
+		validation_data=validation_steps,
 		validation_steps=val_meta.num_of_samples,
 		verbose=verbose
 		)
@@ -247,6 +288,6 @@ def main(
 
 if __name__ == '__main__':
 	main_args = init_main_args().parse_known_args()[0]
-	print("Main Args:")
-	print("\r\n".join(['\t {} = {}'.format(k,v) for k,v in main_args.__dict__.items()]))
+	tf.print("Main Args:")
+	tf.print("\n".join(['\t {} = {}'.format(k,v) for k,v in main_args.__dict__.items()]))
 	main(**main_args.__dict__)
