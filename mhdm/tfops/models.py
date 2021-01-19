@@ -4,7 +4,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Dense, Activation, Concatenate, Conv1D
+from tensorflow.keras.layers import Activation, Concatenate, Conv1D
 
 ## Local
 from . import bitops
@@ -53,9 +53,10 @@ class NbitTreeProbEncoder(Model):
 			**kwargs
 			) for i in range(convolutions)]
 
-		self.output_layer = Dense(
+		self.output_layer = layers.Dense(
 			self.output_size,
 			activation='relu',
+			#inverted=True,
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -141,7 +142,9 @@ class NbitTreeProbEncoder(Model):
 		):
 		"""
 		"""
-		def filter_labels(uids, flags, *args):
+		def filter_labels(uids, flags, layer, *args):
+			mask = tf.range(uids.shape[-1]) <= tf.cast(layer * self.dim, tf.int32)
+			uids = uids * 2 - tf.cast(mask, tf.float32)
 			weights = tf.size(flags)
 			weights = tf.cast(weights, tf.float32)
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)

@@ -13,12 +13,7 @@ from . import bitops
 
 
 def arg_filter(trainable=True, dtype=None, dynamic=False, **kwargs):
-	return {
-		'trainable':trainable,
-		'dtype':dtype,
-		'dynamic':dynamic
-		}
-
+	return dict(trainable=trainable, dtype=dtype, dynamic=dynamic)
 
 class NbitTreeEncoder(Layer):
 	"""

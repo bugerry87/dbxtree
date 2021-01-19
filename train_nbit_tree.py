@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 ## Build In
-import os.path as path
+import os
 from datetime import datetime
 from argparse import ArgumentParser
+import logging
 
 ## Installed
 import numpy as np
@@ -63,6 +64,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--stop_patience',
+		metavar='INT',
+		type=int,
+		default=-1,
+		help='The early stopping patience (deactivate = -1)'
+		)
+	
+	main_args.add_argument(
 		'--steps_per_epoch',
 		metavar='INT',
 		type=int,
@@ -75,7 +84,7 @@ def init_main_args(parents=[]):
 		metavar='INT',
 		type=int,
 		default=1,
-		help="Validation frequency (default=9)"
+		help="Validation frequency"
 		)
 	
 	main_args.add_argument(
@@ -179,6 +188,7 @@ def main(
 	val_index=None,
 	test_index=None,
 	epochs=1,
+	stop_patience=-1,
 	steps_per_epoch=0,
 	validation_freq=1,
 	validation_steps=0,
@@ -194,17 +204,28 @@ def main(
 	log_dir='logs',
 	verbose=2,
 	name=None,
+	params={},
 	**kwargs
 	):
 	"""
 	"""
 	tf.summary.trace_on(graph=True, profiler=False)
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-	log_scalars = path.join(log_dir, "scalars", timestamp)
-	log_model = path.join(log_dir, "models", "nbittree_{}".format(timestamp))
+	log_dir = os.path.join(log_dir, timestamp)
+	log_model = os.path.join(log_dir, "ckpts", "nbittree_{}".format(timestamp))
+	log_output = os.path.join(log_dir, timestamp + '.log')
+	os.makedirs(log_dir, exist_ok=True)
 	train_index = train_index[0] if len(train_index) == 1 else train_index
 	val_index = val_index[0] if len(val_index) == 1 else val_index
 	test_index = test_index[0] if len(test_index) == 1 else test_index
+
+	tflog = tf.get_logger()
+	tflog.setLevel(logging.DEBUG)
+	fh = logging.FileHandler(log_output)
+	tflog.addHandler(fh)
+
+	tflog.info("Main Args:")
+	tflog.info("\n".join(['\t {} = {}'.format(k,v) for k,v in params.items()]))
 	
 	model = NbitTreeProbEncoder(
 		dim=dim,
@@ -222,16 +243,19 @@ def main(
 	topk = FlatTopKAccuracy(topk, classes=train_meta.output_size, name='top5')
 
 	if steps_per_epoch:
+		steps_per_epoch *= train_meta.tree_depth
 		trainer = trainer.take(steps_per_epoch)
 	else:
 		steps_per_epoch = train_meta.num_of_samples
 	
 	if validation_steps:
+		validation_steps *= val_meta.tree_depth
 		validator = validator.take(validation_steps)
 	elif val_meta is not None:
 		validation_steps = val_meta.num_of_samples
 	
 	if test_steps:
+		test_steps *= test_meta.tree_depth
 		pass
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
@@ -243,9 +267,10 @@ def main(
 		sample_weight_mode='temporal'
 		)
 	model.build(tf.TensorShape([1, None, train_meta.word_length]))
-	model.summary()
+	model.summary(print_fn=tflog.info)
+	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
-	tensorboard = tf.keras.callbacks.TensorBoard(log_dir=log_scalars)
+	tensorboard = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
 	def run_test(epoch, *args):
 		if epoch % test_freq != 0:
 			return
@@ -262,6 +287,9 @@ def main(
 			tf.summary.image('flag_prediction', flag_map, epoch)
 		writer.flush()
 		pass
+
+	def log(epoch, log):
+		tflog.info("Epoch {}: ".format(epoch) + " ".join(['{} = {}'.format(k,v) for k,v in log.items()]))
 	
 	callbacks = [
 		tensorboard,
@@ -270,10 +298,15 @@ def main(
 			save_best_only=True,
 			monitor='val_accuracy' if validator is not None else 'accuracy'
 			),
-		tf.keras.callbacks.EarlyStopping(
-			monitor='val_accuracy' if validator is not None else 'accuracy'
-			)
+		tf.keras.callbacks.LambdaCallback(on_epoch_end=log)
 		]
+	
+	if stop_patience >= 0:
+		callbacks.append(tf.keras.callbacks.EarlyStopping(
+			monitor='val_accuracy' if validator is not None else 'accuracy',
+			patience=stop_patience
+			))
+	
 	if tester is not None:
 		callbacks.append(tf.keras.callbacks.LambdaCallback(on_epoch_end=run_test))
 
@@ -291,6 +324,4 @@ def main(
 
 if __name__ == '__main__':
 	main_args = init_main_args().parse_known_args()[0]
-	tf.print("Main Args:")
-	tf.print("\n".join(['\t {} = {}'.format(k,v) for k,v in main_args.__dict__.items()]))
-	main(**main_args.__dict__)
+	main(params=main_args.__dict__, **main_args.__dict__)
