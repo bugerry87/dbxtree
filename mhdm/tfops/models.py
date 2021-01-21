@@ -7,6 +7,11 @@ from tensorflow.keras import Model
 from tensorflow.keras.layers import Activation, Concatenate, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
+try:
+	import tensorflow_compression as tfc
+except ModuleNotFoundError:
+	tfc = None
+
 ## Local
 from . import bitops
 from . import layers
@@ -89,25 +94,16 @@ class NbitTreeProbEncoder(Model):
 		meta.input_dims = len(meta.bits_per_dim)
 		meta.word_length = sum(meta.bits_per_dim)
 		meta.tree_depth = meta.word_length // meta.dim + (meta.word_length % meta.dim != 0)
-
-		dim = tf.constant(meta.dim, dtype=tf.int64, name='dim')
-		input_dims = tf.constant(meta.input_dims, dtype=tf.int64, name='input_dims')
-		word_length = tf.constant(meta.word_length, dtype=tf.int64, name='word_length')
-		tree_depth = tf.constant(meta.tree_depth, dtype=tf.int64, name='tree_depth')
-		n_layers = tf.constant(meta.tree_depth+1, dtype=tf.int64, name='n_layers')
-		bits_per_dim = tf.constant(meta.bits_per_dim, dtype=tf.int64, name='bits_per_dim')
-		permute = tf.constant([] if permute is None else permute, dtype=tf.int64, name='permute')
-		offset = tf.constant([] if offset is None else offset, dtype=xtype, name='offset')
-		scale = tf.constant([] if scale is None else scale, dtype=xtype, name='scale')
+		n_layers = meta.tree_depth+1
 
 		def parse(filename):
 			X0 = tf.io.read_file(filename)
 			X0 = tf.io.decode_raw(X0, xtype)
-			X0 = tf.reshape(X0, (-1, input_dims))
-			X0, _offset, _scale = bitops.serialize(X0, bits_per_dim, offset, scale)
-			if permute.shape[0] > 0:
-				X0 = bitops.permute(X0, permute, word_length)
-			X0 = bitops.tokenize(X0, dim, n_layers)
+			X0 = tf.reshape(X0, (-1, meta.input_dims))
+			X0, _offset, _scale = bitops.serialize(X0, meta.bits_per_dim, offset, scale)
+			if permute is not None:
+				X0 = bitops.permute(X0, meta.permute, meta.word_length)
+			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers, dtype=X0.dtype)
 			_offset = tf.repeat(_offset[:,None], n_layers, axis=0)
@@ -116,15 +112,15 @@ class NbitTreeProbEncoder(Model):
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0, out_idx=X0.dtype)
-			flags, idx1, _ = bitops.encode(X1, idx0, dim, meta.ftype)
-			uids = bitops.left_shift(uids, tree_depth-layer*dim)
-			uids = bitops.right_shift(uids[:,None], tf.range(word_length))
-			uids = bitops.bitwise_and(uids, bitops.one64())
+			flags, idx1, _ = bitops.encode(X1, idx0, meta.dim, ftype)
+			uids = bitops.left_shift(uids, meta.tree_depth-layer*meta.dim)
+			uids = bitops.right_shift(uids[:,None], np.arange(meta.word_length))
+			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
 			return (uids, flags, layer, *args)
 		
 		def filter(uids, flags, layer, *args):
-			return layer < tree_depth
+			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
@@ -219,9 +215,7 @@ class NbitTreeProbEncoder(Model):
 		data = data_adapter.expand_1d(data)
 		x, y, sample_weight = data_adapter.unpack_x_y_sample_weight(data)
 		y_pred = self(x, training=False)
-		self.compiled_loss(
-			y, y_pred, sample_weight, regularization_losses=self.losses)
-
+		self.compiled_loss(y, y_pred, sample_weight, regularization_losses=self.losses)
 		self.compiled_metrics.update_state(y, y_pred, sample_weight)
 		return y_pred, {m.name: m.result() for m in self.metrics}
 	

@@ -10,7 +10,12 @@ import logging
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.metrics import CategoricalAccuracy
-from tensorflow.keras.callbacks import Callback, TensorBoard, ModelCheckpoint, EarlyStopping, ProgbarLogger
+from tensorflow.keras.callbacks import Callback, TensorBoard, ModelCheckpoint, EarlyStopping
+
+try:
+	import tensorflow_compression as tfc
+except ModuleNotFoundError:
+	tfc = None
 
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
@@ -217,23 +222,28 @@ class TestCallback(Callback):
 		for i, sample, args in zip(range(self.test_steps), self.tester, self.tester_args):
 			uids, labels, weights = sample
 			layer = int(args[1].numpy())
-			probs, metrics = self.model.predict_on_batch(uids)
+			probs = self.model.predict_on_batch(uids)
 			flags = np.argmax(probs, axis=-1)
 			self.flag_map[:, layer, flags, :] += 1
 			self.probs[layer] = probs
 		
-		for name, metric in metrics.items():
-			name = 'test_' + name
-			log[name] = metric
+		for metric in self.model.compiled_metrics.metrics:
+			name = 'test_' + metric.name
+			log[name] = metric.result()
 		
 		if self.writer is not None:
 			self.flag_map /= self.flag_map.max()
 			with self.writer.as_default():
-				for name, metric in metrics.items():
-					name = 'epoch_' + name
-					tf.summary.scalar(name, metric, epoch)
+				for metric in self.model.compiled_metrics.metrics:
+					name = 'epoch_' + metric.name
+					tf.summary.scalar(name, metric.result(), epoch)
 				tf.summary.image('flag_map', self.flag_map, epoch)
 			self.writer.flush()
+		
+		if tfc is not None:
+			probs = np.concatenate(self.probs.values())
+			tfc.pmf_to_quantized_cdf()
+			tfc.unbounded_index_range_encode()
 		pass
 
 
@@ -247,7 +257,7 @@ class LogCallback(Callback):
 		pass
 
 	def on_epoch_end(self, epoch, log):
-		self.msg = "Epoch {}: ".format(epoch+1) + " ".join(['{} = {}'.format(k,v) for k,v in log.items()])
+		self.msg = "Epoch {}: ".format(epoch+1) + ", ".join(['{} = {}'.format(k,v) for k,v in log.items()])
 	
 	def on_epoch_begin(self, epoch, log):
 		if self.msg:
