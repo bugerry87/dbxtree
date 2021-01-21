@@ -9,6 +9,8 @@ import logging
 ## Installed
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras.metrics import CategoricalAccuracy
+from tensorflow.keras.callbacks import Callback, TensorBoard, ModelCheckpoint, EarlyStopping, ProgbarLogger
 
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
@@ -100,7 +102,7 @@ def init_main_args(parents=[]):
 		metavar='INT',
 		type=int,
 		default=1,
-		help="Test frequency (default=9)"
+		help="Test frequency (default=1)"
 		)
 	
 	main_args.add_argument(
@@ -183,6 +185,79 @@ def init_main_args(parents=[]):
 	return main_args
 
 
+class TestCallback(Callback):
+	"""
+	"""
+	def __init__(self, tester, tester_args, test_meta,
+		test_freq=1,
+		test_steps=0,
+		writer=None
+		):
+		"""
+		"""
+		super(TestCallback, self).__init__()
+		self.tester = tester
+		self.tester_args = tester_args
+		self.test_steps = test_steps if test_steps else test_meta.num_of_samples
+		self.test_freq = test_freq
+		self.writer = writer
+
+		self.probs = dict()
+		self.flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
+		self.compiled_metrics = None
+		pass
+
+	def on_epoch_end(self, epoch, log):
+		if epoch % self.test_freq != 0:
+			return
+		
+		self.flag_map[:] = 0
+		self.model.reset_metrics()
+
+		for i, sample, args in zip(range(self.test_steps), self.tester, self.tester_args):
+			uids, labels, weights = sample
+			layer = int(args[1].numpy())
+			probs, metrics = self.model.predict_on_batch(uids)
+			flags = np.argmax(probs, axis=-1)
+			self.flag_map[:, layer, flags, :] += 1
+			self.probs[layer] = probs
+		
+		for name, metric in metrics.items():
+			name = 'test_' + name
+			log[name] = metric
+		
+		if self.writer is not None:
+			self.flag_map /= self.flag_map.max()
+			with self.writer.as_default():
+				for name, metric in metrics.items():
+					name = 'epoch_' + name
+					tf.summary.scalar(name, metric, epoch)
+				tf.summary.image('flag_map', self.flag_map, epoch)
+			self.writer.flush()
+		pass
+
+
+class LogCallback(Callback):
+	"""
+	"""
+	def __init__(self, logger):
+		super(LogCallback, self).__init__()
+		self.logger = logger
+		self.msg = None
+		pass
+
+	def on_epoch_end(self, epoch, log):
+		self.msg = "Epoch {}: ".format(epoch+1) + " ".join(['{} = {}'.format(k,v) for k,v in log.items()])
+	
+	def on_epoch_begin(self, epoch, log):
+		if self.msg:
+			self.logger.info(self.msg)
+	
+	def on_train_end(self, epoch, log):
+		if self.msg:
+			self.logger.info(self.msg)
+
+
 def main(
 	train_index,
 	val_index=None,
@@ -209,6 +284,8 @@ def main(
 	):
 	"""
 	"""
+	assert len(tf.config.list_physical_devices('GPU')) > 0
+	assert tf.test.is_built_with_cuda()
 	tf.summary.trace_on(graph=True, profiler=False)
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	log_dir = os.path.join(log_dir, timestamp)
@@ -240,7 +317,7 @@ def main(
 	trainer, train_args, train_meta = model.trainer(train_index, bits_per_dim)
 	validator, val_args, val_meta = model.validator(val_index, bits_per_dim) if val_index else (None, None, None)
 	tester, tester_args, test_meta = model.tester(test_index, bits_per_dim) if test_index else (None, None, None)
-	topk = FlatTopKAccuracy(topk, classes=train_meta.output_size, name='top5')
+	topk = FlatTopKAccuracy(topk, classes=train_meta.output_size, name='top{}'.format(topk))
 
 	if steps_per_epoch:
 		steps_per_epoch *= train_meta.tree_depth
@@ -270,45 +347,27 @@ def main(
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
-	tensorboard = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
-	def run_test(epoch, *args):
-		if epoch % test_freq != 0:
-			return
-		writer = tensorboard._writers['train']
-		flag_map = np.zeros((1, train_meta.tree_depth, train_meta.output_size, 1))
-		for i, sample, args in zip(range(test_steps), tester, tester_args):
-			uids = sample[0]
-			layer = args[1]
-			pred = model.predict_on_batch(uids)
-			flags = np.argmax(pred, axis=-1)
-			flag_map[:,layer, flags,:] += 1
-		flag_map /= flag_map.max()
-		with writer.as_default():
-			tf.summary.image('flag_prediction', flag_map, epoch)
-		writer.flush()
-		pass
-
-	def log(epoch, log):
-		tflog.info("Epoch {}: ".format(epoch) + " ".join(['{} = {}'.format(k,v) for k,v in log.items()]))
-	
+	tensorboard = TensorBoard(log_dir=log_dir)
 	callbacks = [
 		tensorboard,
-		tf.keras.callbacks.ModelCheckpoint(
+		ModelCheckpoint(
 			log_model,
 			save_best_only=True,
 			monitor='val_accuracy' if validator is not None else 'accuracy'
-			),
-		tf.keras.callbacks.LambdaCallback(on_epoch_end=log)
+			)
 		]
 	
 	if stop_patience >= 0:
-		callbacks.append(tf.keras.callbacks.EarlyStopping(
+		callbacks.append(EarlyStopping(
 			monitor='val_accuracy' if validator is not None else 'accuracy',
 			patience=stop_patience
 			))
 	
 	if tester is not None:
-		callbacks.append(tf.keras.callbacks.LambdaCallback(on_epoch_end=run_test))
+		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
+		callbacks.append(TestCallback(tester, tester_args, test_meta, test_freq, test_steps, writer))
+	
+	callbacks.append(LogCallback(tflog))
 
 	history = model.fit(
 		trainer.repeat(epochs),

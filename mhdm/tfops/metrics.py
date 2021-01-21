@@ -20,6 +20,4 @@ class FlatTopKAccuracy(TopKCategoricalAccuracy):
 	def update_state(self, y_true, y_pred, sample_weight=None):
 		y_true = tf.reshape(y_true, (-1, self.classes))
 		y_pred = tf.reshape(y_pred, (-1, self.classes))
-		if sample_weight is not None:
-			sample_weight = tf.reshape(sample_weight, (-1, self.classes))
-		super(FlatTopKAccuracy, self).update_state(y_true, y_pred)
+		return super(FlatTopKAccuracy, self).update_state(y_true, y_pred)
