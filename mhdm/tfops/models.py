@@ -13,6 +13,7 @@ except ModuleNotFoundError:
 	tfc = None
 
 ## Local
+from . import range_like
 from . import bitops
 from . import layers
 from .. import utils
@@ -68,14 +69,13 @@ class NbitTreeProbEncoder(Model):
 			**kwargs
 			)
 		pass
-	
-	def encoder(self, index, bits_per_dim, *args,
+
+	def set_meta(self, index, bits_per_dim,
 		permute=None,
 		offset=None,
 		scale=None,
 		xtype='float32',
 		ftype='uint8',
-		shuffle=0,
 		**kwargs
 		):
 		"""
@@ -88,12 +88,35 @@ class NbitTreeProbEncoder(Model):
 			xtype = xtype,
 			ftype = ftype,
 			dtype = self.dtype,
-			permute = permute
+			permute = permute,
+			**kwargs
 			)
-		
 		meta.input_dims = len(meta.bits_per_dim)
 		meta.word_length = sum(meta.bits_per_dim)
 		meta.tree_depth = meta.word_length // meta.dim + (meta.word_length % meta.dim != 0)
+		if isinstance(index, str) and index.endswith('.txt'):
+			meta.index = index
+			with open(index, 'r') as fid:
+				meta.num_of_files = sum(len(L) > 0 for L in fid)
+		else:
+			meta.index = [f for f in utils.ifile(index)]
+			meta.num_of_files = len(index)
+		meta.num_of_samples = meta.num_of_files * meta.tree_depth
+		self.meta = meta
+		return meta
+	
+	def encoder(self, index, bits_per_dim, *args
+		permute=None,
+		offset=None,
+		scale=None,
+		xtype='float32',
+		ftype='uint8',
+		shuffle=0,
+		**kwargs
+		):
+		"""
+		"""
+		meta = self.set_meta(index, bits_per_dim, permute, offset, scale, xtype, ftype, **kwargs)
 		n_layers = meta.tree_depth+1
 
 		def parse(filename):
@@ -124,14 +147,9 @@ class NbitTreeProbEncoder(Model):
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
-			with open(index, 'r') as fid:
-				meta.num_of_files = sum(len(L) > 0 for L in fid)
 		else:
-			index = [f for f in utils.ifile(index)]
-			meta.num_of_files = len(index)
 			encoder = tf.data.Dataset.from_tensor_slices(index)
 		
-		meta.num_of_samples = meta.num_of_files * meta.tree_depth
 		if shuffle:
 			encoder = encoder.shuffle(shuffle)
 		encoder = encoder.map(parse)
@@ -212,13 +230,26 @@ class NbitTreeProbEncoder(Model):
 		return X
 	
 	def predict_step(self, data):
+		"""
+		"""
+		if tfc is None:
+			return super(NbitTreeProbEncoder, self).predict_step(self, data), tf.constant('')
+		
 		data = data_adapter.expand_1d(data)
-		x, y, sample_weight = data_adapter.unpack_x_y_sample_weight(data)
-		y_pred = self(x, training=False)
-		self.compiled_loss(y, y_pred, sample_weight, regularization_losses=self.losses)
-		self.compiled_metrics.update_state(y, y_pred, sample_weight)
-		return y_pred, {m.name: m.result() for m in self.metrics}
-	
+		X, y, sample_weight = data_adapter.unpack_x_y_sample_weight(data)
+		i, uids, probs, flags = X
+		probs = tf.concat([probs, self(uids, training=False)], axis=1)
+		index = range_like(flags, dtype=tf.int32)
+		cdf = tfc.pmf_to_quantized_cdf(probs[0,...,1:], 16, 'cdf_coding')
+		cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
+		offset = -tf.ones_like(flags, dtype=tf.int32)
+		code = tfc.unbounded_index_range_encode(
+			flags, index, cdf, cdf_size, offset,
+			precision=16,
+			overflow_width=4
+		)
+		return probs, code
+
 	@property
 	def flag_size(self):
 		return 1<<self.dim
@@ -237,8 +268,8 @@ class NbitTreeProbEncoder(Model):
 		flags = bitops.right_shift(flags, np.arange(1<<meta.dim))
 		flags = bitops.bitwise_and(flags, 1)
 		X = tf.where(flags)
-		i = X[:,0]
-		X = X[:,1]
+		i = X[...,0]
+		X = X[...,1]
 		buffer = bitops.left_shift(buffer, meta.dim)
 		X = X + tf.gather(buffer, i)
 		return X

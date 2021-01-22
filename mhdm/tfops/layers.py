@@ -215,11 +215,11 @@ class Euclidean(Layer):
 				return True
 			
 			def body(a, i):
-				a += (inputs[:,:,i,None] - self.w[i])**2
+				a += (inputs[...,i,None] - self.w[i])**2
 				return a, i+1
 			
 			i = tf.constant(1)
-			a = (inputs[:,:,0,None] - self.w[0])**2 #b,n,k
+			a = (inputs[...,0,None] - self.w[0])**2 #b,n,k
 			a, i = tf.while_loop(cond, body,
 				loop_vars=(a, i),
 				maximum_iterations=self.dims-1,
@@ -387,7 +387,7 @@ class Transformer(Layer):
 			n = self.n(inputs)
 			m = self.m(inputs)
 			if self.embedding:
-				t = range_like(inputs[:,:,0], 0, 1)
+				t = range_like(inputs[...,0], 0, 1)
 				t = tf.expand_dims(t, axis=-1)
 				t = self.t(t) #(b, t, k)
 			else:

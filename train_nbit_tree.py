@@ -12,11 +12,6 @@ import tensorflow as tf
 from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.callbacks import Callback, TensorBoard, ModelCheckpoint, EarlyStopping
 
-try:
-	import tensorflow_compression as tfc
-except ModuleNotFoundError:
-	tfc = None
-
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
 from mhdm.tfops.metrics import FlatTopKAccuracy
@@ -208,7 +203,8 @@ class TestCallback(Callback):
 		self.writer = writer
 
 		self.probs = dict()
-		self.flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
+		self.gt_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
+		self.pred_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
 		self.compiled_metrics = None
 		pass
 
@@ -216,34 +212,39 @@ class TestCallback(Callback):
 		if epoch % self.test_freq != 0:
 			return
 		
-		self.flag_map[:] = 0
+		self.gt_flag_map[:] = 0
+		self.pred_flag_map[:] = 0
 		self.model.reset_metrics()
 
 		for i, sample, args in zip(range(self.test_steps), self.tester, self.tester_args):
 			uids, labels, weights = sample
-			layer = int(args[1].numpy())
-			probs = self.model.predict_on_batch(uids)
-			flags = np.argmax(probs, axis=-1)
-			self.flag_map[:, layer, flags, :] += 1
+			gt_flags = args[0].numpy()
+			layer = args[1].numpy()
+			if layer == 0:
+				probs = []
+				acc_flags = []
+			else:
+				acc_flags = np.concatenate(acc_flags, gt_flags)
+			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
+			probs, acc_flags, code = self.model.predict_on_batch((i, uids, probs, acc_flags))
+			pred_flags = np.argmax(probs, axis=-1)
+			self.pred_flag_map[:, layer, pred_flags, :] += 1
+			self.gt_flag_map[:, layer, gt_flags, :] += 1
 			self.probs[layer] = probs
 		
-		for metric in self.model.compiled_metrics.metrics:
-			name = 'test_' + metric.name
-			log[name] = metric.result()
+		for name, metric in metrics.items():
+			name = 'test_' + name
+			log[name] = metric
 		
 		if self.writer is not None:
 			self.flag_map /= self.flag_map.max()
 			with self.writer.as_default():
-				for metric in self.model.compiled_metrics.metrics:
-					name = 'epoch_' + metric.name
-					tf.summary.scalar(name, metric.result(), epoch)
-				tf.summary.image('flag_map', self.flag_map, epoch)
+				for name, metric in metrics.items():
+					name = 'epoch_' + name
+					tf.summary.scalar(name, metric, epoch)
+				tf.summary.image('gt_flag_map', self.gt_flag_map, epoch)
+				tf.summary.image('pred_flag_map', self.pred_flag_map, epoch)
 			self.writer.flush()
-		
-		if tfc is not None:
-			probs = np.concatenate(self.probs.values())
-			tfc.pmf_to_quantized_cdf()
-			tfc.unbounded_index_range_encode()
 		pass
 
 

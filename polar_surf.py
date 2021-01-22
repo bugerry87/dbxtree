@@ -19,9 +19,10 @@ import pykitti  # install using pip install pykitti
 from scipy.spatial import Delaunay
 
 #Local libs
-import viz
-import spatial
-from utils import *
+import mhdm.viz as viz
+import mhdm.spatial as spatial
+import mhdm.lidar as lidar
+from mhdm.utils import *
 
 
 def init_argparse(parents=[]):
@@ -92,11 +93,11 @@ def main(args):
             break
         viz.clear_figure(fig)
         
-        P = spatial.sphere_uvd(X[:,(1,0,2)])
+        P = lidar.xyz2uvd(X[:,(1,0,2)])
         P[:,(0,1)] *= P.max() / np.pi
         
         print("Plot polar...")
-        viz.vertices(P, X[:,3], fig, None)
+        viz.vertices(P, P[:,2], fig, None)
         if input():
             break
         viz.clear_figure(fig)

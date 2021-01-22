@@ -109,8 +109,8 @@ def decode(flags, pos, dim, buffer=tf.constant([0], dtype=tf.int64)):
 		flags = right_shift(flags, np.arange(1<<dim))
 		flags = bitwise_and(flags, 1)
 		x = tf.where(flags)
-		i = x[:,0]
-		x = x[:,1]
+		i = x[...,0]
+		x = x[...,1]
 		X = left_shift(buffer, dim)
 		pos += tf.size(X)
 		X = x + tf.gather(X, i)
