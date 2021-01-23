@@ -208,47 +208,42 @@ class TestCallback(Callback):
 		self.test_meta = test_meta
 		self.test_steps = test_steps if test_steps else test_meta.num_of_samples
 		self.test_freq = test_freq
+		self.when = when
 		self.writer = writer
 
 		self.codes = list()
 		self.gt_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
 		self.pred_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
 		self.compiled_metrics = None
-		self.__dict__[when] = self.run
 		pass
 
-	def run(self, *args):
-		args = args[::-1] + [0]
-		log, step = args[:2]
+	def run(self, step, log):
 		if step % self.test_freq != 0:
 			return
 		
 		bpp_sum = 0
 		bpp_min = 0
 		bpp_max = 0
-		codes = list()
-		log['codes'] = codes
 		self.gt_flag_map[:] = 0
 		self.pred_flag_map[:] = 0
 		self.model.reset_metrics()
 
-		for i, sample, args in zip(range(self.test_steps), self.tester, self.tester_args):
+		for _, sample, args in zip(range(self.test_steps), self.tester, self.tester_args):
 			uids, labels, weights = sample
 			gt_flags = args[0].numpy()
 			layer = args[1].numpy()
 			if layer == 0:
 				probs = np.zeros((0, self.test_meta.output_size), dtype=self.test_meta.dtype)
-				acc_flags = np.zeros(0, dtype=self.test_meta.ftype)
+				acc_flags = gt_flags
 			else:
 				acc_flags = np.concatenate([acc_flags, gt_flags])
 			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
-			probs, acc_flags, code = self.model.predict_on_batch((i, uids, probs, acc_flags))
+			probs, code = self.model.predict_on_batch((uids, probs, acc_flags))
+			code = np.squeeze(code)
 			pred_flags = np.argmax(probs, axis=-1)
 			self.pred_flag_map[:, layer, pred_flags, :] += 1
 			self.gt_flag_map[:, layer, gt_flags, :] += 1
-			self.probs[layer] = probs
-			if code:
-				codes.append(code)
+			if layer == self.test_meta.tree_depth-1 and code:
 				bpp = len(code) * 8 / len(gt_flags)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = min(bpp_max, bpp)
@@ -273,6 +268,14 @@ class TestCallback(Callback):
 				tf.summary.image('pred_flag_map', self.pred_flag_map, step)
 			self.writer.flush()
 		pass
+
+	def on_epoch_end(self, epoch, log):
+		if self.when == 'on_epoch_end':
+			self.run(epoch, log)
+	
+	def on_test_end(self, log):
+		if self.when == 'on_test_end':
+			self.run(0, log)
 
 
 class LogCallback(Callback):
@@ -341,9 +344,7 @@ def main(
 	tflog.setLevel(logging.DEBUG)
 	fh = logging.FileHandler(log_output)
 	tflog.addHandler(fh)
-
-	tflog.info("Main Args:")
-	tflog.info("\n".join(['\t {} = {}'.format(k,v) for k,v in params.items()]))
+	tflog.info("Main Args:\n".join(['\t {} = {}'.format(k,v) for k,v in params.items()]))
 	
 	model = NbitTreeProbEncoder(
 		dim=dim,
@@ -418,7 +419,7 @@ def main(
 	
 	if tester is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
-		method = 'on_test_end' if trainer is None else 'on_train_end'
+		method = 'on_test_end' if trainer is None else 'on_epoch_end'
 		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, method, writer)
 		callbacks.append(test_callback)
 		if range_encoder is None:
@@ -456,5 +457,5 @@ def main(
 	return history
 
 if __name__ == '__main__':
-	main_args = init_main_args().parse_known()
+	main_args = init_main_args().parse_args()
 	main(params=main_args.__dict__, **main_args.__dict__)
