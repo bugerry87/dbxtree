@@ -13,6 +13,7 @@ from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.callbacks import Callback, TensorBoard, ModelCheckpoint, EarlyStopping
 
 ## Local
+from mhdm.tfops.models import range_encoder
 from mhdm.tfops.models import NbitTreeProbEncoder
 from mhdm.tfops.metrics import FlatTopKAccuracy
 
@@ -36,8 +37,7 @@ def init_main_args(parents=[]):
 	main_args.add_argument(
 		'--train_index', '-X',
 		metavar='PATH',
-		nargs='+',
-		required=True,
+		nargs='*',
 		help='A index file to training data'
 		)
 	
@@ -157,7 +157,7 @@ def init_main_args(parents=[]):
 	main_args.add_argument(
 		'--normalize', '-n',
 		action='store_true',
-		help="Whether to normalize the transformer or not (default)"
+		help="Whether to normalize the transformer or (default) not"
 		)
 	
 	main_args.add_argument(
@@ -182,6 +182,12 @@ def init_main_args(parents=[]):
 		default=1,
 		help="verbose level (see tensorflow)"
 		)
+	
+	main_args.add_argument(
+		'--cpu',
+		action='store_true',
+		help="Whether to allow cpu or (default) force gpu execution"
+		)
 	return main_args
 
 
@@ -191,6 +197,7 @@ class TestCallback(Callback):
 	def __init__(self, tester, tester_args, test_meta,
 		test_freq=1,
 		test_steps=0,
+		when='on_epoch_end',
 		writer=None
 		):
 		"""
@@ -198,20 +205,29 @@ class TestCallback(Callback):
 		super(TestCallback, self).__init__()
 		self.tester = tester
 		self.tester_args = tester_args
+		self.test_meta = test_meta
 		self.test_steps = test_steps if test_steps else test_meta.num_of_samples
 		self.test_freq = test_freq
 		self.writer = writer
 
-		self.probs = dict()
+		self.codes = list()
 		self.gt_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
 		self.pred_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
 		self.compiled_metrics = None
+		self.__dict__[when] = self.run
 		pass
 
-	def on_epoch_end(self, epoch, log):
-		if epoch % self.test_freq != 0:
+	def run(self, *args):
+		args = args[::-1] + [0]
+		log, step = args[:2]
+		if step % self.test_freq != 0:
 			return
 		
+		bpp_sum = 0
+		bpp_min = 0
+		bpp_max = 0
+		codes = list()
+		log['codes'] = codes
 		self.gt_flag_map[:] = 0
 		self.pred_flag_map[:] = 0
 		self.model.reset_metrics()
@@ -221,16 +237,27 @@ class TestCallback(Callback):
 			gt_flags = args[0].numpy()
 			layer = args[1].numpy()
 			if layer == 0:
-				probs = []
-				acc_flags = []
+				probs = np.zeros((0, self.test_meta.output_size), dtype=self.test_meta.dtype)
+				acc_flags = np.zeros(0, dtype=self.test_meta.ftype)
 			else:
-				acc_flags = np.concatenate(acc_flags, gt_flags)
+				acc_flags = np.concatenate([acc_flags, gt_flags])
 			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
 			probs, acc_flags, code = self.model.predict_on_batch((i, uids, probs, acc_flags))
 			pred_flags = np.argmax(probs, axis=-1)
 			self.pred_flag_map[:, layer, pred_flags, :] += 1
 			self.gt_flag_map[:, layer, gt_flags, :] += 1
 			self.probs[layer] = probs
+			if code:
+				codes.append(code)
+				bpp = len(code) * 8 / len(gt_flags)
+				bpp_min = min(bpp_min, bpp)
+				bpp_max = min(bpp_max, bpp)
+				bpp_sum += bpp
+		
+		if code:
+			metrics['bpp'] = bpp_sum / self.test_steps
+			metrics['bpp_min'] = bpp_min
+			metrics['bpp_max'] = bpp_max
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name
@@ -241,9 +268,9 @@ class TestCallback(Callback):
 			with self.writer.as_default():
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
-					tf.summary.scalar(name, metric, epoch)
-				tf.summary.image('gt_flag_map', self.gt_flag_map, epoch)
-				tf.summary.image('pred_flag_map', self.pred_flag_map, epoch)
+					tf.summary.scalar(name, metric, step)
+				tf.summary.image('gt_flag_map', self.gt_flag_map, step)
+				tf.summary.image('pred_flag_map', self.pred_flag_map, step)
 			self.writer.flush()
 		pass
 
@@ -270,7 +297,7 @@ class LogCallback(Callback):
 
 
 def main(
-	train_index,
+	train_index=None,
 	val_index=None,
 	test_index=None,
 	epochs=1,
@@ -289,23 +316,26 @@ def main(
 	topk=5,
 	log_dir='logs',
 	verbose=2,
+	cpu=False,
 	name=None,
 	params={},
 	**kwargs
 	):
 	"""
 	"""
-	assert len(tf.config.list_physical_devices('GPU')) > 0
-	assert tf.test.is_built_with_cuda()
+	if not cpu:
+		assert len(tf.config.list_physical_devices('GPU')) > 0
+		assert tf.test.is_built_with_cuda()
+
 	tf.summary.trace_on(graph=True, profiler=False)
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	log_dir = os.path.join(log_dir, timestamp)
 	log_model = os.path.join(log_dir, "ckpts", "nbittree_{}".format(timestamp))
 	log_output = os.path.join(log_dir, timestamp + '.log')
 	os.makedirs(log_dir, exist_ok=True)
-	train_index = train_index[0] if len(train_index) == 1 else train_index
-	val_index = val_index[0] if len(val_index) == 1 else val_index
-	test_index = test_index[0] if len(test_index) == 1 else test_index
+	train_index = train_index[0] if train_index and len(train_index) == 1 else train_index
+	val_index = val_index[0] if val_index and len(val_index) == 1 else val_index
+	test_index = test_index[0] if test_index and len(test_index) == 1 else test_index
 
 	tflog = tf.get_logger()
 	tflog.setLevel(logging.DEBUG)
@@ -325,36 +355,48 @@ def main(
 		**kwargs
 		)
 	
-	trainer, train_args, train_meta = model.trainer(train_index, bits_per_dim)
+	trainer, train_args, train_meta = model.trainer(train_index, bits_per_dim) if train_index else (None, None, None)
 	validator, val_args, val_meta = model.validator(val_index, bits_per_dim) if val_index else (None, None, None)
 	tester, tester_args, test_meta = model.tester(test_index, bits_per_dim) if test_index else (None, None, None)
-	topk = FlatTopKAccuracy(topk, classes=train_meta.output_size, name='top{}'.format(topk))
+	master_meta = train_meta or val_meta or test_meta
 
-	if steps_per_epoch:
+	if master_meta is None:
+		msg = "Main: No index file was set!"
+		tflog.error(msg)
+		raise ValueError(msg)
+
+	if train_meta is None:
+		pass
+	elif steps_per_epoch:
 		steps_per_epoch *= train_meta.tree_depth
 		trainer = trainer.take(steps_per_epoch)
 	else:
 		steps_per_epoch = train_meta.num_of_samples
 	
-	if validation_steps:
+	if validation_steps is not None:
 		validation_steps *= val_meta.tree_depth
 		validator = validator.take(validation_steps)
 	elif val_meta is not None:
 		validation_steps = val_meta.num_of_samples
+	else:
+		validation_steps = 0
 	
-	if test_steps:
+	if test_steps is not None:
 		test_steps *= test_meta.tree_depth
 		pass
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
+	else:
+		test_steps = 0
 
+	topk = FlatTopKAccuracy(topk, classes=master_meta.output_size, name='top{}'.format(topk))
 	model.compile(
 		optimizer='adam', 
 		loss='categorical_crossentropy',
 		metrics=['accuracy', topk],
 		sample_weight_mode='temporal'
 		)
-	model.build(tf.TensorShape([1, None, train_meta.word_length]))
+	model.build(tf.TensorShape([1, None, master_meta.word_length]))
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
@@ -376,22 +418,43 @@ def main(
 	
 	if tester is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
-		callbacks.append(TestCallback(tester, tester_args, test_meta, test_freq, test_steps, writer))
+		method = 'on_test_end' if trainer is None else 'on_train_end'
+		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, method, writer)
+		callbacks.append(test_callback)
+		if range_encoder is None:
+			tflog.warning(
+				"Model has no range_encoder and will only return raw probabilities." \
+				"Please install 'tensorflow-compression' to obtain encoded bit-streams."
+				)
 	
 	callbacks.append(LogCallback(tflog))
 
-	history = model.fit(
-		trainer.repeat(epochs),
-		epochs=epochs,
-		steps_per_epoch=steps_per_epoch,
-		callbacks=callbacks,
-		validation_freq=validation_freq,
-		validation_data=validator.repeat(epochs),
-		validation_steps=validation_steps,
-		verbose=verbose
-		)
-	return 0
+	if trainer is not None:
+		history = model.fit(
+			trainer.repeat(epochs),
+			epochs=epochs,
+			steps_per_epoch=steps_per_epoch,
+			callbacks=callbacks,
+			validation_freq=validation_freq,
+			validation_data=validator.repeat(epochs),
+			validation_steps=validation_steps,
+			verbose=verbose
+			)
+	elif validator is not None:
+		history = model.evaluate(
+			validator,
+			steps=validation_steps,
+			callbacks=callbacks,
+			verbose=verbose,
+			return_dict=True
+			)
+	elif tester is not None:
+		history = dict()
+		test_callback.run(history)
+	else:
+		raise RuntimeError("Unexpected Error!")
+	return history
 
 if __name__ == '__main__':
-	main_args = init_main_args().parse_known_args()[0]
+	main_args = init_main_args().parse_known()
 	main(params=main_args.__dict__, **main_args.__dict__)

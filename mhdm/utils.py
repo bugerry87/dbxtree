@@ -106,3 +106,6 @@ class Prototype():
 		for k, v in kwargs.items():
 			self.__dict__[k] = v
 	pass
+
+	def __bool__(self):
+		return True

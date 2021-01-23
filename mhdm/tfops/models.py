@@ -8,9 +8,9 @@ from tensorflow.keras.layers import Activation, Concatenate, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
-	import tensorflow_compression as tfc
+	import tensorflow_compression as range_encoder
 except ModuleNotFoundError:
-	tfc = None
+	range_encoder = None
 
 ## Local
 from . import range_like
@@ -105,7 +105,7 @@ class NbitTreeProbEncoder(Model):
 		self.meta = meta
 		return meta
 	
-	def encoder(self, index, bits_per_dim, *args
+	def encoder(self, index, bits_per_dim, *args,
 		permute=None,
 		offset=None,
 		scale=None,
@@ -232,7 +232,7 @@ class NbitTreeProbEncoder(Model):
 	def predict_step(self, data):
 		"""
 		"""
-		if tfc is None:
+		if range_encoder is None:
 			return super(NbitTreeProbEncoder, self).predict_step(self, data), tf.constant('')
 		
 		data = data_adapter.expand_1d(data)
@@ -240,10 +240,10 @@ class NbitTreeProbEncoder(Model):
 		i, uids, probs, flags = X
 		probs = tf.concat([probs, self(uids, training=False)], axis=1)
 		index = range_like(flags, dtype=tf.int32)
-		cdf = tfc.pmf_to_quantized_cdf(probs[0,...,1:], 16, 'cdf_coding')
+		cdf = range_encoder.pmf_to_quantized_cdf(probs[0,...,1:], 16, 'cdf_coding')
 		cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
 		offset = -tf.ones_like(flags, dtype=tf.int32)
-		code = tfc.unbounded_index_range_encode(
+		code = range_encoder.unbounded_index_range_encode(
 			flags, index, cdf, cdf_size, offset,
 			precision=16,
 			overflow_width=4
