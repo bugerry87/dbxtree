@@ -338,7 +338,7 @@ def main(
 	tflog.setLevel(logging.DEBUG)
 	fh = logging.FileHandler(log_output)
 	tflog.addHandler(fh)
-	tflog.info("Main Args:\n".join(['\t {} = {}'.format(k,v) for k,v in params.items()]))
+	tflog.info("Main Args:\n" + "\n".join(['\t {} = {}'.format(k,v) for k,v in params.items()]))
 	
 	model = NbitTreeProbEncoder(
 		dim=dim,
