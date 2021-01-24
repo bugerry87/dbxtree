@@ -235,20 +235,30 @@ class NbitTreeProbEncoder(Model):
 		if range_encoder is None:
 			return super(NbitTreeProbEncoder, self).predict_step(self, data), tf.constant([''])
 		
+		def encode():
+			_probs = tf.roll(probs, -1, axis=-1) + 0.001
+			cdf = tf.math.cumsum(_probs, axis=-1, exclusive=True)
+			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 
+			cdf = tf.cast(cdf, tf.int32)
+			index = range_like(flags, dtype=tf.int32)
+			cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
+			offset = -tf.ones_like(flags, dtype=tf.int32)
+			code = range_encoder.unbounded_index_range_encode(
+				flags, index, cdf, cdf_size, offset,
+				precision=16,
+				overflow_width=4
+				)
+			return tf.expand_dims(code, axis=0)
+		
+		def ignore():
+			return tf.constant([''])
+		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		uids, probs, flags = X
+		pred, uids, probs, flags = X
 		flags = tf.cast(flags, tf.int32)
 		probs = tf.concat([probs, self(uids, training=False)[0]], axis=0)
-		cdf = range_encoder.pmf_to_quantized_cdf(probs[...,1:], 16, 'cdf_coding')
-		index = range_like(flags, dtype=tf.int32)
-		cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
-		offset = -tf.ones_like(flags, dtype=tf.int32)
-		code = range_encoder.unbounded_index_range_encode(
-			flags, index, cdf, cdf_size, offset,
-			precision=16,
-			overflow_width=4
-		)
-		return probs, np.array(code)
+		code = tf.cond(pred, encode, ignore)
+		return probs, code
 
 	@property
 	def flag_size(self):
