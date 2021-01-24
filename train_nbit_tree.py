@@ -251,7 +251,7 @@ class TestCallback(LambdaCallback):
 				bpp_sum += bpp
 		
 		if code:
-			metrics['bpp'] = bpp_sum / self.test_steps
+			metrics['bpp'] = bpp_sum / self.test_meta.num_of_files
 			metrics['bpp_min'] = bpp_min
 			metrics['bpp_max'] = bpp_max
 		
@@ -363,12 +363,14 @@ def main(
 	if train_meta is None:
 		pass
 	elif steps_per_epoch:
+		train_meta.num_of_files = steps_per_epoch
 		steps_per_epoch *= train_meta.tree_depth
 		trainer = trainer.take(steps_per_epoch)
 	else:
 		steps_per_epoch = train_meta.num_of_samples
 	
 	if validation_steps is not None:
+		val_meta.num_of_files = validation_steps
 		validation_steps *= val_meta.tree_depth
 		validator = validator.take(validation_steps)
 	elif val_meta is not None:
@@ -377,6 +379,7 @@ def main(
 		validation_steps = 0
 	
 	if test_steps is not None:
+		test_meta.num_of_files = test_steps
 		test_steps *= test_meta.tree_depth
 		pass
 	elif test_meta is not None:
