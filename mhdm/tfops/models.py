@@ -54,6 +54,7 @@ class NbitTreeProbEncoder(Model):
 
 		self.convolutions = [Conv1D(
 			self.kernel_size, 3,
+			kernel_initializer='random_normal',
 			activation='relu',
 			padding='same',
 			name='conv1d_{}'.format(i),
