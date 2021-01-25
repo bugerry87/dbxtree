@@ -1,10 +1,9 @@
 
-
 ## Installed
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Activation, Concatenate, Conv1D
+from tensorflow.keras.layers import Activation, Concatenate, Conv1D, Softmax
 from tensorflow.python.keras.engine import data_adapter
 
 try:
@@ -63,8 +62,7 @@ class NbitTreeProbEncoder(Model):
 
 		self.output_layer = layers.Dense(
 			self.output_size,
-			activation='relu',
-			#inverted=True,
+			activation='elu',
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -226,7 +224,7 @@ class NbitTreeProbEncoder(Model):
 		for conv in self.convolutions:
 			X = conv(X)
 		
-		X = self.output_layer(X)
+		X = self.output_layer(X) + 1
 		X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
 		return X
 	
@@ -234,7 +232,14 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		if range_encoder is None:
-			return super(NbitTreeProbEncoder, self).predict_step(self, data), tf.constant([''])
+			tf.get_logger().warn(
+				"Model has no range_encoder and will only return raw probabilities and an empty string. " \
+				"Please install 'tensorflow-compression' to obtain encoded bit-streams."
+				)
+			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
+			pred, uids, probs, flags = X
+			probs = self(uids, training=False)[0]
+			return probs, tf.constant([''])
 		
 		def encode():
 			_probs = tf.roll(probs, -1, axis=-1) + 0.001

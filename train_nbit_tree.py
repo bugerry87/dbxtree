@@ -13,7 +13,6 @@ from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
 
 ## Local
-from mhdm.tfops.models import range_encoder
 from mhdm.tfops.models import NbitTreeProbEncoder
 from mhdm.tfops.metrics import FlatTopKAccuracy
 from mhdm.tfops.callbacks import TestCallback, LogCallback
@@ -64,6 +63,13 @@ def init_main_args(parents=[]):
 		type=int,
 		default=1,
 		help='Num of epochs'
+		)
+	
+	main_args.add_argument(
+		'--monitor',
+		metavar='STR',
+		default=None,
+		help='Choose the metric to be monitored for checkpoints and early stopping (default=automatic)'
 		)
 	
 	main_args.add_argument(
@@ -162,6 +168,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--smoothing', '-s',
+		metavar='FLOAT',
+		type=float,
+		default=0,
+		help="Set a value from [0..1) for label smoothing (default=0)"
+		)
+	
+	main_args.add_argument(
 		'--topk',
 		metavar='INT',
 		type=int,
@@ -197,6 +211,7 @@ def main(
 	val_index=None,
 	test_index=None,
 	epochs=1,
+	monitor=None,
 	stop_patience=-1,
 	steps_per_epoch=0,
 	validation_freq=1,
@@ -209,12 +224,13 @@ def main(
 	transformers=4,
 	convolutions=2,
 	normalize=False,
+	smoothing=0,
 	topk=5,
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
 	name=None,
-	params={},
+	log_params={},
 	**kwargs
 	):
 	"""
@@ -237,7 +253,9 @@ def main(
 	tflog.setLevel(logging.DEBUG)
 	fh = logging.FileHandler(log_output)
 	tflog.addHandler(fh)
-	tflog.info("Main Args:\n" + "\n".join(['\t {} = {}'.format(k,v) for k,v in params.items()]))
+	tflog.info("Main Args:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in log_params.items()]))
+	if kwargs:
+		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
 	model = NbitTreeProbEncoder(
 		dim=dim,
@@ -249,7 +267,7 @@ def main(
 		**kwargs
 		)
 	
-	trainer, train_args, train_meta = model.trainer(train_index, bits_per_dim) if train_index else (None, None, None)
+	trainer, train_args, train_meta = model.trainer(train_index, bits_per_dim, smoothing=smoothing) if train_index else (None, None, None)
 	validator, val_args, val_meta = model.validator(val_index, bits_per_dim) if val_index else (None, None, None)
 	tester, tester_args, test_meta = model.tester(test_index, bits_per_dim) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
@@ -268,7 +286,7 @@ def main(
 	else:
 		steps_per_epoch = train_meta.num_of_samples
 	
-	if validation_steps is not None:
+	if validation_steps:
 		val_meta.num_of_files = validation_steps
 		validation_steps *= val_meta.tree_depth
 		validator = validator.take(validation_steps)
@@ -277,7 +295,7 @@ def main(
 	else:
 		validation_steps = 0
 	
-	if test_steps is not None:
+	if test_steps:
 		test_meta.num_of_files = test_steps
 		test_steps *= test_meta.tree_depth
 		pass
@@ -297,19 +315,20 @@ def main(
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
+	monitor = monitor or 'val_accuracy' if validator else 'accuracy'
 	tensorboard = TensorBoard(log_dir=log_dir)
 	callbacks = [
 		tensorboard,
 		ModelCheckpoint(
 			log_model,
 			save_best_only=True,
-			monitor='val_accuracy' if validator is not None else 'accuracy'
+			monitor=monitor
 			)
 		]
 	
 	if stop_patience >= 0:
 		callbacks.append(EarlyStopping(
-			monitor='val_accuracy' if validator is not None else 'accuracy',
+			monitor=monitor,
 			patience=stop_patience
 			))
 	
@@ -318,11 +337,6 @@ def main(
 		method = 'on_test_end' if trainer is None else 'on_epoch_end'
 		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, method, writer)
 		callbacks.append(test_callback)
-		if range_encoder is None:
-			tflog.warning(
-				"Model has no range_encoder and will only return raw probabilities." \
-				"Please install 'tensorflow-compression' to obtain encoded bit-streams."
-				)
 	
 	callbacks.append(LogCallback(tflog))
 
@@ -355,4 +369,4 @@ def main(
 
 if __name__ == '__main__':
 	main_args = init_main_args().parse_args()
-	main(params=main_args.__dict__, **main_args.__dict__)
+	main(log_params=main_args.__dict__, **main_args.__dict__)
