@@ -62,7 +62,7 @@ class NbitTreeProbEncoder(Model):
 
 		self.output_layer = layers.Dense(
 			self.output_size,
-			activation='elu',
+			#activation='elu',
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -224,8 +224,9 @@ class NbitTreeProbEncoder(Model):
 		for conv in self.convolutions:
 			X = conv(X)
 		
-		X = self.output_layer(X) + 1
-		X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
+		X = self.output_layer(X)
+		X = tf.math.exp(-X**2)
+		#X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
 		return X
 	
 	def predict_step(self, data):
