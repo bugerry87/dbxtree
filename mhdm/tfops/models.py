@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Concatenate, Conv1D, Softmax
+from tensorflow.keras.layers import Concatenate, Conv1D, LayerNormalization
 from tensorflow.python.keras.engine import data_adapter
 
 try:
@@ -49,15 +49,12 @@ class NbitTreeProbEncoder(Model):
 		if transformers > 1:
 			self.concatenate = Concatenate()
 		if transformers > 0:
-			self.spatial = layers.Euclidean(
-				self.kernel_size,
-				inverted=True
-			)
+			self.normalize = LayerNormalization()
 
 		self.convolutions = [Conv1D(
 			self.kernel_size, 3,
 			kernel_initializer='random_normal',
-			activation='relu',
+			activation='tanh',
 			padding='same',
 			name='conv1d_{}'.format(i),
 			**kwargs
@@ -65,7 +62,6 @@ class NbitTreeProbEncoder(Model):
 
 		self.output_layer = layers.Dense(
 			self.output_size,
-			#activation='elu',
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -221,7 +217,7 @@ class NbitTreeProbEncoder(Model):
 				X = self.concatenate(X)
 			else:
 				X = X[0]
-			X = self.spatial(X)
+			X = self.normalize(X)
 
 		for conv in self.convolutions:
 			X = conv(X)
