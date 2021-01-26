@@ -10,7 +10,7 @@ import logging
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.metrics import CategoricalAccuracy
-from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping
+from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, TerminateOnNaN
 
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
@@ -373,7 +373,8 @@ def main(
 			log_model,
 			save_best_only=True,
 			monitor=monitor
-			)
+			),
+		TerminateOnNaN()
 		]
 	
 	if stop_patience >= 0:
