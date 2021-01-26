@@ -89,6 +89,12 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--fix_subset',
+		action='store_true',
+		help='Whether the subset should be fixed to the first few samples or (default) not'
+		)
+	
+	main_args.add_argument(
 		'--validation_freq',
 		metavar='INT',
 		type=int,
@@ -250,6 +256,7 @@ def main(
 	monitor=None,
 	stop_patience=-1,
 	steps_per_epoch=0,
+	fix_subset=False,
 	validation_freq=1,
 	validation_steps=0,
 	test_freq=1,
@@ -323,14 +330,16 @@ def main(
 	elif steps_per_epoch:
 		train_meta.num_of_files = steps_per_epoch
 		steps_per_epoch *= train_meta.tree_depth
-		trainer = trainer.take(steps_per_epoch)
+		if fix_subset:
+			trainer = trainer.take(steps_per_epoch)
 	else:
 		steps_per_epoch = train_meta.num_of_samples
 	
 	if validation_steps:
 		val_meta.num_of_files = validation_steps
 		validation_steps *= val_meta.tree_depth
-		validator = validator.take(validation_steps)
+		if fix_subset:
+			validator = validator.take(validation_steps)
 	elif val_meta is not None:
 		validation_steps = val_meta.num_of_samples
 	else:
@@ -376,25 +385,25 @@ def main(
 	if tester is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		method = 'on_test_end' if trainer is None else 'on_epoch_end'
-		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, method, writer)
+		test_callback = TestCallback(tester.repeat(), tester_args, test_meta, test_freq, test_steps, method, writer)
 		callbacks.append(test_callback)
 	
 	callbacks.append(LogCallback(tflog))
 
 	if trainer is not None:
 		history = model.fit(
-			trainer.repeat(epochs),
+			trainer.repeat(),
 			epochs=epochs,
 			steps_per_epoch=steps_per_epoch,
 			callbacks=callbacks,
 			validation_freq=validation_freq,
-			validation_data=validator.repeat(epochs),
+			validation_data=validator.repeat(),
 			validation_steps=validation_steps,
 			verbose=verbose
 			)
 	elif validator is not None:
 		history = model.evaluate(
-			validator,
+			validator.repeat(),
 			steps=validation_steps,
 			callbacks=callbacks,
 			verbose=verbose,

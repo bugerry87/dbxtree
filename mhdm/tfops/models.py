@@ -237,7 +237,7 @@ class NbitTreeProbEncoder(Model):
 		
 		X = self.output_layer(X)
 		X = X**2
-		X = tf.math.exp(-X / tf.math.reduce_max(X+1, axis=-1, keepdims=True))
+		X = tf.math.exp(-X) #/ tf.math.reduce_max(X+1, axis=-1, keepdims=True))
 		#X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
 		return X
 	
