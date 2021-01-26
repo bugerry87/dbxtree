@@ -37,7 +37,7 @@ class NbitTreeProbEncoder(Model):
 		self.dim = dim
 		self.kernel_size = k if k else self.output_size
 		
-		self.transformers = [layers.Transformer(
+		self.transformers = [layers.InnerTransformer(
 			units=self.kernel_size,
 			normalize=normalize,
 			layer_types=layers.Dense,

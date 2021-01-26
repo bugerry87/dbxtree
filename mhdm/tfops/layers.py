@@ -322,28 +322,26 @@ class Mahalanobis(Layer):
 		return self.config
 
 
-class Transformer(Layer):
+class InnerTransformer(Layer):
 	"""
 	"""
 	def __init__(self,
 		*args,
 		axes=(1,2),
 		normalize=False,
-		layer_types=(Dense, Dense, Euclidean),
+		layer_types=Dense,
 		layer_n_args={},
 		layer_m_args={},
 		layer_t_args={},
-		embedding=False,
-		name='Transformer',
+		name='InnerTransformer',
 		**kwargs
 		):
 		"""
 		"""
-		super(Transformer, self).__init__(name=name, **arg_filter(**kwargs))
+		super(InnerTransformer, self).__init__(name=name, **arg_filter(**kwargs))
 		self.permute = Permute(axes[::-1], **arg_filter(**kwargs))
 		self.dot = Dot(axes, normalize, **arg_filter(**kwargs))
 		self.layer_types = layer_types
-		self.embedding = embedding
 		
 		if layer_types is not None:
 			try:
@@ -362,7 +360,6 @@ class Transformer(Layer):
 			layer_n_args = layer_n_args,
 			layer_m_args = layer_m_args,
 			layer_t_args = layer_t_args,
-			embedding = embedding,
 			name = name,
 			**kwargs
 			)
@@ -372,10 +369,7 @@ class Transformer(Layer):
 		if self.layer_types is not None:
 			self.n.build(input_shape)
 			self.m.build(input_shape)
-			if self.embedding:
-				self.t.build((*input_shape[:2],1))
-			else:
-				self.t.build(input_shape)
+			self.t.build(input_shape)
 		return self
 	
 	def call(self, inputs):
@@ -386,16 +380,87 @@ class Transformer(Layer):
 		else:
 			n = self.n(inputs)
 			m = self.m(inputs)
-			if self.embedding:
-				t = range_like(inputs[...,0], 0, 1)
-				t = tf.expand_dims(t, axis=-1)
-				t = self.t(t) #(b, t, k)
-			else:
-				t = self.t(inputs)
+			t = self.t(inputs)
 		m = self.permute(m) #(b, k, m)
 		t = self.permute(t) #(b, k, t)
 		T = self.dot([n,m]) #(b, k, k) Transformer!
 		return self.dot([t,T]) #(b, t, k) Positional query
+	
+	def count_params(self):
+		if self.layer_types is None:
+			return 0
+		else:
+			return self.n.count_params() \
+				+ self.m.count_params() \
+				+ self.t.count_params()
+	
+	def get_config(self):
+		return self.config
+
+
+class OuterTransformer(Layer):
+	"""
+	"""
+	def __init__(self,
+		*args,
+		axes=(1,2),
+		layer_types=Dense,
+		layer_n_args={},
+		layer_m_args={},
+		layer_t_args={},
+		name='OuterTransformer',
+		**kwargs
+		):
+		"""
+		"""
+		super(OuterTransformer, self).__init__(name=name, **arg_filter(**kwargs))
+		self.permute = Permute(axes[::-1], **arg_filter(**kwargs))
+		self.layer_types = layer_types
+		
+		if layer_types is not None:
+			try:
+				self.n = layer_types[0](*args, name='N', **layer_n_args, **kwargs)
+				self.m = layer_types[1](*args, name='M', **layer_m_args, **kwargs)
+				self.t = layer_types[2](*args, name='T', **layer_t_args, **kwargs)
+			except TypeError:
+				self.n = layer_types(*args, name='N', **layer_n_args, **kwargs)
+				self.m = layer_types(*args, name='M', **layer_m_args, **kwargs)
+				self.t = layer_types(*args, name='T', **layer_t_args, **kwargs)
+		
+		self.config = dict(
+			args = args,
+			layer_types = layer_types,
+			layer_n_args = layer_n_args,
+			layer_m_args = layer_m_args,
+			layer_t_args = layer_t_args,
+			name = name,
+			**kwargs
+			)
+		pass
+
+	def build(self, input_shape):
+		if self.layer_types is not None:
+			self.n.build(input_shape)
+			self.m.build(input_shape)
+			self.t.build(input_shape)
+		return self
+	
+	def call(self, inputs):
+		"""
+		"""
+		if self.layer_types is None:
+			n, m, t = inputs
+		else:
+			n = self.n(inputs)
+			m = self.m(inputs)
+			t = self.t(inputs)
+		i = range_like(inputs[0,:,0], dtype=tf.int32)
+		m = self.permute(m) #(b, k, m)
+		t = self.permute(t) #(b, k, t)
+		
+		def dot(i):
+			return n[0,i] @ m[0] @ t[0]
+		return tf.map_fn(dot, i)
 	
 	def count_params(self):
 		if self.layer_types is None:
