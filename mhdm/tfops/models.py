@@ -134,6 +134,8 @@ class NbitTreeProbEncoder(Model):
 				absolute = 'absolute' in meta.sort_bits
 				reverse = 'reverse' in meta.sort_bits
 				X0, permute = bitops.sort(X0, bits=meta.word_length, absolute=absolute, reverse=reverse)
+			else:
+				permute = tf.constant([], dtype=X0.dtype)
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers, dtype=X0.dtype)
