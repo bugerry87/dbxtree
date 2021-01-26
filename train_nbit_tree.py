@@ -129,7 +129,7 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--bits_per_dim', '-b',
+		'--bits_per_dim', '-B',
 		metavar='INT',
 		nargs='+',
 		type=int,
@@ -138,11 +138,39 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--kernel', '-k',
+		'--sort_bits',
+		metavar='STR',
+		nargs='*',
+		choices=['absolute', 'reverse'],
+		default=None,
+		help='Sort the bits according their probabilities (default=None)'
+		)
+
+	main_args.add_argument(
+		'--permute',
 		metavar='INT',
+		nargs='+',
 		type=int,
-		default=16,
-		help='kernel size'
+		default=None,
+		help='Fixed bit permutation (overrides sort_bits!)'
+		)
+	
+	main_args.add_argument(
+		'--offset',
+		metavar='INT',
+		nargs='+',
+		type=float,
+		default=None,
+		help='Bit permutation'
+		)
+	
+	main_args.add_argument(
+		'--scale',
+		metavar='INT',
+		nargs='+',
+		type=float,
+		default=None,
+		help='Bit permutation'
 		)
 	
 	main_args.add_argument(
@@ -162,13 +190,21 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--kernel', '-k',
+		metavar='INT',
+		type=int,
+		default=16,
+		help='kernel size'
+		)
+	
+	main_args.add_argument(
 		'--normalize', '-n',
 		action='store_true',
 		help="Whether to normalize the transformer or (default) not"
 		)
 	
 	main_args.add_argument(
-		'--smoothing', '-s',
+		'--smoothing',
 		metavar='FLOAT',
 		type=float,
 		default=0,
@@ -220,6 +256,10 @@ def main(
 	test_steps=0,
 	dim=2,
 	bits_per_dim=[16,16,16,0],
+	sort_bits=None,
+	permute=None,
+	offset=None,
+	scale=None,
 	kernel=16,
 	transformers=4,
 	convolutions=2,
@@ -267,9 +307,10 @@ def main(
 		**kwargs
 		)
 	
-	trainer, train_args, train_meta = model.trainer(train_index, bits_per_dim, smoothing=smoothing) if train_index else (None, None, None)
-	validator, val_args, val_meta = model.validator(val_index, bits_per_dim) if val_index else (None, None, None)
-	tester, tester_args, test_meta = model.tester(test_index, bits_per_dim) if test_index else (None, None, None)
+	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
+	trainer, train_args, train_meta = model.trainer(train_index, **quant_args, smoothing=smoothing) if train_index else (None, None, None)
+	validator, val_args, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
+	tester, tester_args, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:

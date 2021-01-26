@@ -54,7 +54,7 @@ class NbitTreeProbEncoder(Model):
 		self.convolutions = [Conv1D(
 			self.kernel_size, 3,
 			kernel_initializer='random_normal',
-			activation='tanh',
+			#activation='relu',
 			padding='same',
 			name='conv1d_{}'.format(i),
 			**kwargs
@@ -69,6 +69,7 @@ class NbitTreeProbEncoder(Model):
 		pass
 
 	def set_meta(self, index, bits_per_dim,
+		sort_bits=None,
 		permute=None,
 		offset=None,
 		scale=None,
@@ -86,7 +87,10 @@ class NbitTreeProbEncoder(Model):
 			xtype = xtype,
 			ftype = ftype,
 			dtype = self.dtype,
+			sort_bits = sort_bits,
 			permute = permute,
+			offset=offset,
+			scale=scale,
 			**kwargs
 			)
 		meta.input_dims = len(meta.bits_per_dim)
@@ -104,6 +108,7 @@ class NbitTreeProbEncoder(Model):
 		return meta
 	
 	def encoder(self, index, bits_per_dim, *args,
+		sort_bits=None,
 		permute=None,
 		offset=None,
 		scale=None,
@@ -114,22 +119,28 @@ class NbitTreeProbEncoder(Model):
 		):
 		"""
 		"""
-		meta = self.set_meta(index, bits_per_dim, permute, offset, scale, xtype, ftype, **kwargs)
+		meta = self.set_meta(index, bits_per_dim, sort_bits, permute, offset, scale, xtype, ftype, **kwargs)
 		n_layers = meta.tree_depth+1
 
 		def parse(filename):
 			X0 = tf.io.read_file(filename)
 			X0 = tf.io.decode_raw(X0, xtype)
 			X0 = tf.reshape(X0, (-1, meta.input_dims))
-			X0, _offset, _scale = bitops.serialize(X0, meta.bits_per_dim, offset, scale)
-			if permute is not None:
-				X0 = bitops.permute(X0, meta.permute, meta.word_length)
+			X0, offset, scale = bitops.serialize(X0, meta.bits_per_dim, meta.offset, meta.scale)
+			if meta.permute is not None:
+				permute = tf.cast(meta.permute, dtype=X0.dtype)
+				X0 = bitops.permute(X0, permute, meta.word_length)
+			elif meta.sort_bits is not None:
+				absolute = 'absolute' in meta.sort_bits
+				reverse = 'reverse' in meta.sort_bits
+				X0, permute = bitops.sort(X0, bits=meta.word_length, absolute=absolute, reverse=reverse)
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers, dtype=X0.dtype)
-			_offset = tf.repeat(_offset[:,None], n_layers, axis=0)
-			_scale = tf.repeat(_scale[:,None], n_layers, axis=0)
-			return X0, X1, layer, _offset, _scale
+			permute = tf.repeat(permute[None,...], n_layers, axis=0)
+			offset = tf.repeat(offset[None,...], n_layers, axis=0)
+			scale = tf.repeat(scale[None,...], n_layers, axis=0)
+			return X0, X1, layer, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0, out_idx=X0.dtype)
@@ -291,12 +302,12 @@ class NbitTreeProbEncoder(Model):
 		return X
 	
 	@staticmethod
-	def finalize(X, meta, offset=None, scale=None):
+	def finalize(X, meta, permute=None, offset=None, scale=None):
 		"""
 		"""
 		X = tf.reshape(X, (-1,1))
-		if meta.permute is not None:
-			X = bitops.permute(X, meta.permute, meta.word_length)
+		if permute is not None:
+			X = bitops.permute(X, permute, meta.word_length)
 		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
 		return X
 		
