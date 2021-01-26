@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Concatenate, Conv1D, LayerNormalization
+from tensorflow.keras.layers import Concatenate, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
@@ -48,23 +48,22 @@ class NbitTreeProbEncoder(Model):
 			) for i in range(transformers)]
 		if transformers > 1:
 			self.concatenate = Concatenate()
-		if transformers > 0:
-			self.norm_trans = LayerNormalization(name='norm')
+		#if transformers > 0:
+			#self.norm_trans = LayerNormalization(name='norm')
 
 		self.convolutions = [Conv1D(
 			self.kernel_size, 3,
-			kernel_initializer='random_normal',
-			kernel_regularizer='l2',
+			#kernel_initializer='random_normal',
+			#kernel_regularizer='l2',
 			activation='relu',
 			padding='same',
 			name='conv1d_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
-		if convolutions:
-			self.norm_conv = LayerNormalization(name='norm')
 
 		self.output_layer = layers.Dense(
 			self.output_size,
+			activation='softmax',
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -227,22 +226,22 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
+		X = tf.concat([X>0, X<0], axis=-1)
+		X = tf.cast(X, self.dtype)
 		if len(self.transformers) > 0:
 			X = [t(X) for t in self.transformers]
 			if len(self.transformers) > 1:
 				X = self.concatenate(X)
 			else:
 				X = X[0]
-			X = self.norm_trans(X)
+			#X = self.norm_trans(X)
 		
 		for conv in self.convolutions:
 			X = conv(X)
-		if self.convolutions:
-			X = self.norm_conv(X)
 		
 		X = self.output_layer(X)
-		X = X**2
-		X = tf.math.exp(-X / tf.math.reduce_max(X+1, axis=-1, keepdims=True))
+		#X = X**2
+		#X = tf.math.exp(-X / tf.math.reduce_max(X+1, axis=-1, keepdims=True))
 		#X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
 		return X
 	
@@ -260,7 +259,7 @@ class NbitTreeProbEncoder(Model):
 			return probs, tf.constant([''])
 		
 		def encode():
-			_probs = tf.roll(probs, -1, axis=-1) + 0.0625 / 1.0625 
+			_probs = tf.roll(probs, -1, axis=-1) / tf.math.reduce_max(probs + 0.0625, axis=-1, keepdims=True) + 0.0625
 			cdf = tf.math.cumsum(_probs, axis=-1, exclusive=True)
 			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 
 			cdf = tf.cast(cdf, tf.int32)
