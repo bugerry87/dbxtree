@@ -357,7 +357,7 @@ def main(
 	topk = FlatTopKAccuracy(topk, classes=master_meta.output_size, name='top{}'.format(topk))
 	model.compile(
 		optimizer='adam', 
-		loss='categorical_crossentropy',
+		loss='mse',
 		metrics=['accuracy', topk],
 		sample_weight_mode='temporal'
 		)

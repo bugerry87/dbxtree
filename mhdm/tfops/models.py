@@ -38,10 +38,11 @@ class NbitTreeProbEncoder(Model):
 		self.kernel_size = k if k else self.output_size
 		
 		self.transformers = [layers.InnerTransformer(
-			units=self.kernel_size,
+			#units=self.kernel_size,
 			normalize=normalize,
-			layer_types=layers.Dense,
-			kernel_initializer='random_normal',
+			layer_types=layers.Activation,
+			activation='tanh',
+			#kernel_initializer='random_normal',
 			dtype=dtype,
 			name='transformer_{}'.format(i),
 			**kwargs
@@ -53,9 +54,9 @@ class NbitTreeProbEncoder(Model):
 
 		self.convolutions = [Conv1D(
 			self.kernel_size, 3,
-			#kernel_initializer='random_normal',
+			kernel_initializer='random_normal',
 			#kernel_regularizer='l2',
-			activation='relu',
+			#activation='relu',
 			padding='same',
 			name='conv1d_{}'.format(i),
 			**kwargs
@@ -63,7 +64,8 @@ class NbitTreeProbEncoder(Model):
 
 		self.output_layer = layers.Dense(
 			self.output_size,
-			activation='softmax',
+			kernel_initializer='random_normal',
+			#activation='softplus',
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -173,7 +175,7 @@ class NbitTreeProbEncoder(Model):
 	
 	def trainer(self, *args,
 		encoder=None,
-		relax=10000,
+		relax=100000,
 		smoothing=0,
 		**kwargs
 		):
@@ -188,7 +190,7 @@ class NbitTreeProbEncoder(Model):
 			labels = tf.one_hot(flags, self.output_size)
 			if smoothing:
 				labels *= 1.0 - smoothing
-				labels += smoothing / 2
+				labels += smoothing
 			return uids, labels, weights
 		
 		def filter_args(uids, *args):
@@ -226,8 +228,8 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
-		X = tf.concat([X>0, X<0], axis=-1)
-		X = tf.cast(X, self.dtype)
+		#X = tf.concat([X>0, X<0], axis=-1)
+		#X = tf.cast(X, self.dtype)
 		if len(self.transformers) > 0:
 			X = [t(X) for t in self.transformers]
 			if len(self.transformers) > 1:
@@ -241,7 +243,7 @@ class NbitTreeProbEncoder(Model):
 		
 		X = self.output_layer(X)
 		#X = X**2
-		#X = tf.math.exp(-X / tf.math.reduce_max(X+1, axis=-1, keepdims=True))
+		#X = tf.math.exp(-X) # / tf.math.reduce_max(X+1, axis=-1, keepdims=True))
 		#X /= tf.math.reduce_max(X, axis=-1, keepdims=True)
 		return X
 	
