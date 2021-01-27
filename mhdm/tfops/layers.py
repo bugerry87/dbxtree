@@ -345,12 +345,12 @@ class InnerTransformer(Layer):
 		
 		if layer_types is not None:
 			try:
-				self.n = layer_types[0](*args, name='N', **layer_n_args, **kwargs)
-				self.m = layer_types[1](*args, name='M', **layer_m_args, **kwargs)
+				self.n = layer_types[0](*args, name='A', **layer_n_args, **kwargs)
+				self.m = layer_types[1](*args, name='B', **layer_m_args, **kwargs)
 				self.t = layer_types[2](*args, name='T', **layer_t_args, **kwargs)
 			except TypeError:
-				self.n = layer_types(*args, name='N', **layer_n_args, **kwargs)
-				self.m = layer_types(*args, name='M', **layer_m_args, **kwargs)
+				self.n = layer_types(*args, name='A', **layer_n_args, **kwargs)
+				self.m = layer_types(*args, name='B', **layer_m_args, **kwargs)
 				self.t = layer_types(*args, name='T', **layer_t_args, **kwargs)
 		
 		self.config = dict(
@@ -403,10 +403,7 @@ class OuterTransformer(Layer):
 	"""
 	def __init__(self,
 		*args,
-		axes=(1,2),
-		layer_types=Dense,
-		layer_n_args={},
-		layer_m_args={},
+		layer_type=Dense,
 		layer_t_args={},
 		name='OuterTransformer',
 		**kwargs
@@ -414,24 +411,13 @@ class OuterTransformer(Layer):
 		"""
 		"""
 		super(OuterTransformer, self).__init__(name=name, **arg_filter(**kwargs))
-		self.permute = Permute(axes[::-1], **arg_filter(**kwargs))
-		self.layer_types = layer_types
-		
-		if layer_types is not None:
-			try:
-				self.n = layer_types[0](*args, name='N', **layer_n_args, **kwargs)
-				self.m = layer_types[1](*args, name='M', **layer_m_args, **kwargs)
-				self.t = layer_types[2](*args, name='T', **layer_t_args, **kwargs)
-			except TypeError:
-				self.n = layer_types(*args, name='N', **layer_n_args, **kwargs)
-				self.m = layer_types(*args, name='M', **layer_m_args, **kwargs)
-				self.t = layer_types(*args, name='T', **layer_t_args, **kwargs)
+		self.layer_type = layer_type
+		if layer_type:
+			self.t = self.layer_type(*args, name='T', **layer_t_args, **kwargs)
 		
 		self.config = dict(
 			args = args,
-			layer_types = layer_types,
-			layer_n_args = layer_n_args,
-			layer_m_args = layer_m_args,
+			layer_type = layer_type,
 			layer_t_args = layer_t_args,
 			name = name,
 			**kwargs
@@ -439,36 +425,51 @@ class OuterTransformer(Layer):
 		pass
 
 	def build(self, input_shape):
-		if self.layer_types is not None:
-			self.n.build(input_shape)
-			self.m.build(input_shape)
+		if self.layer_type:
 			self.t.build(input_shape)
 		return self
 	
 	def call(self, inputs):
 		"""
 		"""
-		if self.layer_types is None:
-			n, m, t = inputs
-		else:
-			n = self.n(inputs)
-			m = self.m(inputs)
+		if self.layer_type:
+			n = inputs
+			m = inputs
 			t = self.t(inputs)
-		i = range_like(inputs[0,:,0], dtype=tf.int32)
-		m = self.permute(m) #(b, k, m)
-		t = self.permute(t) #(b, k, t)
+		else:
+			n, m, t = inputs
+			
+		m = tf.transpose(m, [0,2,1])
+		i = tf.constant([0], dtype=tf.int32)
+		X = tf.zeros_like(t)
+		X = tf.transpose(X, [1,0,2])
+		bound = tf.ones_like(X[:,0,0], dtype=tf.int32)
+		bound = tf.math.reduce_sum(bound)
+
+		def cond(i, X):
+			return i[0] < bound
 		
-		def dot(i):
-			return n[0,i] @ m[0] @ t[0]
-		return tf.map_fn(dot, i)
+		def body(i, X):
+			x = n[:,i[0]]@m@t
+			X = tf.tensor_scatter_nd_update(X, [i], x)
+			return i+1, X
+
+		i, X = tf.while_loop(cond, body,
+			loop_vars=(i, X),
+			parallel_iterations=64,
+			name='dot_loop'
+			)
+		X = tf.transpose(X, [1,0,2])
+		return tf.reshape(X, t.shape)
 	
 	def count_params(self):
-		if self.layer_types is None:
-			return 0
-		else:
+		if self.layer_types:
 			return self.n.count_params() \
 				+ self.m.count_params() \
 				+ self.t.count_params()
+		else:
+			return 0
+			
 	
 	def get_config(self):
 		return self.config
