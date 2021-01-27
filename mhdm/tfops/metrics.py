@@ -29,7 +29,7 @@ def regularized_crossentropy(y_true, y_pred, from_logits=False, label_smoothing=
 	y_pred = tf.convert_to_tensor(y_pred)
 	y_true = tf.cast(y_true, y_pred.dtype)
 	cc = categorical_crossentropy(y_true, y_pred, from_logits, label_smoothing)
-	reg = y_pred - y_true
+	reg = tf.math.reduce_max(y_pred, axis=-1) - tf.math.reduce_max(y_true, axis=-1)
 	reg = 1 - tf.math.exp(-reg**2)
 	return cc + reg
 
