@@ -189,7 +189,7 @@ class NbitTreeProbEncoder(Model):
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
 			labels = tf.one_hot(flags, self.output_size)
 			if smoothing:
-				labels *= 1.0 - smoothing
+				labels *= smoothing
 				labels += smoothing
 			return uids, labels, weights
 		
@@ -261,7 +261,9 @@ class NbitTreeProbEncoder(Model):
 			return probs, tf.constant([''])
 		
 		def encode():
-			_probs = tf.roll(probs, -1, axis=-1) / tf.math.reduce_max(probs + 0.0625, axis=-1, keepdims=True) + 0.0625
+			_probs = probs - tf.math.reduce_min(probs, axis=-1, keepdims=True)
+			_probs /= tf.math.reduce_max(probs, axis=-1, keepdims=True)
+			_probs = tf.roll(_probs, -1, axis=-1) + 0.5
 			cdf = tf.math.cumsum(_probs, axis=-1, exclusive=True)
 			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 
 			cdf = tf.cast(cdf, tf.int32)

@@ -386,7 +386,7 @@ def main(
 	if tester is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		method = 'on_test_end' if trainer is None else 'on_epoch_end'
-		test_callback = TestCallback(tester.repeat(), tester_args, test_meta, test_freq, test_steps, method, writer)
+		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, method, writer)
 		callbacks.append(test_callback)
 	
 	callbacks.append(LogCallback(tflog))
@@ -398,13 +398,13 @@ def main(
 			steps_per_epoch=steps_per_epoch,
 			callbacks=callbacks,
 			validation_freq=validation_freq,
-			validation_data=validator.repeat(),
+			validation_data=validator,
 			validation_steps=validation_steps,
 			verbose=verbose
 			)
 	elif validator is not None:
 		history = model.evaluate(
-			validator.repeat(),
+			validator,
 			steps=validation_steps,
 			callbacks=callbacks,
 			verbose=verbose,
