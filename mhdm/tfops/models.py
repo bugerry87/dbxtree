@@ -189,8 +189,8 @@ class NbitTreeProbEncoder(Model):
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
 			labels = tf.one_hot(flags, self.output_size)
 			if smoothing:
-				labels *= smoothing
-				labels += smoothing
+				labels *= 1.0 - smoothing
+				labels += smoothing / 2
 			return uids, labels, weights
 		
 		def filter_args(uids, *args):

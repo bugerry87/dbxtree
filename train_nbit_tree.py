@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
-from mhdm.tfops.metrics import FlatTopKAccuracy
+from mhdm.tfops.metrics import FlatTopKAccuracy, RegularizedCrossentropy
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
 
@@ -353,11 +353,12 @@ def main(
 		test_steps = test_meta.num_of_samples
 	else:
 		test_steps = 0
-
+	
+	loss = RegularizedCrossentropy()
 	topk = FlatTopKAccuracy(topk, classes=master_meta.output_size, name='top{}'.format(topk))
 	model.compile(
 		optimizer='adam', 
-		loss='mse',
+		loss=loss,
 		metrics=['accuracy', topk],
 		sample_weight_mode='temporal'
 		)
