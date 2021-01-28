@@ -58,7 +58,7 @@ class NbitTreeProbEncoder(Model):
 			#kernel_regularizer='l2',
 			activation='relu',
 			padding='same',
-			name='conv1d_{}'.format(i),
+			name='conv_down_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
 		
@@ -68,7 +68,7 @@ class NbitTreeProbEncoder(Model):
 			#kernel_regularizer='l2',
 			activation='relu',
 			padding='same',
-			name='conv1d_{}'.format(i),
+			name='conv_up_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
 
@@ -278,9 +278,10 @@ class NbitTreeProbEncoder(Model):
 		
 		def encode():
 			#_probs = probs - tf.math.reduce_min(probs, axis=-1, keepdims=True)
-			_probs /= tf.math.reduce_max(probs, axis=-1, keepdims=True)
-			_probs = tf.roll(_probs, -1, axis=-1) + 0.0625
-			cdf = tf.math.cumsum(_probs, axis=-1, exclusive=True)
+			P = probs
+			P /= tf.math.reduce_max(P, axis=-1, keepdims=True)
+			P = tf.roll(P, -1, axis=-1) + 0.0625
+			cdf = tf.math.cumsum(P, axis=-1, exclusive=True)
 			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 
 			cdf = tf.cast(cdf, tf.int32)
 			index = range_like(flags, dtype=tf.int32)
