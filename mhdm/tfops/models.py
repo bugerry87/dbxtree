@@ -257,6 +257,7 @@ class NbitTreeProbEncoder(Model):
 			Z = tf.concat((X,Z), axis=-1)
 			X = conv(Z)
 		
+		X = tf.concat((X,stack[0]), axis=-1)
 		X = self.output_layer(X)
 		#X = X**2
 		#X = tf.math.exp(-X) # / tf.math.reduce_max(X+1, axis=-1, keepdims=True))
@@ -290,7 +291,7 @@ class NbitTreeProbEncoder(Model):
 			code = range_encoder.unbounded_index_range_encode(
 				flags, index, cdf, cdf_size, offset,
 				precision=16,
-				overflow_width=4
+				overflow_width=1
 				)
 			return tf.expand_dims(code, axis=0)
 		
