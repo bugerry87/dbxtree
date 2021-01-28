@@ -52,7 +52,17 @@ class NbitTreeProbEncoder(Model):
 		#if transformers > 0:
 			#self.norm_trans = LayerNormalization(name='norm')
 
-		self.convolutions += [Conv1D(
+		self.conv_down = [Conv1D(
+			self.kernel_size, 3,
+			#kernel_initializer='random_normal',
+			#kernel_regularizer='l2',
+			activation='relu',
+			padding='same',
+			name='conv1d_{}'.format(i),
+			**kwargs
+			) for i in range(convolutions)]
+		
+		self.conv_up = [Conv1D(
 			self.kernel_size, 3,
 			#kernel_initializer='random_normal',
 			#kernel_regularizer='l2',
@@ -238,8 +248,14 @@ class NbitTreeProbEncoder(Model):
 				X = X[0]
 			#X = self.norm_trans(X)
 		
-		for conv in self.convolutions:
+		stack = [X]
+		for conv in self.conv_down:
 			X = conv(X)
+			stack.append(X)
+		
+		for conv, Z in zip(self.conv_up, stack):
+			Z = tf.concat((X,Z), axis=-1)
+			X = conv(Z)
 		
 		X = self.output_layer(X)
 		#X = X**2
