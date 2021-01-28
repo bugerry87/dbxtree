@@ -52,11 +52,11 @@ class NbitTreeProbEncoder(Model):
 		#if transformers > 0:
 			#self.norm_trans = LayerNormalization(name='norm')
 
-		self.convolutions = [Conv1D(
+		self.convolutions += [Conv1D(
 			self.kernel_size, 3,
-			kernel_initializer='random_normal',
+			#kernel_initializer='random_normal',
 			#kernel_regularizer='l2',
-			#activation='relu',
+			activation='relu',
 			padding='same',
 			name='conv1d_{}'.format(i),
 			**kwargs
@@ -64,8 +64,8 @@ class NbitTreeProbEncoder(Model):
 
 		self.output_layer = layers.Dense(
 			self.output_size,
-			kernel_initializer='random_normal',
-			#activation='softplus',
+			#kernel_initializer='random_normal',
+			activation='softplus',
 			dtype=dtype,
 			name='output_layer',
 			**kwargs
@@ -228,8 +228,8 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
-		#X = tf.concat([X>0, X<0], axis=-1)
-		#X = tf.cast(X, self.dtype)
+		X = tf.concat([X>0, X<0], axis=-1)
+		X = tf.cast(X, self.dtype)
 		if len(self.transformers) > 0:
 			X = [t(X) for t in self.transformers]
 			if len(self.transformers) > 1:
@@ -261,8 +261,8 @@ class NbitTreeProbEncoder(Model):
 			return probs, tf.constant([''])
 		
 		def encode():
-			_probs = probs - tf.math.reduce_min(probs, axis=-1, keepdims=True)
-			_probs /= tf.math.reduce_max(_probs, axis=-1, keepdims=True)
+			#_probs = probs - tf.math.reduce_min(probs, axis=-1, keepdims=True)
+			_probs /= tf.math.reduce_max(probs, axis=-1, keepdims=True)
 			_probs = tf.roll(_probs, -1, axis=-1) + 0.0625
 			cdf = tf.math.cumsum(_probs, axis=-1, exclusive=True)
 			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 

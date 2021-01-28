@@ -1,7 +1,7 @@
 
 ## Installed
 import tensorflow as tf
-from tensorflow.keras.losses import categorical_crossentropy
+from tensorflow.keras.losses import categorical_crossentropy, MSLE
 from tensorflow.keras.metrics import TopKCategoricalAccuracy
 from tensorflow.python.keras.losses import LossFunctionWrapper
 
@@ -26,12 +26,13 @@ class FlatTopKAccuracy(TopKCategoricalAccuracy):
 
 
 def regularized_crossentropy(y_true, y_pred, from_logits=False, label_smoothing=0):
-	y_pred = tf.convert_to_tensor(y_pred)
-	y_true = tf.cast(y_true, y_pred.dtype)
+	#y_pred = tf.convert_to_tensor(y_pred)
+	#y_true = tf.cast(y_true, y_pred.dtype)
 	cc = categorical_crossentropy(y_true, y_pred, from_logits, label_smoothing)
-	reg = tf.math.reduce_max(y_pred) - tf.math.reduce_max(y_true)
-	reg = 1 - tf.math.exp(-reg**2)
-	return cc + reg
+	msle = MSLE(y_pred, y_true)
+	#reg = tf.math.reduce_max(y_pred) - tf.math.reduce_max(y_true)
+	#reg = 1 - tf.math.exp(-reg**2)
+	return cc + msle * 1.e-8
 
 
 class RegularizedCrossentropy(LossFunctionWrapper):

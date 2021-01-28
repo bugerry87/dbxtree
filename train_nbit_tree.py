@@ -315,7 +315,7 @@ def main(
 		)
 	
 	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
-	trainer, train_args, train_meta = model.trainer(train_index, **quant_args, smoothing=smoothing) if train_index else (None, None, None)
+	trainer, train_args, train_meta = model.trainer(train_index, **quant_args) if train_index else (None, None, None)
 	validator, val_args, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
 	tester, tester_args, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
@@ -354,7 +354,7 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCrossentropy()
+	loss = RegularizedCrossentropy(label_smoothing=smoothing)
 	topk = FlatTopKAccuracy(topk, classes=master_meta.output_size, name='top{}'.format(topk))
 	model.compile(
 		optimizer='adam', 
