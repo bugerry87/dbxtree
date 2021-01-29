@@ -189,18 +189,24 @@ class NbitTreeProbEncoder(Model):
 		encoder=None,
 		relax=100000,
 		smoothing=0,
+		mask=None,
 		**kwargs
 		):
 		"""
 		"""
 		def filter_labels(uids, flags, layer, *args):
-			mask = tf.range(uids.shape[-1]) <= tf.cast(layer * self.dim, tf.int32)
-			uids = uids * 2 - tf.cast(mask, tf.float32)
+			m = tf.range(uids.shape[-1]) <= tf.cast(layer * self.dim, tf.int32)
+			uids = uids * 2 - tf.cast(m, tf.float32)
 			weights = tf.size(flags)
 			weights = tf.cast(weights, tf.float32)
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
 			labels = tf.one_hot(flags, self.output_size)
-			if smoothing:
+			if mask is not None and smoothing:
+				layer_flags = tf.reduce_sum(labels, axis=0, keepdims=True)
+				layer_flags /= tf.reduce_max(layer_flags)
+				mask.scatter_nd_add(layer[..., None, None], layer_flags)
+				labels += mask[layer] * smoothing / tf.reduce_max(mask)
+			elif smoothing:
 				labels *= 1.0 - smoothing
 				labels += smoothing / 2
 			return uids, labels, weights
@@ -277,10 +283,9 @@ class NbitTreeProbEncoder(Model):
 			return probs, tf.constant([''])
 		
 		def encode():
-			#_probs = probs - tf.math.reduce_min(probs, axis=-1, keepdims=True)
 			P = probs
-			P /= tf.math.reduce_max(P, axis=-1, keepdims=True)
-			P = tf.roll(P, -1, axis=-1) + 0.0625
+			#P /= tf.math.reduce_max(P, axis=-1, keepdims=True)
+			P = tf.roll(P, -1, axis=-1)
 			cdf = tf.math.cumsum(P, axis=-1, exclusive=True)
 			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 
 			cdf = tf.cast(cdf, tf.int32)
