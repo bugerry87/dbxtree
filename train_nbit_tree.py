@@ -196,6 +196,12 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--unet', '-U',
+		action='store_true',
+		help="Whether build a UNet or (default) not"
+		)
+	
+	main_args.add_argument(
 		'--kernel', '-k',
 		metavar='INT',
 		type=int,
@@ -206,7 +212,7 @@ def init_main_args(parents=[]):
 	main_args.add_argument(
 		'--normalize', '-n',
 		action='store_true',
-		help="Whether to normalize the transformer or (default) not"
+		help="Whether to perform normalizations or (default) not"
 		)
 	
 	main_args.add_argument(
@@ -270,6 +276,7 @@ def main(
 	kernel=16,
 	transformers=4,
 	convolutions=2,
+	unet=False,
 	normalize=False,
 	smoothing=0,
 	topk=5,
@@ -309,6 +316,7 @@ def main(
 		k=kernel,
 		transformers=transformers,
 		convolutions=convolutions,
+		unet=unet,
 		normalize=normalize,
 		name=name,
 		**kwargs
@@ -348,7 +356,10 @@ def main(
 	if test_steps:
 		test_meta.num_of_files = test_steps
 		test_steps *= test_meta.tree_depth
-		pass
+		if fix_subset:
+			tester = tester.take(test_steps)
+		else:
+			tester = iter(tester.repeat())
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
 	else:

@@ -53,7 +53,7 @@ class TestCallback(LambdaCallback):
 			else:
 				acc_flags = np.concatenate([acc_flags, gt_flags])
 			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
-			probs, code = self.model.predict_on_batch((encode, labels, probs, acc_flags))
+			probs, code = self.model.predict_on_batch((encode, uids, probs, acc_flags))
 			code = code[0]
 			pred_flags = np.argmax(probs[-len(gt_flags):], axis=-1)
 			self.pred_flag_map[:, layer, pred_flags, :] += 1
