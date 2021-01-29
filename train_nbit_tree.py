@@ -358,8 +358,8 @@ def main(
 		test_steps *= test_meta.tree_depth
 		if fix_subset:
 			tester = tester.take(test_steps)
-		else:
-			tester = iter(tester.repeat())
+		#else:
+		#	tester = iter(tester.repeat())
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
 	else:
