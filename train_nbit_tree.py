@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
-from mhdm.tfops.metrics import FlatTopKAccuracy, RegularizedCrossentropy
+from mhdm.tfops.metrics import FlatTopKAccuracy, RegularizedCosine
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
 
@@ -366,7 +366,7 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCrossentropy() #label_smoothing=smoothing)
+	loss = RegularizedCosine()
 	topk = FlatTopKAccuracy(topk, classes=master_meta.output_size, name='top{}'.format(topk))
 	model.compile(
 		optimizer='adam', 
