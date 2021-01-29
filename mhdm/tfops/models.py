@@ -284,8 +284,8 @@ class NbitTreeProbEncoder(Model):
 		
 		def encode():
 			P = probs
-			#P /= tf.math.reduce_max(P, axis=-1, keepdims=True)
-			P = tf.roll(P, -1, axis=-1)
+			P /= tf.math.reduce_max(P, axis=-1, keepdims=True)
+			P = tf.roll(P, -1, axis=-1) + 0.5**6
 			cdf = tf.math.cumsum(P, axis=-1, exclusive=True)
 			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 
 			cdf = tf.cast(cdf, tf.int32)
