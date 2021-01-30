@@ -206,7 +206,7 @@ class NbitTreeProbEncoder(Model):
 				layer_flags /= tf.reduce_max(layer_flags)
 				#mask.scatter_nd_add(layer[..., None, None], layer_flags)
 				#labels += mask[layer] * smoothing / tf.reduce_max(mask)
-				labels = layer_flags * smoothing
+				labels += layer_flags * smoothing
 			elif smoothing:
 				labels *= 1.0 - smoothing
 				labels += smoothing / 2
