@@ -204,8 +204,9 @@ class NbitTreeProbEncoder(Model):
 			if mask is not None and smoothing:
 				layer_flags = tf.reduce_sum(labels, axis=0, keepdims=True)
 				layer_flags /= tf.reduce_max(layer_flags)
-				mask.scatter_nd_add(layer[..., None, None], layer_flags)
-				labels += mask[layer] * smoothing / tf.reduce_max(mask)
+				#mask.scatter_nd_add(layer[..., None, None], layer_flags)
+				#labels += mask[layer] * smoothing / tf.reduce_max(mask)
+				labels = layer_flags * smoothing
 			elif smoothing:
 				labels *= 1.0 - smoothing
 				labels += smoothing / 2
@@ -267,6 +268,8 @@ class NbitTreeProbEncoder(Model):
 			X = tf.concat((X,stack[0]), axis=-1)
 		
 		X = self.output_layer(X)
+		m = tf.reduce_sum(X, axis=-2, keepdims=True)
+		X += m / tf.reduce_max(m)
 		return X
 	
 	def predict_step(self, data):

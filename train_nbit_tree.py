@@ -322,9 +322,9 @@ def main(
 		**kwargs
 		)
 	
-	mask = tf.Variable(tf.zeros([24, 16]), name='flag_mask')
+	#mask = tf.Variable(tf.zeros([24, 16]), name='flag_mask')
 	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
-	trainer, train_args, train_meta = model.trainer(train_index, smoothing=smoothing, mask=mask, **quant_args) if train_index else (None, None, None)
+	trainer, train_args, train_meta = model.trainer(train_index, smoothing=smoothing, mask=True, **quant_args) if train_index else (None, None, None)
 	validator, val_args, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
 	tester, tester_args, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
