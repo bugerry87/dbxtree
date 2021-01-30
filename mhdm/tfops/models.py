@@ -202,7 +202,7 @@ class NbitTreeProbEncoder(Model):
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
 			labels = tf.one_hot(flags, self.output_size)
 			if mask is not None and smoothing:
-				layer_flags = tf.reduce_sum(labels, axis=0, keepdims=True)
+				layer_flags = tf.reduce_sum(labels, axis=-2, keepdims=True)
 				layer_flags /= tf.reduce_max(layer_flags)
 				#mask.scatter_nd_add(layer[..., None, None], layer_flags)
 				#labels += mask[layer] * smoothing / tf.reduce_max(mask)
