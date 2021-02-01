@@ -330,8 +330,8 @@ class InnerTransformer(Layer):
 		axes=(1,2),
 		normalize=False,
 		layer_types=Dense,
-		layer_n_args={},
-		layer_m_args={},
+		layer_A_args={},
+		layer_M_args={},
 		layer_t_args={},
 		name='InnerTransformer',
 		**kwargs
@@ -345,20 +345,20 @@ class InnerTransformer(Layer):
 		
 		if layer_types is not None:
 			try:
-				self.n = layer_types[0](*args, name='A', **layer_n_args, **kwargs)
-				self.m = layer_types[1](*args, name='B', **layer_m_args, **kwargs)
-				self.t = layer_types[2](*args, name='T', **layer_t_args, **kwargs)
+				self.A = layer_types[0](*args, name='A', **layer_A_args, **kwargs)
+				self.B = layer_types[1](*args, name='B', **layer_B_args, **kwargs)
+				self.t = layer_types[2](*args, name='t', **layer_t_args, **kwargs)
 			except TypeError:
-				self.n = layer_types(*args, name='A', **layer_n_args, **kwargs)
-				self.m = layer_types(*args, name='B', **layer_m_args, **kwargs)
-				self.t = layer_types(*args, name='T', **layer_t_args, **kwargs)
+				self.A = layer_types(*args, name='A', **layer_A_args, **kwargs)
+				self.B = layer_types(*args, name='B', **layer_B_args, **kwargs)
+				self.t = layer_types(*args, name='t', **layer_t_args, **kwargs)
 		
 		self.config = dict(
 			args = args,
 			normalize = normalize,
 			layer_types = layer_types,
-			layer_n_args = layer_n_args,
-			layer_m_args = layer_m_args,
+			layer_A_args = layer_A_args,
+			layer_B_args = layer_B_args,
 			layer_t_args = layer_t_args,
 			name = name,
 			**kwargs
@@ -367,8 +367,8 @@ class InnerTransformer(Layer):
 
 	def build(self, input_shape):
 		if self.layer_types is not None:
-			self.n.build(input_shape)
-			self.m.build(input_shape)
+			self.A.build(input_shape)
+			self.B.build(input_shape)
 			self.t.build(input_shape)
 		return self
 	
@@ -376,22 +376,22 @@ class InnerTransformer(Layer):
 		"""
 		"""
 		if self.layer_types is None:
-			n, m, t = inputs
+			A, B, t = inputs
 		else:
-			n = self.n(inputs)
-			m = self.m(inputs)
+			A = self.n(inputs)
+			M = self.m(inputs)
 			t = self.t(inputs)
-		m = self.permute(m) #(b, k, m)
+		B = self.permute(B) #(b, k, B)
 		t = self.permute(t) #(b, k, t)
-		T = self.dot([n,m]) #(b, k, k) Transformer!
+		T = self.dot([A,B]) #(b, k, k) Transformer!
 		return self.dot([t,T]) #(b, t, k) Positional query
 	
 	def count_params(self):
 		if self.layer_types is None:
 			return 0
 		else:
-			return self.n.count_params() \
-				+ self.m.count_params() \
+			return self.A.count_params() \
+				+ self.B.count_params() \
 				+ self.t.count_params()
 	
 	def get_config(self):
@@ -433,15 +433,15 @@ class OuterTransformer(Layer):
 		"""
 		"""
 		if self.layer_type:
-			n = inputs
-			m = inputs
+			A = inputs
+			B = inputs
 			t = self.t(inputs)
 		else:
-			n, m, t = inputs
+			A, B, t = inputs
 			
-		m = tf.transpose(m, [0,2,1])
+		B = tf.transpose(B, [0,2,1])
 		i = tf.constant([0], dtype=tf.int32)
-		X = tf.zeros_like(t)
+		X = tf.zeros_like(A)
 		X = tf.transpose(X, [1,0,2])
 		bound = tf.ones_like(X[:,0,0], dtype=tf.int32)
 		bound = tf.math.reduce_sum(bound)
@@ -450,7 +450,7 @@ class OuterTransformer(Layer):
 			return i[0] < bound
 		
 		def body(i, X):
-			x = n[:,i[0]]@m@t
+			x = A[:,i[0]]@B@t
 			X = tf.tensor_scatter_nd_update(X, [i], x)
 			return i+1, X
 
@@ -460,16 +460,13 @@ class OuterTransformer(Layer):
 			name='dot_loop'
 			)
 		X = tf.transpose(X, [1,0,2])
-		return tf.reshape(X, t.shape)
+		return X
 	
 	def count_params(self):
-		if self.layer_types:
-			return self.n.count_params() \
-				+ self.m.count_params() \
-				+ self.t.count_params()
+		if self.layer_type:
+			return self.t.count_params()
 		else:
-			return 0
-			
+			return 0		
 	
 	def get_config(self):
 		return self.config

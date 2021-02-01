@@ -7,13 +7,16 @@ from tensorflow.python.keras.losses import LossFunctionWrapper
 
 
 def regularized_crossentropy(y_true, y_pred, from_logits=False, label_smoothing=0, msle_smoothing=1.0):
+	"""
+	"""
 	cc = categorical_crossentropy(y_true, y_pred, from_logits, label_smoothing)
 	msle = MSLE(y_pred, y_true)
 	return cc + msle * msle_smoothing
 
 
-
 def regularized_cosine(y_true, y_pred, msle_smoothing=1.0):
+	"""
+	"""
 	cs = cosine_similarity(y_true, y_pred)
 	msle = MSLE(y_pred, y_true)
 	return cs + msle * msle_smoothing + 1.0

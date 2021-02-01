@@ -39,11 +39,11 @@ class NbitTreeProbEncoder(Model):
 		self.kernel_size = k if k else self.output_size
 		
 		self.transformers = [layers.InnerTransformer(
-			#units=self.kernel_size,
+			units=self.kernel_size,
 			normalize=normalize,
-			layer_types=layers.Activation,
+			layer_types=layers.Danse,
 			activation='tanh',
-			#kernel_initializer='random_normal',
+			kernel_initializer='random_normal',
 			dtype=dtype,
 			name='transformer_{}'.format(i),
 			**kwargs
@@ -52,9 +52,7 @@ class NbitTreeProbEncoder(Model):
 			self.concatenate = Concatenate()
 
 		self.conv_down = [Conv1D(
-			self.kernel_size, 3,
-			#kernel_initializer='random_normal',
-			#kernel_regularizer='l2',
+			self.kernel_size, 15, 15,
 			activation='relu',
 			padding='same',
 			name='conv_down_{}'.format(i),
@@ -63,9 +61,7 @@ class NbitTreeProbEncoder(Model):
 		
 		if unet:
 			self.conv_up = [Conv1D(
-				self.kernel_size, 3,
-				#kernel_initializer='random_normal',
-				#kernel_regularizer='l2',
+				self.kernel_size, 3, 1,
 				activation='relu',
 				padding='same',
 				name='conv_up_{}'.format(i),
@@ -73,10 +69,17 @@ class NbitTreeProbEncoder(Model):
 				) for i in range(convolutions)]
 		else:
 			self.conv_up = None
+			self.ABt = [layers.Dense(
+				self.kernel_size,
+				activation='relu',
+				dtype=dtype,
+				name=n,
+				**kwargs
+				) for n in 'ABt']
+			self.transformer = layers.OuterTransformer(layer_type=None)
 
 		self.output_layer = layers.Dense(
 			self.output_size,
-			#kernel_initializer='random_normal',
 			activation='softplus',
 			dtype=dtype,
 			name='output_layer',
@@ -266,6 +269,9 @@ class NbitTreeProbEncoder(Model):
 				Z = tf.concat((X,Z), axis=-1)
 				X = conv(Z)
 			X = tf.concat((X,stack[0]), axis=-1)
+		else:
+			ABt = [ABt(x) for ABt, x in zip(self.ABt, [stack[0], X, X])]
+			X = self.transformer(ABt)
 		
 		X = self.output_layer(X)
 		m = tf.reduce_sum(X, axis=-2, keepdims=True)
