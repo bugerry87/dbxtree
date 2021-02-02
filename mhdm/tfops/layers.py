@@ -438,20 +438,20 @@ class OuterTransformer(Layer):
 			t = self.t(inputs)
 		else:
 			A, B, t = inputs
-			
-		B = tf.transpose(B, [0,2,1])
+		
 		i = tf.constant([0], dtype=tf.int32)
-		X = tf.zeros_like(A)
-		X = tf.transpose(X, [1,0,2])
-		bound = tf.ones_like(X[:,0,0], dtype=tf.int32)
+		X = tf.zeros_like(B)
+		B = tf.transpose(B, [0,2,1])
+		#X = tf.transpose(X, [1,0,2])
+		bound = tf.ones_like(A[0,:,0], dtype=tf.int32)
 		bound = tf.math.reduce_sum(bound)
 
 		def cond(i, X):
 			return i[0] < bound
 		
 		def body(i, X):
-			x = A[:,i[0]]@B@t
-			X = tf.tensor_scatter_nd_update(X, [i], x)
+			x = A[:,i[0]]@B
+			X += tf.transpose(x, [0,2,1])@t[:,i[0]]
 			return i+1, X
 
 		i, X = tf.while_loop(cond, body,
@@ -459,7 +459,6 @@ class OuterTransformer(Layer):
 			parallel_iterations=64,
 			name='dot_loop'
 			)
-		X = tf.transpose(X, [1,0,2])
 		return X
 	
 	def count_params(self):
