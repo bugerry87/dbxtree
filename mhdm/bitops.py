@@ -233,6 +233,7 @@ class BitBuffer():
 			self.fid.close()
 		if reset:
 			self.reset()
+		pass
 	
 	def open(self, filename, mode='rb', reset=True):
 		"""
@@ -253,7 +254,7 @@ class BitBuffer():
 			self.size = path.getsize(self.name)
 		else:
 			self.size = 0
-		return self
+		pass
 	
 	def write(self, bits, shift, soft_flush=False):
 		"""
@@ -273,6 +274,7 @@ class BitBuffer():
 		self.buffer |= int(bits) & mask
 		if soft_flush:
 			self.flush()
+		pass
 	
 	def read(self, bits):
 		"""
