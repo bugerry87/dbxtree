@@ -120,7 +120,6 @@ class BitBuffer():
 	"""
 	Buffers bitwise to a file or memory.
 	"""
-
 	def __init__(self,
 		filename=None,
 		mode='rb',

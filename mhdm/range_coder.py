@@ -7,13 +7,14 @@ import numpy as np
 from . import bitobs
 
 
-class RangeCoder():
+class RangeEncoder():
 	"""
 	"""
 	def __init__(self, filename=None, precision=64):
 		self.precision = int(precision)
 		self.range = self.inner_range
 		self.low = 0
+		self.underflow = 0
 		self.output = bitops.BitBuffer(filename, 'wb')
 		pass
 
@@ -52,11 +53,14 @@ class RangeCoder():
 			self.reset()
 		pass
 
-	def emit(self):
-		raise NotImplementedError()
+	def _shift(self):
+		bit = self.low & self.half_range > 0
+		self.output.write(bit, 1)
+		while self.underflow:
+			self.output.write(bit^1, 1)
 
-	def underflow(self):
-		raise NotImplementedError()
+	def _underflow(self):
+		self.underflow += 1
 	
 	def update(self, start, size, total):
 		self.range //= int(total)
@@ -65,15 +69,17 @@ class RangeCoder():
 		self.high = self.low + self.range
 
 		while self.low ^ self.high & self.half_range == 0:
-			self.emit()
-			self.low = (self.low<<1) & self.inner_range
+			self._shift()
+			self.low = self.low<<1 & self.inner_range
 			self.range <<= 1
 			self.high = self.low + self.range
 		
 		while self.low & ~self.high & self.min_range != 0:
-			self.underflow()
-			self.low = (self.low<<1) ^ self.half_range
-
+			self._underflow()
+			self.low = self.low<<1 ^ self.half_range
+			self.high = (self.high ^ self.half_range) << 1 | self.half_range | 1
+			self.range = self.high - self.low
+		pass
 
 	def update_cdf(self, symbol, cdf=None):
 		if cdf is None:
@@ -85,3 +91,29 @@ class RangeCoder():
 			size = cdf[symbol+1]
 			total = cdf[-1]
 		self.update(start, size, total)
+
+
+class RangeDecoder(RangeEncoder):
+	"""
+	"""
+	def __init__(self, input_stream, output_file=None, precision=64):
+		super(RangeDecoder, self).__init__(output_file, precision)
+		if isinstance(input_stream, str):
+			self.input = bitobs.BitBuffer(input_stream, 'rb')
+		elif isinstance(input_stream, bytes):
+			self.input = bitobs.BitBuffer()
+			self.input.buffer = b'\xff' + input_stream
+		else:
+			raise ValueError("Arg 'input_stream' must be either a filename (str) or bytes.")
+		
+		self.window = self.input.read(precision)
+		pass
+
+	def _shift(self):
+		self.window = self.window<<1 & self.inner_range | self.input.read(1)
+
+	def _underflow(self):
+		pass
+
+	def update_cdf(self, cdf):
+		pass
