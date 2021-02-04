@@ -22,6 +22,12 @@ class RangeCoder():
 	def __bool__(self):
 		return True
 	
+	def _shift(self):
+		raise NotImplementedError()
+
+	def _underflow(self):
+		raise NotImplementedError()
+	
 	@property
 	def total_range(self):
 		return 1 << self.precision
@@ -41,27 +47,20 @@ class RangeCoder():
 	def reset(self):
 		self.high = self.inner_range
 		self.low = 0
-		self.underflow = 0
 		self.range = self.high - self.low + 1
 		self.output.reset()
 	
-	def open(self, filename, reset=True):
+	def open_output_file(self, filename, reset=True):
 		self.output.open(filename, 'wb', reset)
 		if reset:
 			self.reset()
 		pass
 	
-	def close(self, reset=True):
+	def close_output_file(self, reset=True):
 		self.output.close(reset)
 		if reset:
 			self.reset()
 		pass
-
-	def _shift(self):
-		raise NotImplementedError()
-
-	def _underflow(self):
-		raise NotImplementedError()
 	
 	def update(self, start, end, total):
 		assert(start < end <= total)
@@ -93,7 +92,6 @@ class RangeEncoder(RangeCoder):
 	"""
 	def __init__(self, filename=None, precision=64):
 		super(RangeEncoder).__init__(filename, precision)
-		self.output = bitops.BitBuffer(filename, 'wb')
 	
 	def _shift(self):
 		bit = self.low & self.half_range > 0
@@ -108,7 +106,6 @@ class RangeEncoder(RangeCoder):
 	def reset(self):
 		super(RangeEncoder).reset()
 		self.underflow = 0
-		self.output.reset()
 
 	def update_cdf(self, symbol, cdf=None):
 		if cdf is None:
@@ -133,19 +130,11 @@ class RangeEncoder(RangeCoder):
 class RangeDecoder(RangeCoder):
 	"""
 	"""
-	def __init__(self, input_stream, output_file=None, precision=64):
-		super(RangeDecoder, self).__init__(output_file, precision)
-		if isinstance(input_stream, str):
-			self.input = bitops.BitBuffer(input_stream, 'rb')
-		elif isinstance(input_stream, bytes):
-			self.input = bitops.BitBuffer()
-			self.input.buffer = b'\xff' + input_stream
-		elif isinstance(input_stream, bitops.BitBuffer):
-			self.input = input_stream
-		else:
-			raise ValueError("Arg 'input_stream' must be either a filename (str) or bytes.")
-		
-		self.window = self.input.read(precision)
+	def __init__(self, input_stream=None, precision=64):
+		self.input = bitops.BitBuffer()
+		super(RangeDecoder, self).__init__(precision)
+		if input_stream:
+			self.set_input(input_stream)
 		pass
 
 	def _shift(self):
@@ -157,20 +146,35 @@ class RangeDecoder(RangeCoder):
 		self.window |= self.input.read(1)
 		pass
 
+	def reset(self):
+		super(RangeDecoder, self).reset()
+		self.input.reset()
+	
+	def set_input(self, input_stream, reset=True):
+		if reset:
+			self.reset()
+		if isinstance(input_stream, str):
+			self.input.open(input_stream, reset)
+		elif isinstance(input_stream, bytes):
+			self.input.buffer = b'\xff' + input_stream
+		else:
+			raise ValueError("Arg 'input_stream' must be either a filename (str) or bytes.")
+		self.window = self.input.read(self.precision)
+
 	def update_cdf(self, cdf):
-		start = 0
+		symbol = 0
 		end = len(cdf)
 		total = cdf[-1]
 		self.range = self.high - self.low + 1
 		self.offset = self.window - self.low
 		value = ((offset+1) * total - 1) // self.range
 
-		while end - start > 1:
-			mid = (start + end) // 2
+		while end - symbol > 1:
+			mid = (symbol + end) // 2
 			if cdf[mid] > value:
 				end = mid
 			else:
-				start = mid
+				symbol = mid
 		
-		self.update(cdf[start], cdf[start+1], total)
-		pass
+		self.update(cdf[symbol], cdf[symbol+1], total)
+		return symbol
