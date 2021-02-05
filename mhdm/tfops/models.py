@@ -38,7 +38,7 @@ class NbitTreeProbEncoder(Model):
 		super(NbitTreeProbEncoder, self).__init__(name=name, **kwargs)
 		self.dim = dim
 		self.kernel_size = k if k else self.output_size
-		self.unet = 
+		self.unet = unet
 		self.use_tf_compression = use_tf_compression
 		
 		if unet:
