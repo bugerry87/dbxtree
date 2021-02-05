@@ -52,6 +52,7 @@ class TestCallback(LambdaCallback):
 			layer = args[1].numpy()
 			encode = layer == self.test_meta.tree_depth-1
 			if layer == 0:
+				self.encoder.reset()
 				probs = np.zeros((0, self.test_meta.output_size), dtype=self.test_meta.dtype)
 				acc_flags = gt_flags
 			else:
@@ -62,16 +63,12 @@ class TestCallback(LambdaCallback):
 			pred_flags = np.argmax(probs[-len(gt_flags):], axis=-1)
 			self.pred_flag_map[:, layer, pred_flags, :] += 1
 			self.gt_flag_map[:, layer, gt_flags, :] += 1
-			if encode and len(code):
-				bpp = len(code) * 8 / len(gt_flags)
-				bpp_min = min(bpp_min, bpp)
-				bpp_max = max(bpp_max, bpp)
-				bpp_sum += bpp
-			
-			if encode:
-				self.encoder.reset()
+
+			if len(code) == 0:
 				cdfs = range_coder.cdf(probs[:,1:], precision=32, floor=0.01)
 				code = self.encoder.updates(gt_flags-1, cdfs)
+
+			if encode:
 				bpp = len(code) * 8 / len(gt_flags)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
