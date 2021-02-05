@@ -1,5 +1,3 @@
-
-
 ## Installed
 import numpy as np
 
@@ -7,17 +5,25 @@ import numpy as np
 from . import bitops
 
 
+def cdf(probs, precision=16, floor=0, dtype=np.uint64):
+	probs = np.array(probs)
+	shape = [*probs.shape]
+	shape[-1] += 1
+	cdf = np.zeros(shape)
+	cdf[..., 1:] = probs + floor
+	cdf /= np.linalg.norm(cdf, ord=1, axis=-1, keepdims=True)
+	cdf = np.cumsum(cdf, axis=-1)
+	cdf *= 1<<precision
+	return cdf.astype(dtype)
+
+
 class RangeCoder():
 	"""
 	"""
 	def __init__(self, filename=None, precision=64):
-		self.output = bitops.BitBuffer(filename, 'wb')
 		self.precision = int(precision)
 		self.reset()
 		pass
-
-	def __bytes__(self):
-		return bytes(self.output)
 	
 	def __bool__(self):
 		return True
@@ -41,33 +47,20 @@ class RangeCoder():
 		return (1 << self.precision) - 1
 	
 	@property
-	def min_range(self):
+	def quat_range(self):
 		return 1 << self.precision-2
 	
 	def reset(self):
 		self.high = self.inner_range
 		self.low = 0
 		self.range = self.high - self.low + 1
-		self.output.reset()
-	
-	def open_output_file(self, filename, reset=True):
-		self.output.open(filename, 'wb', reset)
-		if reset:
-			self.reset()
-		pass
-	
-	def close_output_file(self, reset=True):
-		self.output.close(reset)
-		if reset:
-			self.reset()
-		pass
 	
 	def update(self, start, end, total):
 		assert(start < end <= total)
 		assert(self.low < self.high)
 		assert(self.low & self.inner_range == self.low)
 		assert(self.high & self.inner_range == self.high)
-		assert(self.min_range <= self.range <= self.total_range)
+		assert(self.quat_range <= self.range <= self.total_range)
 
 		self.range //= int(total)
 		self.high = self.low + int(end) * self.range - 1
@@ -79,7 +72,7 @@ class RangeCoder():
 			self.high = (self.high<<1) & self.inner_range
 			self.high |= 1
 		
-		while self.low & ~self.high & self.min_range != 0:
+		while self.low & ~self.high & self.quat_range != 0:
 			self._underflow()
 			self.low = self.low<<1 ^ self.half_range
 			self.high = (self.high ^ self.half_range) << 1 | self.half_range | 1
@@ -91,7 +84,15 @@ class RangeEncoder(RangeCoder):
 	"""
 	"""
 	def __init__(self, filename=None, precision=64):
-		super(RangeEncoder).__init__(filename, precision)
+		self.output = bitops.BitBuffer(filename, 'wb')
+		super(RangeEncoder, self).__init__(filename, precision)
+	
+	def __bytes__(self):
+		buffer = self.output.buffer << 1 | 1
+		n_bits = buffer.bit_length()
+		n_bytes = n_bits // 8
+		n_tail = 8-n_bits % 8
+		return (buffer << n_tail).to_bytes(n_bytes+bool(n_tail), 'big')[1:]
 	
 	def _shift(self):
 		bit = self.low & self.half_range > 0
@@ -104,8 +105,21 @@ class RangeEncoder(RangeCoder):
 		self.underflow += 1
 	
 	def reset(self):
-		super(RangeEncoder).reset()
+		super(RangeEncoder, self).reset()
+		self.output.reset()
 		self.underflow = 0
+	
+	def open(self, filename, reset=True):
+		self.output.open(filename, 'wb', reset)
+		if reset:
+			self.reset()
+		pass
+	
+	def close(self, reset=True):
+		self.output.close(reset)
+		if reset:
+			self.reset()
+		pass
 
 	def update_cdf(self, symbol, cdf=None):
 		if cdf is None:
@@ -125,49 +139,65 @@ class RangeEncoder(RangeCoder):
 		else:
 			for symbol, cdf in zip(symbols, cdfs):
 				self.update_cdf(symbol, cdf)
+		return bytes(self)
+	
+	def finalize(self):
+		self.output.write(1, 1)
+		self.output.flush(hard=True)
 
 
 class RangeDecoder(RangeCoder):
 	"""
 	"""
-	def __init__(self, input_stream=None, precision=64):
+	def __init__(self, input=None, precision=64):
 		self.input = bitops.BitBuffer()
+		self.window = 0
 		super(RangeDecoder, self).__init__(precision)
-		if input_stream:
-			self.set_input(input_stream)
+		if input:
+			self.set_input(input)
 		pass
+
+	def __add__(self, bytes):
+		self.input + bytes
+		return self
+	
+	def __radd__(self, bytes):
+		self.input + bytes
+		return self
 
 	def _shift(self):
 		self.window = self.window<<1 & self.inner_range
-		self.window |= self.input.read(1)
+		self.window |= self.input.read(1, tail_zeros=True)
 
 	def _underflow(self):
 		self.window = (self.window & self.half_range) | (self.window<<1 & self.inner_range>>1)
-		self.window |= self.input.read(1)
+		self.window |= self.input.read(1, tail_zeros=True)
 		pass
 
 	def reset(self):
 		super(RangeDecoder, self).reset()
 		self.input.reset()
 	
-	def set_input(self, input_stream, reset=True):
+	def set_input(self, input, reset=True):
 		if reset:
 			self.reset()
-		if isinstance(input_stream, str):
-			self.input.open(input_stream, reset)
-		elif isinstance(input_stream, bytes):
-			self.input.buffer = b'\xff' + input_stream
+		if isinstance(input, str):
+			self.input.open(input, reset)
+		elif isinstance(input, bytes):
+			self.input + input
 		else:
-			raise ValueError("Arg 'input_stream' must be either a filename (str) or bytes.")
-		self.window = self.input.read(self.precision)
+			raise ValueError("Arg 'input' must be either a filename (str) or bytes.")
+		if reset:
+			self.window = self.input.read(self.precision)
 
 	def update_cdf(self, cdf):
 		symbol = 0
 		end = len(cdf)
-		total = cdf[-1]
+		total = int(cdf[-1])
 		self.range = self.high - self.low + 1
-		self.offset = self.window - self.low
+		offset = self.window - self.low
 		value = ((offset+1) * total - 1) // self.range
+		assert(0 <= value < total)
 
 		while end - symbol > 1:
 			mid = (symbol + end) // 2
@@ -178,3 +208,6 @@ class RangeDecoder(RangeCoder):
 		
 		self.update(cdf[symbol], cdf[symbol+1], total)
 		return symbol
+	
+	def updates(self, cdfs):
+		return [self.update_cdf(cdf) for cdf in cdfs]

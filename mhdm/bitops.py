@@ -132,10 +132,10 @@ class BitBuffer():
 		Otherwise, all written bits are kept in buffer.
 		
 		Args:
-			filename: Opens a file from beginning.
-			mode: The operation mode, either 'rb', 'ab' or 'wb'.
-			interval: Used in case of iterative reading.
-			buf: Bytes to buffer on read or write to file.
+		- filename: Opens a file from beginning.
+		- mode: The operation mode, either 'rb', 'ab' or 'wb'.
+		- interval: Used in case of iterative reading.
+		- buf: Bytes to buffer on read or write to file.
 		"""
 		self.fid = None
 		self.buffer = 0xFF
@@ -164,20 +164,39 @@ class BitBuffer():
 		n_bits = self.buffer.bit_length()
 		n_bytes = n_bits // 8
 		n_tail = 8-n_bits % 8
-		return (self.buffer << n_tail).to_bytes(n_bytes+bool(n_tail), 'big')
+		return (self.buffer << n_tail).to_bytes(n_bytes+bool(n_tail), 'big')[1:]
 	
 	def __bool__(self):
 		return True
 	
+	def __add__(self, bytes):
+		bytes_int = int.from_bytes(bytes, 'big')
+		self.buffer <<= len(bytes) * 8
+		self.buffer |= bytes_int
+		return self
+	
+	def __radd__(self, bytes):
+		self + bytes
+		return self
+	
 	@property
 	def name(self):
+		"""
+		Returns the filename but None if no file is attached.
+		"""
 		return self.fid.name if self.fid else None
 	
 	@property
 	def closed(self):
+		"""
+		Returns True if the file is closed but is always False if no file is attached.
+		"""
 		return self.fid.closed if self.fid else False
 	
 	def tell(self):
+		"""
+		Returns the current reading position but is always 0 if no file is attached.
+		"""
 		return self.fid.tell() if self.fid else 0
 	
 	def reset(self):
@@ -192,11 +211,11 @@ class BitBuffer():
 		May release some memory.
 		
 		Args:
-			hard: Forces the flush to the byte-stream.
+		- hard: Forces the flush to the byte-stream.
 		
 		Note:
-			A hard-flush will append zeros to complete the last byte!
-			Only recommended either on file close or when you are sure all bytes are complete!
+		- A hard-flush will append zeros to complete the last byte!
+		- Only recommended either on file close or when you are sure all bytes are complete!
 		"""
 		if self.closed:
 			return
@@ -223,8 +242,7 @@ class BitBuffer():
 		Performes a hard flush and closes the file if given.
 		
 		Args:
-			reset: Whether the buffer is to reset on closing.
-			       (default=True)
+		- reset: Whether the buffer is to reset on closing. (default=True)
 		"""
 		if self.fid:
 			if 'r' not in self.fid.mode:
@@ -240,10 +258,9 @@ class BitBuffer():
 		The file-mode must be in binary-mode!
 		
 		Args:
-			filename: The path/name of a file to be opened.
-			mode: The operation mode, either 'rb', 'ab' or 'wb'.
-			reset: Whether the buffer is to reset on re-opening.
-			       (default=True)
+		- filename: The path/name of a file to be opened.
+		- mode: The operation mode, either 'rb', 'ab' or 'wb'.
+		- reset: Whether the buffer is to reset on re-opening. (default=True)
 		"""
 		if 'b' not in mode:
 			mode += 'b'
@@ -260,12 +277,12 @@ class BitBuffer():
 		Write bits to BitBuffer.
 		
 		Args:
-			bits: The bits added by 'or'-operation to the end of the bit-stream.
-			shift: The number of shifts applied before bits got added.
-			soft_flush: Flushes the bits to the internal byte-stream, if possible.
+		- bits: The bits added by 'or'-operation to the end of the bit-stream.
+		- shift: The number of shifts applied before bits got added.
+		- soft_flush: Flushes the bits to the internal byte-stream, if possible.
 		
 		Note:
-			soft_flush requires a file in write mode!
+		- soft_flush requires a file in write mode!
 		"""
 		shift = int(shift)
 		mask = (1<<shift) - 1
@@ -274,17 +291,44 @@ class BitBuffer():
 		if soft_flush:
 			self.flush()
 		pass
-	
-	def read(self, bits):
+
+	def append(self, bytes):
 		"""
+		Append bytes to the current buffer state
+		Same as BitBuffer + bytes
+
+		Args:
+		- bytes: A byte string b'...'
+		
+		Returns:
+		- self
+		"""
+		return self + bytes
+	
+	def read(self, bits, tail_zeros=False):
+		"""
+		Read bits from BitBuffer
+
+		Args:
+		- bits: The number of bits to be read from the bit-stream.
+		- tail_zeros: Whether to infinitly return zeros
+			instead of raising an EOFError or BufferError (default).
+		
+		Returns:
+		- The read integer (int)
+		
+		Raises:
+		- EOFError: If the bits are read from a file
+			but the file ends before the number of requested bits was read.
+		- BufferError: If more bits are read than the buffer has.
 		"""
 		bits = int(bits)
 		n_bits = self.buffer.bit_length() - 8
 		
-		if n_bits < bits and not self.closed:
+		if n_bits < bits and self.fid and not self.closed:
 			n_bytes = max(bits//8, 1)
 			buffer = self.fid.read(self.buf + n_bytes)
-			if len(buffer) < n_bytes:
+			if not tail_zeros and len(buffer) < n_bytes:
 				raise EOFError()
 			elif buffer:
 				self.buffer <<= len(buffer)*8
@@ -296,6 +340,8 @@ class BitBuffer():
 			result = (self.buffer >> n_bits-bits) & mask
 			self.buffer &= (1<<n_bits-bits) - 1
 			self.buffer |= 0xFF << n_bits-bits
+		elif tail_zeros:
+			result = 0
 		else:
 			raise BufferError()
 		
