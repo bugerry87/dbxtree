@@ -6,7 +6,7 @@ from . import bitops
 
 
 def cdf(probs, precision=16, floor=0, dtype=np.uint64):
-	probs = np.array(probs)
+	probs = np.array(probs, dtype=float)
 	shape = [*probs.shape]
 	shape[-1] += 1
 	cdf = np.zeros(shape)

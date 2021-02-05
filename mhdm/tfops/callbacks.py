@@ -4,6 +4,9 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
+## Local
+from .. import range_coder
+
 
 class TestCallback(LambdaCallback):
 	"""
@@ -27,6 +30,7 @@ class TestCallback(LambdaCallback):
 		self.gt_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
 		self.pred_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
 		self.compiled_metrics = None
+		self.encoder = range_coder.RangeEncoder()
 		pass
 
 	def run(self, *args):
@@ -59,6 +63,15 @@ class TestCallback(LambdaCallback):
 			self.pred_flag_map[:, layer, pred_flags, :] += 1
 			self.gt_flag_map[:, layer, gt_flags, :] += 1
 			if encode and len(code):
+				bpp = len(code) * 8 / len(gt_flags)
+				bpp_min = min(bpp_min, bpp)
+				bpp_max = max(bpp_max, bpp)
+				bpp_sum += bpp
+			
+			if encode:
+				self.encoder.reset()
+				cdfs = range_coder.cdf(probs[:,1:], precision=32, floor=0.01)
+				code = self.encoder.updates(gt_flags-1, cdfs)
 				bpp = len(code) * 8 / len(gt_flags)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)

@@ -180,14 +180,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--transformers', '-t',
-		metavar='INT',
-		type=int,
-		default=4,
-		help='Number of transformers'
-		)
-	
-	main_args.add_argument(
 		'--convolutions', '-c',
 		metavar='INT',
 		type=int,
@@ -199,6 +191,12 @@ def init_main_args(parents=[]):
 		'--unet', '-U',
 		action='store_true',
 		help="Whether build a UNet or (default) not"
+		)
+	
+	main_args.add_argument(
+		'--transformer', '-t',
+		action='store_true',
+		help='Whether to add an outer transformers or (default) not'
 		)
 	
 	main_args.add_argument(
@@ -274,9 +272,9 @@ def main(
 	offset=None,
 	scale=None,
 	kernel=16,
-	transformers=4,
 	convolutions=2,
 	unet=False,
+	transformer=False,
 	normalize=False,
 	smoothing=0,
 	topk=5,
@@ -314,9 +312,9 @@ def main(
 	model = NbitTreeProbEncoder(
 		dim=dim,
 		k=kernel,
-		transformers=transformers,
 		convolutions=convolutions,
 		unet=unet,
+		transformer=transformer,
 		normalize=normalize,
 		name=name,
 		**kwargs
