@@ -243,6 +243,12 @@ def init_main_args(parents=[]):
 		action='store_true',
 		help="Whether to allow cpu or (default) force gpu execution"
 		)
+	
+	main_args.add_argument(
+		'--tensorflow_compression',
+		action='store_true',
+		help="Whether to use tensorflow_compression or (default) not"
+		)
 	return main_args
 
 
@@ -274,6 +280,7 @@ def main(
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
+	tensorflow_compression=False,
 	name=None,
 	log_params={},
 	**kwargs
@@ -308,6 +315,7 @@ def main(
 		convolutions=convolutions,
 		unet=unet,
 		transformer=transformer,
+		tensorflow_compression=tensorflow_compression,
 		name=name,
 		**kwargs
 		)

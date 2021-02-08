@@ -29,7 +29,7 @@ class NbitTreeProbEncoder(Model):
 		convolutions=0,
 		unet=False,
 		transformer=False,
-		use_tf_compression=False,
+		tensorflow_compression=False,
 		dtype=tf.float32,
 		name=None,
 		**kwargs
@@ -42,7 +42,7 @@ class NbitTreeProbEncoder(Model):
 		self.kernel_width = kernel_width
 		self.strides = strides
 		self.unet = unet
-		self.use_tf_compression = use_tf_compression
+		self.tensorflow_compression = tensorflow_compression
 
 		self.input_layer = layers.Dense(
 			self.kernel,
@@ -322,12 +322,12 @@ class NbitTreeProbEncoder(Model):
 	def predict_step(self, data):
 		"""
 		"""
-		if self.use_tf_compression and range_encoder is None:
+		if self.tensorflow_compression and range_encoder is None:
 			tf.get_logger().warn(
 				"Model has no range_encoder and will only return raw probabilities and an empty string. " \
 				"Please install 'tensorflow-compression' to obtain encoded bit-streams."
 				)
-			self.use_tf_compression = False
+			self.tensorflow_compression = False
 		
 		if not self.use_tf_compression:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
