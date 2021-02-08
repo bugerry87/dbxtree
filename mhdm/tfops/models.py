@@ -329,7 +329,7 @@ class NbitTreeProbEncoder(Model):
 				)
 			self.tensorflow_compression = False
 		
-		if not self.use_tf_compression:
+		if not self.tensorflow_compression:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 			do_encode, uids, probs, flags = X
 			probs = self(uids, training=False)[0]
