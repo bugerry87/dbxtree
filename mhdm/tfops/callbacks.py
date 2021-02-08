@@ -65,6 +65,7 @@ class TestCallback(LambdaCallback):
 			self.gt_flag_map[:, layer, gt_flags, :] += 1
 
 			if len(code) == 0:
+				print('Compress via python!!!')
 				cdfs = range_coder.cdf(probs[:,1:], precision=32, floor=0.01)
 				code = self.encoder.updates(gt_flags-1, cdfs)
 
