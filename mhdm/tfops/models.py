@@ -302,10 +302,6 @@ class NbitTreeProbEncoder(Model):
 			i = tf.cast(i, tf.int32)
 			branches = [branch(b, X) for b in range(convs)]
 			X = tf.switch_case(i, branches)
-
-			#for conv in self.conv_strid:
-			#	X = conv(X)
-
 			ABt = [ABt(x) for ABt, x in zip(self.ABt, [X, stack[0], X])]
 			X = self.transformer(ABt)
 			pass

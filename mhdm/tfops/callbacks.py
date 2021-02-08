@@ -14,12 +14,12 @@ class TestCallback(LambdaCallback):
 	def __init__(self, tester, tester_args, test_meta,
 		test_freq=1,
 		test_steps=0,
-		when='on_epoch_end',
+		when=['on_epoch_end'],
 		writer=None
 		):
 		"""
 		"""
-		super(TestCallback, self).__init__(**{when:self.run})
+		super(TestCallback, self).__init__(**{w:self.run for w in when})
 		self.tester = tester
 		self.tester_args = tester_args
 		self.test_meta = test_meta

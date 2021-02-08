@@ -396,8 +396,8 @@ def main(
 	
 	if tester is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
-		method = 'on_test_end' if trainer is None else 'on_epoch_end'
-		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, method, writer)
+		when = ['on_test_end' if trainer is None else 'on_epoch_end']
+		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, when, writer)
 		callbacks.append(test_callback)
 	
 	callbacks.append(LogCallback(tflog))
@@ -426,6 +426,7 @@ def main(
 		test_callback.run(history)
 	else:
 		raise RuntimeError("Unexpected Error!")
+	tflog.info('Done!')
 	return history
 
 
