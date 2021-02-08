@@ -36,6 +36,7 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0):
 	return X, offset, scale
 
 
+@tf.function
 def realize(X, bits_per_dim, offset, scale, xtype=np.float32):
 	assert(sum(bits_per_dim) < 64)
 	with tf.name_scope("realize"):
@@ -89,19 +90,22 @@ def permute(X, p, bits=64):
 def tokenize(X, dim, depth, axis=0):
 	with tf.name_scope("tokenize"):
 		X = tf.sort(X, axis=axis)
-		shifts = np.arange(depth, dtype=np.int64) * dim
+		shifts = tf.range(depth, dtype=tf.int64) * dim
 		tokens = right_shift(X, shifts[::-1])
 		tokens = tf.transpose(tokens)
 	return tokens
 
 
+@tf.function
 def encode(nodes, idx, dim, dtype=tf.uint8, buffer=None):
 	with tf.name_scope("encode"):
 		bits = 1<<dim
+		shifts = tf.range(bits)
+		shifts = tf.cast(shifts, dtype)
 		flags = bitwise_and(nodes, bits-1)
 		flags = tf.one_hot(flags, bits, dtype=dtype)
 		flags = tf.math.unsorted_segment_max(flags, idx, idx[-1]+1)
-		flags = left_shift(flags, np.arange(bits))
+		flags = left_shift(flags, shifts)
 		flags = tf.math.reduce_sum(flags, axis=-1)
 		if buffer is not None:
 			flags = tf.concat([buffer, flags], axis=-1)
@@ -109,6 +113,7 @@ def encode(nodes, idx, dim, dtype=tf.uint8, buffer=None):
 	return flags, idx, uids
 
 
+@tf.function
 def decode(flags, pos, dim, buffer=tf.constant([0], dtype=tf.int64)):
 	with tf.name_scope("decode"):
 		size = tf.reshape(tf.size(buffer), [-1])

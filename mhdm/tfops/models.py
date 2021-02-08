@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Concatenate, Conv1D
+from tensorflow.keras.layers import Concatenate, Conv1D, LSTM
 from tensorflow.python.keras.engine import data_adapter
 
 try:
@@ -16,19 +16,18 @@ from . import range_like
 from . import bitops
 from . import layers
 from .. import utils
-	
+
 
 class NbitTreeProbEncoder(Model):
 	"""
 	"""
 	def __init__(self,
 		dim=3,
-		kernels=None,
+		kernel=None,
 		kernel_width=3,
 		strides=3,
-		normalize=False,
-		unet=False,
 		convolutions=0,
+		unet=False,
 		transformer=False,
 		use_tf_compression=False,
 		dtype=tf.float32,
@@ -39,22 +38,30 @@ class NbitTreeProbEncoder(Model):
 		"""
 		super(NbitTreeProbEncoder, self).__init__(name=name, **kwargs)
 		self.dim = dim
-		self.kernels = k if k else self.output_size
+		self.kernel = kernel if kernel else self.output_size
 		self.kernel_width = kernel_width
 		self.strides = strides
 		self.unet = unet
 		self.use_tf_compression = use_tf_compression
-		
+
+		self.input_layer = layers.Dense(
+			self.kernel,
+			activation='relu',
+			dtype=dtype,
+			name='input_layer',
+			**kwargs
+			)
+
 		if unet:
 			self.conv_down = [Conv1D(
-				kernels, 3, 1,
+				self.kernel, 3, 1,
 				activation='relu',
 				padding='same',
 				name='conv_down_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
 			self.conv_up = [Conv1D(
-				kernels, 3, 1,
+				self.kernel, 3, 1,
 				activation='relu',
 				padding='same',
 				name='conv_up_{}'.format(i),
@@ -63,14 +70,14 @@ class NbitTreeProbEncoder(Model):
 		
 		if transformer:
 			self.conv_strid = [Conv1D(
-				kernels, strides, strides,
+				self.kernel, strides, strides,
 				activation='relu',
 				padding='same',
 				name='conv_strid_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
 			self.ABt = [layers.Dense(
-				kernels,
+				self.kernel,
 				activation='relu',
 				dtype=dtype,
 				name=n,
@@ -82,7 +89,7 @@ class NbitTreeProbEncoder(Model):
 		
 		if not unet and not transformer:
 			self.conv = [Conv1D(
-				kernels, kernel_width, 1,
+				self.kernel, kernel_width, 1,
 				activation='relu',
 				padding='same',
 				name='conv_{}'.format(i),
@@ -224,7 +231,7 @@ class NbitTreeProbEncoder(Model):
 			elif smoothing:
 				labels *= 1.0 - smoothing
 				labels += smoothing / 2
-			return (uids, layer), labels, weights
+			return uids, labels, weights
 		
 		def filter_args(uids, *args):
 			return (*args,)
@@ -258,16 +265,19 @@ class NbitTreeProbEncoder(Model):
 		return self.trainer(*args, encoder=encoder, **kwargs)
 	
 	def build_by_meta(self, meta):
-		uids = tf.TensorShape([1, None, meta.word_length])
-		layer = tf.TensorShape([1, 1])
-		self.build((uids, layer))
+		if self.transformer:
+			dummy = tf.ones(meta.word_length)[None, None, ...]
+			self(dummy)
+		else:
+			self.build(tf.TensorShape([1, None, meta.word_length]))
 	
 	def call(self, inputs, training=False):
 		"""
 		"""
-		X, layer = inputs
+		X = inputs
 		X = tf.concat([X>0, X<0], axis=-1)
 		X = tf.cast(X, self.dtype)
+		X = self.input_layer(X)
 		stack = [X]
 
 		if self.unet:
@@ -280,8 +290,22 @@ class NbitTreeProbEncoder(Model):
 			X = tf.concat((X,stack[0]), axis=-1)
 		
 		if self.transformer:
-			for conv in self.conv_strid:
-				X = conv(X)
+			def branch(i, x):
+				for conv in self.conv_strid[:i+1]:
+					x = conv(x)
+				return lambda: x
+			
+			convs = len(self.conv_strid)
+			i = tf.math.reduce_sum(tf.math.abs(inputs), axis=-1)
+			i = tf.math.reduce_max(i)
+			i = tf.clip_by_value(i, 0, convs-1)
+			i = tf.cast(i, tf.int32)
+			branches = [branch(b, X) for b in range(convs)]
+			X = tf.switch_case(i, branches)
+
+			#for conv in self.conv_strid:
+			#	X = conv(X)
+
 			ABt = [ABt(x) for ABt, x in zip(self.ABt, [X, stack[0], X])]
 			X = self.transformer(ABt)
 			pass
@@ -307,8 +331,8 @@ class NbitTreeProbEncoder(Model):
 		
 		if not self.use_tf_compression:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			do_encode, uids, layer, probs, flags = X
-			probs = self((uids, layer), training=False)[0]
+			do_encode, uids, probs, flags = X
+			probs = self(uids, training=False)[0]
 			return probs, tf.constant([''])
 		
 		def encode():
@@ -332,9 +356,9 @@ class NbitTreeProbEncoder(Model):
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		do_encode, uids, layer, probs, flags = X
+		do_encode, uids, probs, flags = X
 		flags = tf.cast(flags, tf.int32)
-		probs = tf.concat([probs, self((uids, layer), training=False)[0]], axis=0)
+		probs = tf.concat([probs, self(uids, training=False)[0]], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
 

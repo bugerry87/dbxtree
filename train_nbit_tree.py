@@ -186,11 +186,11 @@ def init_main_args(parents=[]):
 		default=0,
 		help='Number of convolutions'
 		)
-	
+
 	main_args.add_argument(
 		'--unet', '-U',
 		action='store_true',
-		help="Whether build a UNet or (default) not"
+		help="Whether build an UNet or (default) not"
 		)
 	
 	main_args.add_argument(
@@ -204,13 +204,7 @@ def init_main_args(parents=[]):
 		metavar='INT',
 		type=int,
 		default=16,
-		help='kernel size'
-		)
-	
-	main_args.add_argument(
-		'--normalize', '-n',
-		action='store_true',
-		help="Whether to perform normalizations or (default) not"
+		help='num of kernel units'
 		)
 	
 	main_args.add_argument(
@@ -275,7 +269,6 @@ def main(
 	convolutions=2,
 	unet=False,
 	transformer=False,
-	normalize=False,
 	smoothing=0,
 	topk=5,
 	log_dir='logs',
@@ -311,11 +304,10 @@ def main(
 	
 	model = NbitTreeProbEncoder(
 		dim=dim,
-		k=kernel,
+		kernel=kernel,
 		convolutions=convolutions,
 		unet=unet,
 		transformer=transformer,
-		normalize=normalize,
 		name=name,
 		**kwargs
 		)
@@ -372,7 +364,7 @@ def main(
 		metrics=['accuracy', topk],
 		sample_weight_mode='temporal'
 		)
-	model.build(tf.TensorShape([1, None, master_meta.word_length]))
+	model.build_by_meta(master_meta)
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
