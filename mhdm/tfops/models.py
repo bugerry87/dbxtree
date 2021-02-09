@@ -30,6 +30,7 @@ class NbitTreeProbEncoder(Model):
 		unet=False,
 		transformer=False,
 		tensorflow_compression=False,
+		floor=0.0,
 		dtype=tf.float32,
 		name=None,
 		**kwargs
@@ -43,6 +44,7 @@ class NbitTreeProbEncoder(Model):
 		self.strides = strides
 		self.unet = unet
 		self.tensorflow_compression = tensorflow_compression
+		self.floor = floor
 
 		if unet:
 			self.conv_down = [Conv1D(
@@ -324,11 +326,10 @@ class NbitTreeProbEncoder(Model):
 			return probs, tf.constant([''])
 		
 		def encode():
-			P = probs
-			P /= tf.math.reduce_max(P, axis=-1, keepdims=True)
-			P = tf.roll(P, -1, axis=-1) + 0.5**6
-			cdf = tf.math.cumsum(P, axis=-1, exclusive=True)
-			cdf = cdf / tf.math.reduce_max(cdf, axis=-1, keepdims=True) * float(1<<16) 
+			cdf = probs
+			cdf = tf.roll(cdf, -1, axis=-1) + self.floor
+			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
+			cdf = tf.math.cumsum(cdf, axis=-1, exclusive=True) * float(1<<16) 
 			cdf = tf.cast(cdf, tf.int32)
 			index = range_like(flags, dtype=tf.int32)
 			cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
