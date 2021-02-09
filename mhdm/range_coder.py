@@ -122,6 +122,7 @@ class RangeEncoder(RangeCoder):
 		pass
 
 	def update_cdf(self, symbol, cdf=None):
+		symbol = int(symbol)
 		if cdf is None:
 			start, end, total = symbol
 		elif isinstance(cdf, dict):
