@@ -44,14 +44,6 @@ class NbitTreeProbEncoder(Model):
 		self.unet = unet
 		self.tensorflow_compression = tensorflow_compression
 
-		self.input_layer = layers.Dense(
-			self.kernel,
-			activation='relu',
-			dtype=dtype,
-			name='input_layer',
-			**kwargs
-			)
-
 		if unet:
 			self.conv_down = [Conv1D(
 				self.kernel, 3, 1,
@@ -71,14 +63,14 @@ class NbitTreeProbEncoder(Model):
 		if transformer:
 			self.conv_strid = [Conv1D(
 				self.kernel, strides, strides,
-				activation='relu',
+				activation='tanh',
 				padding='same',
 				name='conv_strid_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
 			self.ABt = [layers.Dense(
 				self.kernel,
-				activation='relu',
+				activation='tanh',
 				dtype=dtype,
 				name=n,
 				**kwargs
@@ -222,15 +214,17 @@ class NbitTreeProbEncoder(Model):
 			weights = tf.cast(weights, tf.float32)
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
 			labels = tf.one_hot(flags, self.output_size)
-			if mask is not None and smoothing:
-				layer_flags = tf.reduce_sum(labels, axis=-2, keepdims=True)
-				layer_flags /= tf.reduce_max(layer_flags)
-				#mask.scatter_nd_add(layer[..., None, None], layer_flags)
-				#labels += mask[layer] * smoothing / tf.reduce_max(mask)
-				labels += layer_flags * smoothing
-			elif smoothing:
-				labels *= 1.0 - smoothing
-				labels += smoothing / 2
+			if smoothing:
+				if mask is not None:
+					layer_flags = tf.reduce_sum(labels, axis=-2, keepdims=True)
+					layer_flags /= tf.reduce_max(layer_flags)
+					if isinstance(mask, tf.Variable):
+						mask.scatter_nd_add(layer[..., None, None], layer_flags)
+						label_flags = mask[layer] / tf.reduce_max(mask)
+					labels += layer_flags * smoothing
+				else:
+					labels *= 1.0 - smoothing
+					labels += smoothing / 2
 			return uids, labels, weights
 		
 		def filter_args(uids, *args):
@@ -275,9 +269,8 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
-		X = tf.concat([X>0, X<0], axis=-1)
-		X = tf.cast(X, self.dtype)
-		X = self.input_layer(X)
+		#X = tf.concat([X>0, X<0], axis=-1)
+		#X = tf.cast(X, self.dtype)
 		stack = [X]
 
 		if self.unet:
@@ -296,8 +289,9 @@ class NbitTreeProbEncoder(Model):
 				return lambda: x
 			
 			convs = len(self.conv_strid)
+			offset = inputs.shape[-1] / self.dim - convs
 			i = tf.math.reduce_sum(tf.math.abs(inputs), axis=-1)
-			i = tf.math.reduce_max(i)
+			i = tf.math.reduce_max(i) / self.dim - offset
 			i = tf.clip_by_value(i, 0, convs-1)
 			i = tf.cast(i, tf.int32)
 			branches = [branch(b, X) for b in range(convs)]
@@ -311,8 +305,6 @@ class NbitTreeProbEncoder(Model):
 				X = conv(X)
 		
 		X = self.output_layer(X)
-		#m = tf.reduce_sum(X, axis=-2, keepdims=True)
-		#X += m / tf.reduce_max(m)
 		return X
 	
 	def predict_step(self, data):
