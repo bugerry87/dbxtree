@@ -249,6 +249,14 @@ def init_main_args(parents=[]):
 		action='store_true',
 		help="Whether to use tensorflow_compression or (default) not"
 		)
+	
+	main_args.add_argument(
+		'--floor',
+		metavar='FLOAT',
+		type=float,
+		default=0.0,
+		help='Probability floor, added to the estimated probabilities'
+		)
 	return main_args
 
 
@@ -281,6 +289,7 @@ def main(
 	verbose=2,
 	cpu=False,
 	tensorflow_compression=False,
+	floor=0.0,
 	name=None,
 	log_params={},
 	**kwargs
@@ -316,7 +325,7 @@ def main(
 		unet=unet,
 		transformer=transformer,
 		tensorflow_compression=tensorflow_compression,
-		floor=0.001,
+		floor=floor,
 		name=name,
 		**kwargs
 		)
