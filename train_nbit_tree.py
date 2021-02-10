@@ -316,7 +316,7 @@ def main(
 		unet=unet,
 		transformer=transformer,
 		tensorflow_compression=tensorflow_compression,
-		floor=0.001
+		floor=0.001,
 		name=name,
 		**kwargs
 		)
