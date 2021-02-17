@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTreeProbEncoder
-from mhdm.tfops.metrics import FlatTopKAccuracy, RegularizedCosine
+from mhdm.tfops.metrics import RegularizedCrossentropy
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
 
@@ -208,22 +208,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--smoothing',
-		metavar='FLOAT',
-		type=float,
-		default=0,
-		help="Set a value from [0..1) for label smoothing (default=0)"
-		)
-	
-	main_args.add_argument(
-		'--topk',
-		metavar='INT',
-		type=int,
-		default=5,
-		help="Considering top k (default=5)"
-		)
-	
-	main_args.add_argument(
 		'--log_dir',
 		metavar='PATH',
 		default='logs',
@@ -283,8 +267,6 @@ def main(
 	convolutions=2,
 	unet=False,
 	transformer=False,
-	smoothing=0,
-	topk=5,
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
@@ -330,11 +312,8 @@ def main(
 		**kwargs
 		)
 	
-	tree_depth = sum(bits_per_dim) // dim
-	words = 1<<(1<<dim)
-	mask = tf.Variable(tf.zeros([tree_depth, words]), name='flag_mask')
 	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
-	trainer, train_args, train_meta = model.trainer(train_index, smoothing=smoothing, mask=True, **quant_args) if train_index else (None, None, None)
+	trainer, train_args, train_meta = model.trainer(train_index, **quant_args) if train_index else (None, None, None)
 	validator, val_args, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
 	tester, tester_args, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
@@ -369,19 +348,16 @@ def main(
 		test_steps *= test_meta.tree_depth
 		if fix_subset:
 			tester = tester.take(test_steps)
-		#else:
-		#	tester = iter(tester.repeat())
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCosine()
-	topk = FlatTopKAccuracy(topk, classes=master_meta.output_size, name='top{}'.format(topk))
+	loss = RegularizedCrossentropy()
 	model.compile(
 		optimizer='adam', 
 		loss=loss,
-		metrics=['accuracy', topk],
+		metrics=['accuracy'],
 		sample_weight_mode='temporal'
 		)
 	model.build_by_meta(master_meta)
@@ -435,7 +411,7 @@ def main(
 			)
 	elif tester is not None:
 		history = dict()
-		test_callback.run(history)
+		test_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")
 	tflog.info('Done!')

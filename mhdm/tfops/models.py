@@ -39,7 +39,7 @@ class NbitTreeProbEncoder(Model):
 		"""
 		super(NbitTreeProbEncoder, self).__init__(name=name, **kwargs)
 		self.dim = dim
-		self.kernel = kernel if kernel else self.output_size
+		self.kernel = kernel if kernel else self.bins
 		self.kernel_width = kernel_width
 		self.strides = strides
 		self.unet = unet
@@ -90,13 +90,13 @@ class NbitTreeProbEncoder(Model):
 				**kwargs
 				) for i in range(convolutions)]
 
-		self.output_layer = layers.Dense(
-			self.output_size,
+		self.output_layers = [layers.Dense(
+			self.flag_size,
 			activation='softplus',
 			dtype=dtype,
-			name='output_layer',
+			name='output_layer_{}'.format(i),
 			**kwargs
-			)
+			) for i in range(self.bins)]
 		pass
 
 	def set_meta(self, index, bits_per_dim,
@@ -204,30 +204,19 @@ class NbitTreeProbEncoder(Model):
 	def trainer(self, *args,
 		encoder=None,
 		relax=100000,
-		smoothing=0,
-		mask=None,
 		**kwargs
 		):
 		"""
 		"""
 		def filter_labels(uids, flags, layer, *args):
 			m = tf.range(uids.shape[-1]) <= tf.cast(layer * self.dim, tf.int32)
-			uids = uids * 2 - tf.cast(m, tf.float32)
+			uids = uids * 2 - tf.cast(m, self.dtype)
+			labels = bitops.right_shift(flags[..., None], np.arange(self.flag_size))
+			labels = bitops.bitwise_and(labels, 1)
 			weights = tf.size(flags)
-			weights = tf.cast(weights, tf.float32)
-			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
-			labels = tf.one_hot(flags, self.bins)
-			if smoothing:
-				if mask is not None:
-					layer_flags = tf.reduce_sum(labels, axis=-2, keepdims=True)
-					layer_flags /= tf.reduce_max(layer_flags)
-					if isinstance(mask, tf.Variable):
-						mask.scatter_nd_add(layer[..., None, None], layer_flags)
-						label_flags = mask[layer] / tf.reduce_max(mask)
-					labels += layer_flags * smoothing
-				else:
-					labels *= 1.0 - smoothing
-					labels += smoothing / 2
+			weights = tf.cast(weights, self.dtype)
+			weights = tf.ones_like(flags, self.dtype) - tf.math.exp(-weights/relax)
+			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
 			return uids, labels, weights
 		
 		def filter_args(uids, *args):
@@ -307,7 +296,7 @@ class NbitTreeProbEncoder(Model):
 			for conv in self.conv:
 				X = conv(X)
 		
-		X = self.output_layer(X)
+		X = tf.concat([o(X)[...,None] for o in self.output_layers], axis=-1)
 		return X
 	
 	def predict_step(self, data):
@@ -322,20 +311,21 @@ class NbitTreeProbEncoder(Model):
 		
 		if not self.tensorflow_compression:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			do_encode, uids, probs, flags = X
-			probs = self(uids, training=False)[0]
+			do_encode, uids, probs, labels = X
+			probs = tf.reshape(self(uids, training=False), (-1, self.bins))
 			return probs, tf.constant([''])
 		
 		def encode():
-			cdf = probs
-			cdf = tf.roll(cdf, -1, axis=-1) + self.floor
+			cdf = probs + self.floor
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf, axis=-1, exclusive=True)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)  
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
-			index = range_like(flags, dtype=tf.int32)
-			cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
-			offset = tf.ones_like(flags, dtype=tf.int32)
+			offset = tf.transpose(cdf)[0]
+			cdf = tf.concat([tf.zeros_like(offset), cdf], axis=-1)
+			offset = tf.cast(offset, tf.int32)
+			index = range_like(offset, tf.int32)
+			cdf_size = offset + cdf.shape[-1]
 			code = range_encoder.unbounded_index_range_encode(
 				flags, index, cdf, cdf_size, offset,
 				precision=16,
@@ -347,9 +337,9 @@ class NbitTreeProbEncoder(Model):
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		do_encode, uids, probs, flags = X
-		flags = tf.cast(flags, tf.int32)
-		probs = tf.concat([probs, self(uids, training=False)[0]], axis=0)
+		do_encode, uids, probs, labels = X
+		labels = tf.where(labels)[:,-1]
+		probs = tf.concat([probs, tf.reshape(self(uids, training=False), (-1, self.bins))], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
 
@@ -359,7 +349,7 @@ class NbitTreeProbEncoder(Model):
 	
 	@property
 	def bins(self):
-		return 1<<(self.flag_size)
+		return 2 #1<<(self.flag_size)
 	
 	@property
 	def output_size(self):

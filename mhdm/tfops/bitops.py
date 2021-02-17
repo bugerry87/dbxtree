@@ -7,14 +7,15 @@ right_shift = tf.bitwise.right_shift
 left_shift = tf.bitwise.left_shift
 bitwise_and = tf.bitwise.bitwise_and
 bitwise_or = tf.bitwise.bitwise_or
+invert = tf.bitwise.invert
 
 
 @tf.function
 def serialize(X, bits_per_dim, offset=None, scale=None, axis=0):
 	with tf.name_scope("serialize"):
-		one = tf.constant(1, dtype=tf.int64, name='one')
-		bits_per_dim = tf.cast(bits_per_dim, tf.int64)
-		lim = left_shift(one, bits_per_dim) - one
+		inv = tf.constant(-1, dtype=tf.uint64, name='one')
+		bits_per_dim = tf.cast(bits_per_dim, tf.uint64)
+		lim = invert(left_shift(inv, bits_per_dim))
 		if offset is None:
 			offset = -tf.math.reduce_min(X, axis, keepdims=True)
 		else:
@@ -25,11 +26,11 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0):
 			scale = tf.cast(lim, X.dtype)
 			scale /= tf.math.reduce_max(X, axis, keepdims=True)
 		else:
-			scale = one / tf.cast(scale, X.dtype)
+			scale = 1 / tf.cast(scale, X.dtype)
 		X = X * scale
 		
 		X = tf.math.round(X)
-		X = tf.cast(X, tf.int64)
+		X = tf.cast(X, tf.uint64)
 		shifts = tf.math.cumsum(bits_per_dim, exclusive=True)
 		X = left_shift(X, shifts)
 		X = tf.math.reduce_sum(X, axis=-1, keepdims=True)
@@ -90,14 +91,15 @@ def permute(X, p, bits=64):
 def tokenize(X, dim, depth, axis=0):
 	with tf.name_scope("tokenize"):
 		X = tf.sort(X, axis=axis)
-		shifts = tf.range(depth, dtype=tf.int64) * dim
+		shifts = tf.range(depth) * dim
+		shifts = tf.cast(shifts, X.dtype)
 		tokens = right_shift(X, shifts[::-1])
 		tokens = tf.transpose(tokens)
 	return tokens
 
 
 @tf.function
-def encode(nodes, idx, dim, dtype=tf.uint8, buffer=None):
+def encode(nodes, idx, dim, dtype=tf.uint32, buffer=None):
 	with tf.name_scope("encode"):
 		bits = 1<<dim
 		shifts = tf.range(bits)
