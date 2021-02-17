@@ -113,6 +113,7 @@ class NbitTreeProbEncoder(Model):
 		meta = utils.Prototype(
 			dim = self.dim,
 			flag_size = self.flag_size,
+			bins = self.bins,
 			output_size = self.output_size,
 			bits_per_dim = bits_per_dim,
 			xtype = xtype,
@@ -215,7 +216,7 @@ class NbitTreeProbEncoder(Model):
 			weights = tf.size(flags)
 			weights = tf.cast(weights, tf.float32)
 			weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/relax)
-			labels = tf.one_hot(flags, self.output_size)
+			labels = tf.one_hot(flags, self.bins)
 			if smoothing:
 				if mask is not None:
 					layer_flags = tf.reduce_sum(labels, axis=-2, keepdims=True)
@@ -357,8 +358,12 @@ class NbitTreeProbEncoder(Model):
 		return 1<<self.dim
 	
 	@property
-	def output_size(self):
+	def bins(self):
 		return 1<<(self.flag_size)
+	
+	@property
+	def output_size(self):
+		return self.bins
 	
 	@staticmethod
 	def decode(flags, meta, buffer=tf.constant([0], dtype=tf.int64)):
