@@ -62,7 +62,7 @@ class TestCallback(LambdaCallback):
 				code = self.encoder.updates(labels, cdfs)
 
 			if encode:
-				bpp = len(code) * 8 / len(uids)
+				bpp = float(len(code) * 8 / labels.numpy().sum())
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
