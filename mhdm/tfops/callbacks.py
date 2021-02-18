@@ -42,7 +42,6 @@ class TestCallback(LambdaCallback):
 		bpp_max = 0
 		self.model.reset_metrics()
 		
-		print('\n')
 		for i, sample, args in zip(range(self.test_steps), self.tester, self.tester_args):
 			uids, labels, weights = sample
 			layer = args[1].numpy()
@@ -52,7 +51,7 @@ class TestCallback(LambdaCallback):
 				probs = np.zeros((0, self.test_meta.bins), dtype=self.test_meta.dtype)
 				acc_labels = labels
 			else:
-				acc_labels = np.vstack([acc_labels, labels])
+				acc_labels = tf.concat([acc_labels, labels], axis=1)
 			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
 			probs, code = self.model.predict_on_batch((encode, uids, probs, acc_labels))
 			code = code[0]
@@ -61,7 +60,6 @@ class TestCallback(LambdaCallback):
 				labels = np.nonzero(labels.numpy())[-1]
 				cdfs = range_coder.cdf(probs, precision=16, floor=0.01)
 				code = self.encoder.updates(labels, cdfs)
-				print('.', end='', flush=True)
 
 			if encode:
 				bpp = len(code) * 8 / len(uids)

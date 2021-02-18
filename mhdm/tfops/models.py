@@ -316,11 +316,12 @@ class NbitTreeProbEncoder(Model):
 		
 		if not self.tensorflow_compression:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			do_encode, uids, probs, labels = X
+			uids = X[1]
 			probs = tf.reshape(self(uids, training=False), (-1, self.bins))
 			return probs, tf.constant([''])
 		
 		def encode():
+			labels = tf.cast(tf.where(labels)[:,-1], tf.int32)
 			cdf = probs + self.floor
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf, axis=-1, exclusive=True)
@@ -342,7 +343,6 @@ class NbitTreeProbEncoder(Model):
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		do_encode, uids, probs, labels = X
-		labels = tf.cast(tf.where(labels)[:,-1], tf.int32)
 		probs = tf.concat([probs, tf.reshape(self(uids, training=False), (-1, self.bins))], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
