@@ -155,10 +155,10 @@ class NbitTreeProbEncoder(Model):
 		n_layers = meta.tree_depth+1
 
 		def parse(filename):
-			X0 = tf.io.read_file(filename)
-			X0 = tf.io.decode_raw(X0, xtype)
-			X0 = tf.reshape(X0, (-1, meta.input_dims))
-			X0, offset, scale = bitops.serialize(X0, meta.bits_per_dim, meta.offset, meta.scale)
+			X = tf.io.read_file(filename)
+			X = tf.io.decode_raw(X0, xtype)
+			X = tf.reshape(X0, (-1, meta.input_dims))
+			X0, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale)
 			if meta.permute is not None:
 				permute = tf.cast(meta.permute, dtype=X0.dtype)
 				X0 = bitops.permute(X0, permute, meta.word_length)
@@ -174,7 +174,7 @@ class NbitTreeProbEncoder(Model):
 			permute = tf.repeat(permute[None,...], n_layers, axis=0)
 			offset = tf.repeat(offset[None,...], n_layers, axis=0)
 			scale = tf.repeat(scale[None,...], n_layers, axis=0)
-			return X0, X1, layer, permute, offset, scale
+			return X0, X1, layer, X, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0, out_idx=X0.dtype)
@@ -229,9 +229,6 @@ class NbitTreeProbEncoder(Model):
 					labels *= 1.0 - smoothing
 					labels += smoothing / 2
 			return uids, labels, weights
-		
-		def filter_args(uids, *args):
-			return (*args,)
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
@@ -239,11 +236,10 @@ class NbitTreeProbEncoder(Model):
 			meta = None
 		trainer = encoder.map(filter_labels)
 		trainer = trainer.batch(1)
-		trainer_args = encoder.map(filter_args)
 		if meta is None:
-			return trainer, trainer_args
+			return trainer, encoder
 		else:
-			return trainer, trainer_args, meta
+			return trainer, encoder, meta
 	
 	def validator(self, *args,
 		encoder=None,
