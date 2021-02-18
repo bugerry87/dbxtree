@@ -11,32 +11,33 @@ from .. import range_coder
 class TestCallback(LambdaCallback):
 	"""
 	"""
-	def __init__(self, tester, tester_args, test_meta,
-		test_freq=1,
-		test_steps=0,
+	def __init__(self, samples, info, meta,
+		freq=1,
+		steps=0,
 		when=['on_epoch_end'],
-		writer=None
+		writer=None,
+		encoder=None
 		):
 		"""
 		"""
-		super(TestCallback, self).__init__(**{w:self.run for w in when})
-		self.tester = tester
-		self.tester_args = tester_args
-		self.test_meta = test_meta
-		self.test_steps = test_steps if test_steps else test_meta.num_of_samples
-		self.test_freq = test_freq
+		super(TestCallback, self).__init__(**{w:self for w in when})
+		self.samples = samples
+		self.info = info
+		self.meta = meta
+		self.steps = steps or meta.num_of_samples
+		self.freq = freq
 		self.writer = writer
 
-		self.gt_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
-		self.pred_flag_map = np.zeros((1, test_meta.tree_depth, test_meta.output_size, 1))
+		self.gt_flag_map = np.zeros((1, meta.tree_depth, meta.output_size, 1))
+		self.pred_flag_map = np.zeros((1, meta.tree_depth, meta.output_size, 1))
 		self.compiled_metrics = None
-		self.encoder = range_coder.RangeEncoder()
+		self.encoder = encoder or range_coder.RangeEncoder()
 		pass
 
-	def run(self, *args):
+	def __call__(self, *args):
 		args = (*args[::-1], 0)
 		log, step = args[:2]
-		if step % self.test_freq != 0:
+		if step % self.freq != 0:
 			return
 		
 		bpp_sum = 0
@@ -46,14 +47,15 @@ class TestCallback(LambdaCallback):
 		self.pred_flag_map[:] = 0
 		self.model.reset_metrics()
 
-		for i, sample, args in zip(range(self.test_steps), self.tester, self.tester_args):
+		for i, sample, info in zip(range(self.steps), self.samples, self.info):
 			uids, labels, weights = sample
-			gt_flags = args[0].numpy()
-			layer = args[1].numpy()
-			encode = layer == self.test_meta.tree_depth-1
+			gt_flags = info[1].numpy()
+			layer = info[2].numpy()
+			X = info[3].numpy()
+			encode = layer == self.meta.tree_depth-1
 			if layer == 0:
 				self.encoder.reset()
-				probs = np.zeros((0, self.test_meta.output_size), dtype=self.test_meta.dtype)
+				probs = np.zeros((0, self.meta.output_size), dtype=self.meta.dtype)
 				acc_flags = gt_flags
 			else:
 				acc_flags = np.concatenate([acc_flags, gt_flags])
@@ -69,13 +71,13 @@ class TestCallback(LambdaCallback):
 				code = self.encoder.updates(gt_flags-1, cdfs)
 
 			if encode:
-				bpp = len(code) * 8 / len(gt_flags)
+				bpp = len(code) * 8 / len(X)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
 		
 		if code:
-			metrics['bpp'] = bpp_sum / self.test_meta.num_of_files
+			metrics['bpp'] = bpp_sum / self.meta.num_of_files
 			metrics['bpp_min'] = bpp_min
 			metrics['bpp_max'] = bpp_max
 		

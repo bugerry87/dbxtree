@@ -334,9 +334,9 @@ def main(
 	words = 1<<(1<<dim)
 	mask = tf.Variable(tf.zeros([tree_depth, words]), name='flag_mask')
 	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
-	trainer, train_args, train_meta = model.trainer(train_index, smoothing=smoothing, mask=True, **quant_args) if train_index else (None, None, None)
-	validator, val_args, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
-	tester, tester_args, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
+	trainer, train_encoder, train_meta = model.trainer(train_index, smoothing=smoothing, mask=True, **quant_args) if train_index else (None, None, None)
+	validator, val_encoder, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:
@@ -406,10 +406,10 @@ def main(
 			patience=stop_patience
 			))
 	
-	if tester is not None:
+	if test_encoder is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		when = ['on_test_end' if trainer is None else 'on_epoch_end']
-		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, when, writer)
+		test_callback = TestCallback(tester, test_encoder, test_meta, test_freq, test_steps, when, writer)
 		callbacks.append(test_callback)
 	
 	callbacks.append(LogCallback(tflog))
@@ -435,7 +435,7 @@ def main(
 			)
 	elif tester is not None:
 		history = dict()
-		test_callback.run(history)
+		test_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")
 	tflog.info('Done!')

@@ -94,6 +94,16 @@ class RangeEncoder(RangeCoder):
 		n_tail = 8-n_bits % 8
 		return (buffer << n_tail).to_bytes(n_bytes+bool(n_tail), 'big')[1:]
 	
+	def __iter__(self):
+		self.reset()
+		return self
+	
+	def __next__(self):
+		return self
+	
+	def __call__(self, symbol, cdf=None):
+		self.update(symbol, cdf)
+	
 	def _shift(self):
 		bit = self.low & self.half_range > 0
 		self.output.write(bit, 1)
@@ -121,7 +131,7 @@ class RangeEncoder(RangeCoder):
 			self.reset()
 		pass
 
-	def update_cdf(self, symbol, cdf=None):
+	def update(self, symbol, cdf=None):
 		symbol = int(symbol)
 		if cdf is None:
 			start, end, total = symbol
@@ -131,15 +141,15 @@ class RangeEncoder(RangeCoder):
 			start = cdf[symbol]
 			end = cdf[symbol+1]
 			total = cdf[-1]
-		self.update(start, end, total)
+		super(RangeEncoder, self).update(start, end, total)
 	
 	def updates(self, symbols, cdfs=None):
 		if cdfs is None:
 			for symbol in symbols:
-				self.update_cdf(symbol)
+				self.update(symbol)
 		else:
 			for symbol, cdf in zip(symbols, cdfs):
-				self.update_cdf(symbol, cdf)
+				self.update(symbol, cdf)
 		return bytes(self)
 	
 	def finalize(self):
