@@ -327,7 +327,7 @@ class NbitTreeProbEncoder(Model):
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)  
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			offset = tf.transpose(cdf)[0]
-			cdf = tf.concat([tf.zeros_like(offset), cdf], axis=-1)
+			cdf = tf.concat([tf.zeros_like(offset)[...,None], cdf], axis=-1)
 			offset = tf.cast(offset, tf.int32)
 			index = range_like(offset, tf.int32)
 			cdf_size = offset + cdf.shape[-1]
