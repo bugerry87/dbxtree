@@ -328,7 +328,6 @@ class NbitTreeProbEncoder(Model):
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			offset = tf.transpose(cdf)[0]
 			cdf = tf.concat([tf.zeros_like(offset)[...,None], cdf], axis=-1)
-			offset = tf.cast(offset, tf.int32)
 			index = range_like(offset, dtype=tf.int32)
 			cdf_size = offset + cdf.shape[-1]
 			code = range_encoder.unbounded_index_range_encode(
@@ -343,7 +342,7 @@ class NbitTreeProbEncoder(Model):
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		do_encode, uids, probs, labels = X
-		labels = tf.where(labels)[:,-1]
+		labels = tf.cast(tf.where(labels)[:,-1], tf.int32)
 		probs = tf.concat([probs, tf.reshape(self(uids, training=False), (-1, self.bins))], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
