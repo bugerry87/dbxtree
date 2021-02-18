@@ -7,14 +7,15 @@ right_shift = tf.bitwise.right_shift
 left_shift = tf.bitwise.left_shift
 bitwise_and = tf.bitwise.bitwise_and
 bitwise_or = tf.bitwise.bitwise_or
+bitwise_xor = tf.bitwise.bitwise_xor
 invert = tf.bitwise.invert
 
 
 @tf.function
-def serialize(X, bits_per_dim, offset=None, scale=None, axis=0):
+def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.uint64):
 	with tf.name_scope("serialize"):
-		inv = tf.constant(-1, dtype=tf.uint64, name='one')
-		bits_per_dim = tf.cast(bits_per_dim, tf.uint64)
+		inv = tf.constant(-1, dtype=dtype, name='one')
+		bits_per_dim = tf.cast(bits_per_dim, dtype)
 		lim = invert(left_shift(inv, bits_per_dim))
 		if offset is None:
 			offset = -tf.math.reduce_min(X, axis, keepdims=True)
@@ -30,7 +31,7 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0):
 		X = X * scale
 		
 		X = tf.math.round(X)
-		X = tf.cast(X, tf.uint64)
+		X = tf.cast(X, dtype)
 		shifts = tf.math.cumsum(bits_per_dim, exclusive=True)
 		X = left_shift(X, shifts)
 		X = tf.math.reduce_sum(X, axis=-1, keepdims=True)
@@ -90,29 +91,33 @@ def permute(X, p, bits=64):
 @tf.function
 def tokenize(X, dim, depth, axis=0):
 	with tf.name_scope("tokenize"):
+		dtype = X.dtype
+		X = tf.cast(X, tf.int64)
+		X = bitwise_xor(X, -1<<63)
 		X = tf.sort(X, axis=axis)
+		X = tf.cast(X, dtype)
 		shifts = tf.range(depth) * dim
-		shifts = tf.cast(shifts, X.dtype)
+		shifts = tf.cast(shifts, dtype)
 		tokens = right_shift(X, shifts[::-1])
 		tokens = tf.transpose(tokens)
 	return tokens
 
 
 @tf.function
-def encode(nodes, idx, dim, dtype=tf.uint32, buffer=None):
+def encode(nodes, idx, dim, dtype=tf.uint64, buffer=None):
 	with tf.name_scope("encode"):
 		bits = 1<<dim
 		shifts = tf.range(bits)
 		shifts = tf.cast(shifts, dtype)
 		flags = bitwise_and(nodes, bits-1)
+		flags = tf.cast(flags, tf.uint8)
 		flags = tf.one_hot(flags, bits, dtype=dtype)
 		flags = tf.math.unsorted_segment_max(flags, idx, idx[-1]+1)
 		flags = left_shift(flags, shifts)
 		flags = tf.math.reduce_sum(flags, axis=-1)
 		if buffer is not None:
 			flags = tf.concat([buffer, flags], axis=-1)
-		uids, idx = tf.unique(nodes, out_idx=nodes.dtype)
-	return flags, idx, uids
+	return flags
 
 
 @tf.function
