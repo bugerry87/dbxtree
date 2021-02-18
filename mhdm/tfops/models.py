@@ -324,15 +324,17 @@ class NbitTreeProbEncoder(Model):
 			return probs, tf.constant([''])
 		
 		def encode():
-			cdf = probs
-			cdf = tf.roll(cdf, -1, axis=-1) + self.floor
+			cdf = probs[:,1:]
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
-			cdf = tf.math.cumsum(cdf, axis=-1, exclusive=True)
-			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)  
+			cdf = tf.math.cumsum(cdf + self.floor, axis=-1, exclusive=True)
+			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
+			cdf = tf.pad(cdf, [(0,0),(1,0)])
+
+			offset = tf.ones_like(flags, dtype=tf.int32)
 			index = range_like(flags, dtype=tf.int32)
 			cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
-			offset = tf.ones_like(flags, dtype=tf.int32)
+			
 			code = range_encoder.unbounded_index_range_encode(
 				flags, index, cdf, cdf_size, offset,
 				precision=16,
