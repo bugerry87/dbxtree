@@ -156,8 +156,8 @@ class NbitTreeProbEncoder(Model):
 
 		def parse(filename):
 			X = tf.io.read_file(filename)
-			X = tf.io.decode_raw(X0, xtype)
-			X = tf.reshape(X0, (-1, meta.input_dims))
+			X = tf.io.decode_raw(X, xtype)
+			X = tf.reshape(X, (-1, meta.input_dims))
 			X0, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale)
 			if meta.permute is not None:
 				permute = tf.cast(meta.permute, dtype=X0.dtype)
