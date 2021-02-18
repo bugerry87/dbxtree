@@ -329,7 +329,7 @@ class NbitTreeProbEncoder(Model):
 			offset = tf.transpose(cdf)[0]
 			cdf = tf.concat([tf.zeros_like(offset)[...,None], cdf], axis=-1)
 			offset = tf.cast(offset, tf.int32)
-			index = range_like(offset, tf.int32)
+			index = range_like(offset, dtype=tf.int32)
 			cdf_size = offset + cdf.shape[-1]
 			code = range_encoder.unbounded_index_range_encode(
 				flags, index, cdf, cdf_size, offset,
