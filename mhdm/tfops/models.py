@@ -3,13 +3,13 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Concatenate, Conv1D, LSTM
+from tensorflow.keras.layers import Concatenate, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
-	import tensorflow_compression as range_encoder
+	import tensorflow_compression as range_coder
 except ModuleNotFoundError:
-	range_encoder = None
+	range_coder = None
 
 ## Local
 from . import range_like
@@ -158,10 +158,10 @@ class NbitTreeProbEncoder(Model):
 		n_layers = meta.tree_depth+1
 
 		def parse(filename):
-			X0 = tf.io.read_file(filename)
-			X0 = tf.io.decode_raw(X0, xtype)
-			X0 = tf.reshape(X0, (-1, meta.input_dims))
-			X0, offset, scale = bitops.serialize(X0, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
+			X = tf.io.read_file(filename)
+			X = tf.io.decode_raw(X, xtype)
+			X = tf.reshape(X, (-1, meta.input_dims))
+			X0, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
 			if meta.permute is not None:
 				permute = tf.cast(meta.permute, dtype=X0.dtype)
 				X0 = bitops.permute(X0, permute, meta.word_length)
@@ -173,11 +173,12 @@ class NbitTreeProbEncoder(Model):
 				permute = tf.constant([], dtype=X0.dtype)
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
+			X = tf.repeat(X[None,...], n_layers, axis=0)
 			layer = tf.range(n_layers)
 			permute = tf.repeat(permute[None,...], n_layers, axis=0)
 			offset = tf.repeat(offset[None,...], n_layers, axis=0)
 			scale = tf.repeat(scale[None,...], n_layers, axis=0)
-			return X0, X1, layer, permute, offset, scale
+			return X0, X1, layer, X, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0)
@@ -223,9 +224,6 @@ class NbitTreeProbEncoder(Model):
 			weights = tf.cast(weights, self.dtype)
 			weights = tf.ones_like(flags, self.dtype) - tf.math.exp(-weights/relax)
 			return uids, labels, weights
-		
-		def filter_args(uids, *args):
-			return (*args,)
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
@@ -233,11 +231,10 @@ class NbitTreeProbEncoder(Model):
 			meta = None
 		trainer = encoder.map(filter_labels)
 		trainer = trainer.batch(1)
-		trainer_args = encoder.map(filter_args)
 		if meta is None:
-			return trainer, trainer_args
+			return trainer, encoder
 		else:
-			return trainer, trainer_args, meta
+			return trainer, encoder, meta
 	
 	def validator(self, *args,
 		encoder=None,
@@ -266,8 +263,8 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
-		#X = tf.concat([X>0, X<0], axis=-1)
-		#X = tf.cast(X, self.dtype)
+		X = tf.concat([X>0, X<0], axis=-1)
+		X = tf.cast(X, self.dtype)
 		stack = [X]
 
 		if self.unet:
@@ -307,7 +304,7 @@ class NbitTreeProbEncoder(Model):
 	def predict_step(self, data):
 		"""
 		"""
-		if self.tensorflow_compression and range_encoder is None:
+		if self.tensorflow_compression and range_coder is None:
 			tf.get_logger().warn(
 				"Model has no range_encoder and will only return raw probabilities and an empty string. " \
 				"Please install 'tensorflow-compression' to obtain encoded bit-streams."
@@ -321,20 +318,13 @@ class NbitTreeProbEncoder(Model):
 			return probs, tf.constant([''])
 		
 		def encode():
-			cdf = probs + self.floor
-			cdf = tf.math.cumsum(cdf, axis=-1, exclusive=True)
+			cdf = probs
+			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
+			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
-			cdf = tf.clip_by_value(cdf, self.floor, 1.0)
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			offset = tf.transpose(cdf)[0]
-			index = range_like(offset, dtype=tf.int32)
-			cdf_size = offset + cdf.shape[-1]
-			code = range_encoder.unbounded_index_range_encode(
-				labels, index, cdf, cdf_size, offset,
-				precision=16,
-				overflow_width=1
-				)
+			code = range_coder.range_encode(labels, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():
@@ -342,7 +332,7 @@ class NbitTreeProbEncoder(Model):
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		do_encode, uids, probs, labels = X
-		labels = tf.cast(tf.where(labels)[:,-1], tf.int32)
+		labels = tf.cast(tf.where(labels)[:,-1], tf.int16)
 		probs = tf.concat([probs, tf.reshape(self(uids, training=False), (-1, self.bins))], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code

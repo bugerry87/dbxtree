@@ -188,7 +188,7 @@ def init_main_args(parents=[]):
 		)
 
 	main_args.add_argument(
-		'--unet', '-U',
+		'--unet', '-u',
 		action='store_true',
 		help="Whether build an UNet or (default) not"
 		)
@@ -196,7 +196,7 @@ def init_main_args(parents=[]):
 	main_args.add_argument(
 		'--transformer', '-t',
 		action='store_true',
-		help='Whether to add an outer transformers or (default) not'
+		help='Whether to add an outer transformer or (default) not'
 		)
 	
 	main_args.add_argument(
@@ -313,9 +313,9 @@ def main(
 		)
 	
 	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
-	trainer, train_args, train_meta = model.trainer(train_index, **quant_args) if train_index else (None, None, None)
-	validator, val_args, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
-	tester, tester_args, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
+	trainer, train_encoder, train_meta = model.trainer(train_index, **quant_args) if train_index else (None, None, None)
+	validator, val_encoder, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:
@@ -385,7 +385,7 @@ def main(
 	if tester is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		when = ['on_test_end' if trainer is None else 'on_epoch_end']
-		test_callback = TestCallback(tester, tester_args, test_meta, test_freq, test_steps, when, writer)
+		test_callback = TestCallback(tester, test_encoder, test_meta, test_freq, test_steps, when, writer)
 		callbacks.append(test_callback)
 	
 	callbacks.append(LogCallback(tflog))
