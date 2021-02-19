@@ -65,14 +65,14 @@ class NbitTreeProbEncoder(Model):
 		if transformer:
 			self.conv_strid = [Conv1D(
 				self.kernel, strides, strides,
-				activation='tanh',
+				activation='relu',
 				padding='same',
 				name='conv_strid_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
 			self.ABt = [layers.Dense(
 				self.kernel,
-				activation='tanh',
+				activation='relu',
 				dtype=dtype,
 				name=n,
 				**kwargs
@@ -269,8 +269,8 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
-		#X = tf.concat([X>0, X<0], axis=-1)
-		#X = tf.cast(X, self.dtype)
+		X = tf.concat([X>0, X<0], axis=-1)
+		X = tf.cast(X, self.dtype)
 		stack = [X]
 
 		if self.unet:
@@ -326,21 +326,11 @@ class NbitTreeProbEncoder(Model):
 		def encode():
 			cdf = probs[:,1:]
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
-			cdf = tf.pad(cdf, [(0,0),(0,1)])
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-
-			offset = tf.ones_like(flags, dtype=tf.int32)
-			index = range_like(flags, dtype=tf.int32)
-			cdf_size = tf.zeros_like(flags, dtype=tf.int32) + cdf.shape[-1]
-			
-			code = range_encoder.unbounded_index_range_encode(
-				flags, index, cdf, cdf_size, offset,
-				precision=16,
-				overflow_width=1
-				)
+			code = range_encoder.range_encode(flags-1, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():
