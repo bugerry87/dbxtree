@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Concatenate, Conv1D, LSTM
+from tensorflow.keras.layers import Concatenate, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
