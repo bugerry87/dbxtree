@@ -7,9 +7,9 @@ from tensorflow.keras.layers import Concatenate, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
-	import tensorflow_compression as range_coder
+	import tensorflow_compression as tfc
 except ModuleNotFoundError:
-	range_coder = None
+	tfc = None
 
 ## Local
 from . import range_like
@@ -29,7 +29,6 @@ class NbitTreeProbEncoder(Model):
 		convolutions=0,
 		unet=False,
 		transformer=False,
-		tensorflow_compression=False,
 		floor=0.0,
 		dtype=tf.float32,
 		name=None,
@@ -43,7 +42,6 @@ class NbitTreeProbEncoder(Model):
 		self.kernel_width = kernel_width
 		self.strides = strides
 		self.unet = unet
-		self.tensorflow_compression = tensorflow_compression
 		self.floor = floor
 
 		if unet:
@@ -304,27 +302,21 @@ class NbitTreeProbEncoder(Model):
 	def predict_step(self, data):
 		"""
 		"""
-		if self.tensorflow_compression and range_coder is None:
-			tf.get_logger().warn(
-				"Model has no range_encoder and will only return raw probabilities and an empty string. " \
-				"Please install 'tensorflow-compression' to obtain encoded bit-streams."
-				)
-			self.tensorflow_compression = False
-		
-		if not self.tensorflow_compression:
-			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			uids = X[1]
-			probs = tf.reshape(self(uids, training=False), (-1, self.bins))
-			return probs, tf.constant([''])
-		
 		def encode():
+			if tfc is None:
+				tf.get_logger().warn(
+					"Model has no range_encoder and will only return raw probabilities and an empty string. " \
+					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
+					)
+				return tf.constant([''])
+
 			cdf = probs
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			code = range_coder.range_encode(labels, cdf, precision=16)
+			code = tfc.range_encode(labels, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():

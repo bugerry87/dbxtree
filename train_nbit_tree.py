@@ -229,12 +229,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--tensorflow_compression',
-		action='store_true',
-		help="Whether to use tensorflow_compression or (default) not"
-		)
-	
-	main_args.add_argument(
 		'--floor',
 		metavar='FLOAT',
 		type=float,
@@ -270,7 +264,6 @@ def main(
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
-	tensorflow_compression=False,
 	floor=0.0,
 	name=None,
 	log_params={},
@@ -306,7 +299,6 @@ def main(
 		convolutions=convolutions,
 		unet=unet,
 		transformer=transformer,
-		tensorflow_compression=tensorflow_compression,
 		floor=floor,
 		name=name,
 		**kwargs
@@ -353,7 +345,7 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCrossentropy()
+	loss = RegularizedCrossentropy(msle_smoothing=0.1)
 	model.compile(
 		optimizer='adam', 
 		loss=loss,

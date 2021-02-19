@@ -27,9 +27,9 @@ class TestCallback(LambdaCallback):
 		self.steps = steps or meta.num_of_samples
 		self.freq = freq
 		self.writer = writer
+		self.encoder = encoder
 
 		self.compiled_metrics = None
-		self.encoder = encoder or range_coder.RangeEncoder()
 		pass
 
 	def __call__(self, *args):
@@ -47,9 +47,10 @@ class TestCallback(LambdaCallback):
 			uids, labels, weights = sample
 			layer = data[2].numpy()
 			num_points = len(data[3])
-			encode = layer == self.meta.tree_depth-1
+			tree_end = layer == self.meta.tree_depth-1
+			encode = self.encoder is None and tree_end
 			if layer == 0:
-				self.encoder.reset()
+				self.encoder and self.encoder.reset()
 				probs = np.zeros((0, self.meta.bins), dtype=self.meta.dtype)
 				acc_labels = labels
 			else:
@@ -58,13 +59,13 @@ class TestCallback(LambdaCallback):
 			probs, code = self.model.predict_on_batch((encode, uids, probs, acc_labels))
 			code = code[0]
 			
-			if not self.model.tensorflow_compression:
+			if self.encoder:
 				labels = np.nonzero(labels.numpy())[-1]
-				cdfs = range_coder.cdf(probs, precision=16, floor=self.floor)
+				cdfs = range_coder.cdf(probs, precision=16, floor=self.model.floor)
 				code = self.encoder.updates(labels, cdfs)
 
-			if encode:
-				bpp = float(len(code) * 8 / num_points))
+			if tree_end:
+				bpp = float(len(code) * 8 / num_points)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
