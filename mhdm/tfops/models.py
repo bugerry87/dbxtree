@@ -319,7 +319,7 @@ class NbitTreeProbEncoder(Model):
 		
 		if not self.tensorflow_compression:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			do_encode, uids, probs, flags = X
+			uids, _, _ = X
 			probs = self(uids, training=False)[0]
 			return probs, tf.constant([''])
 		
@@ -335,14 +335,11 @@ class NbitTreeProbEncoder(Model):
 			code = range_encoder.range_encode(data, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
-		def ignore():
-			return tf.constant([''])
-		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		do_encode, uids, probs, flags = X
+		uids, probs, flags = X
 		flags = tf.cast(flags, tf.int32)
 		probs = tf.concat([probs, self(uids, training=False)[0]], axis=0)
-		code = tf.cond(do_encode, encode, ignore)
+		code = encode()
 		return probs, code
 
 	@property

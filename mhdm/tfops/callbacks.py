@@ -61,11 +61,11 @@ class TestCallback(LambdaCallback):
 			else:
 				acc_flags = np.concatenate([acc_flags, gt_flags])
 			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
-			probs, code = self.model.predict_on_batch((encode, uids, probs, acc_flags))
+			probs, code = self.model.predict_on_batch((uids, probs, acc_flags if encode else []))
 			code = code[0]
-			#pred_flags = np.argmax(probs[-len(gt_flags):], axis=-1)
-			#self.pred_flag_map[:, layer, pred_flags, :] += 1
-			#self.gt_flag_map[:, layer, gt_flags, :] += 1
+			pred_flags = np.argmax(probs[-len(gt_flags):], axis=-1)
+			self.pred_flag_map[:, layer, pred_flags, :] += 1
+			self.gt_flag_map[:, layer, gt_flags, :] += 1
 			print(layer, end=' ', flush=True)
 
 			if not self.model.tensorflow_compression:
@@ -88,14 +88,14 @@ class TestCallback(LambdaCallback):
 			log[name] = metric
 		
 		if self.writer is not None:
-			#self.gt_flag_map /= self.gt_flag_map.max()
-			#self.pred_flag_map /= self.pred_flag_map.max()
+			self.gt_flag_map /= self.gt_flag_map.max()
+			self.pred_flag_map /= self.pred_flag_map.max()
 			with self.writer.as_default():
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
 					tf.summary.scalar(name, metric, step)
-				#tf.summary.image('gt_flag_map', self.gt_flag_map, step)
-				#tf.summary.image('pred_flag_map', self.pred_flag_map, step)
+				tf.summary.image('gt_flag_map', self.gt_flag_map, step)
+				tf.summary.image('pred_flag_map', self.pred_flag_map, step)
 			self.writer.flush()
 		pass
 
