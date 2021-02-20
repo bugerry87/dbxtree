@@ -63,9 +63,9 @@ class TestCallback(LambdaCallback):
 			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
 			probs, code = self.model.predict_on_batch((encode, uids, probs, acc_flags))
 			code = code[0]
-			pred_flags = np.argmax(probs[-len(gt_flags):], axis=-1)
-			self.pred_flag_map[:, layer, pred_flags, :] += 1
-			self.gt_flag_map[:, layer, gt_flags, :] += 1
+			#pred_flags = np.argmax(probs[-len(gt_flags):], axis=-1)
+			#self.pred_flag_map[:, layer, pred_flags, :] += 1
+			#self.gt_flag_map[:, layer, gt_flags, :] += 1
 			print(layer, end=' ', flush=True)
 
 			if not self.model.tensorflow_compression:
@@ -94,8 +94,8 @@ class TestCallback(LambdaCallback):
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
 					tf.summary.scalar(name, metric, step)
-				tf.summary.image('gt_flag_map', self.gt_flag_map, step)
-				tf.summary.image('pred_flag_map', self.pred_flag_map, step)
+				#tf.summary.image('gt_flag_map', self.gt_flag_map, step)
+				#tf.summary.image('pred_flag_map', self.pred_flag_map, step)
 			self.writer.flush()
 		pass
 
