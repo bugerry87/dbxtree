@@ -24,7 +24,7 @@ def encode(X,
 	"""
 	"""
 	assert(X.ndim == 1)
-	tree_depth = tree_depth if tree_depth else np.iinfo(X.dtype).bits
+	tree_depth = tree_depth or np.iinfo(X.dtype).bits
 	stack_size = 0
 	local = Prototype(points = 0)
 	msg = "Layer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}"
@@ -37,11 +37,19 @@ def encode(X,
 
 	def expand(X, layer, tail):
 		dim = dims[layer] if layer < len(dims) else dims[-1]
-		mask = (1<<dim)-1
-		fbit = 1<<dim
+		fbit = 1<<dim if dim >= 0 else 1
 		flag = 0
 
-		if len(X) == 0:
+		if dim == -1:
+			m = (X & 1).astype(bool)
+			flag = np.any(m)
+			if tail > 0:
+				yield expand(X[~m]>>1, layer+1, max(tail-1, 0))
+				if flag:
+					yield expand(X[m]>>1, layer+1, max(tail-1, 0))
+			else:
+				local.points += flag
+		elif len(X) == 0:
 			pass
 		elif dim == 0:
 			fbit = len(X).bit_length()
@@ -59,6 +67,7 @@ def encode(X,
 			payload.write(int(X), tail, soft_flush=True)
 			local.points += 1
 		else:
+			mask = (1<<dim)-1
 			for t in range(fbit):
 				m = (X & mask) == t
 				if np.any(m):
@@ -107,7 +116,7 @@ def decode(Y, num_points,
 	else:
 		payload = None
 
-	tree_depth = tree_depth if tree_depth else np.iinfo(qtype).bits
+	tree_depth = tree_depth or np.iinfo(qtype).bits
 	X = np.zeros(num_points, dtype=qtype)
 	local = Prototype(points = 0)
 	msg = "Layer: {:>2}, Flag: {:>16}, Points: {:>8}, Done: {:>3.2f}%"
@@ -115,10 +124,23 @@ def decode(Y, num_points,
 	def expand(x, layer, pos, n=0):
 		tail = max(tree_depth - pos, 0)
 		dim = dims[layer] if layer < len(dims) else dims[-1]
-		fbit = 1<<dim if dim else n.bit_length()
+		if dim == 0:
+			fbit = n.bit_length()
+		elif dim == -1:
+			fbit = 1
+		else:
+			fbit = 1<<dim 
 		flag = Y.read(fbit)
 		
-		if dim == 0:
+		if dim == -1:
+			if tail > 0:
+				yield expand(x.copy(), layer+1, pos+1)
+				if flag:
+					yield expand(x | 1<<pos, layer+1, pos+1)
+			elif flag:
+				X[local.points] = x
+				local.points += 1
+		elif dim == 0:
 			right = n - flag
 			if tail > 1:
 				if right > 0:
