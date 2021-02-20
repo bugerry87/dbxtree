@@ -88,8 +88,8 @@ class TestCallback(LambdaCallback):
 			log[name] = metric
 		
 		if self.writer is not None:
-			self.gt_flag_map /= self.gt_flag_map.max()
-			self.pred_flag_map /= self.pred_flag_map.max()
+			#self.gt_flag_map /= self.gt_flag_map.max()
+			#self.pred_flag_map /= self.pred_flag_map.max()
 			with self.writer.as_default():
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
