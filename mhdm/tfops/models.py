@@ -325,7 +325,7 @@ class NbitTreeProbEncoder(Model):
 		
 		def encode():
 			#cdf = probs[:,1:]
-			cdf = tf.one_hot(flags[...,None], props.shape[-1], dtype=tf.float32)[:,1:]
+			cdf = tf.one_hot(flags[...,None], probs.shape[-1], dtype=tf.float32)[:,1:]
 			#cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
