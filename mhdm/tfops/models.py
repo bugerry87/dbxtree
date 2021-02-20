@@ -342,7 +342,7 @@ class NbitTreeProbEncoder(Model):
 		do_encode, uids, probs, flags = X
 		flags = tf.cast(flags, tf.int32)
 		probs = tf.concat([probs, self(uids, training=False)[0]], axis=0)
-		code = tf.switch_case(do_encode, [ignore, encode])
+		code = ignore() #tf.switch_case(int(do_encode), [ignore, encode])
 		return probs, code
 
 	@property
