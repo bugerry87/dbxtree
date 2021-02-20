@@ -47,7 +47,6 @@ class TestCallback(LambdaCallback):
 		self.pred_flag_map[:] = 0
 		self.model.reset_metrics()
 
-		print('\n')
 		for i, sample, info in zip(range(self.steps), self.samples, self.info):
 			uids, labels, weights = sample
 			gt_flags = info[1].numpy()
@@ -66,7 +65,6 @@ class TestCallback(LambdaCallback):
 			pred_flags = np.argmax(probs[-len(gt_flags):], axis=-1)
 			self.pred_flag_map[:, layer, pred_flags, :] += 1
 			self.gt_flag_map[:, layer, gt_flags, :] += 1
-			print(layer, end=' ', flush=True)
 
 			if not self.model.tensorflow_compression:
 				cdfs = range_coder.cdf(probs[:,1:], precision=32, floor=0.01)
