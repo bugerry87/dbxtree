@@ -61,7 +61,7 @@ def encode(X,
 		elif len(X) == 0:
 			pass
 		elif dim == 0:
-			fbit = len(X).bit_length()+1
+			fbit = len(X).bit_length()
 			if tail > 1:
 				m = (X & 1).astype(bool)
 				right = np.sum(m)
