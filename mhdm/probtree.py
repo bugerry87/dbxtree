@@ -28,6 +28,16 @@ class ProbTree():
 	def __bool__(self):
 		return True
 	
+	def __iter__(self):
+		self.reset()
+		return self
+	
+	def __next__(self):
+		return self
+	
+	def __call__(self, symbol, bits):
+		self.update(symbol, bits)
+	
 	def reset(self):
 		"""
 		"""

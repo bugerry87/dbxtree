@@ -338,7 +338,7 @@ def encode(files,
 			tree_depth=tree_depth,
 			output=output_file,
 			breadth_first=breadth_first,
-			model=model,
+			callback=model,
 			**kwargs
 			)
 		

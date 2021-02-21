@@ -16,7 +16,7 @@ def encode(X,
 	output=None,
 	flags=True,
 	payload=False,
-	model=None,
+	callback=None,
 	tree_depth=None,
 	breadth_first=False,
 	**kwargs
@@ -43,8 +43,8 @@ def encode(X,
 		if dim == -1:
 			if tail > 0:
 				m = (X & 1).astype(bool)
-				flag = np.any(m)
-				if flag:
+				if np.any(m):
+					flag = 1
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 0))
 					yield expand(X[m]>>1, layer+1, max(tail-1, 0))
 				elif skip:
@@ -61,10 +61,16 @@ def encode(X,
 		elif len(X) == 0:
 			pass
 		elif dim == 0:
-			fbit = len(X).bit_length()
+			fbit = len(X).bit_length()+1
 			if tail > 1:
 				m = (X & 1).astype(bool)
-				flag = np.sum(m)
+				right = np.sum(m)
+				left = len(X) - right
+				if right >= left:
+					flag = right
+				else:
+					flag = left
+					m[:] = ~m
 				if len(X) != flag:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
 				if flag:
@@ -88,8 +94,8 @@ def encode(X,
 		
 		if flags:
 			flags.write(flag, fbit, soft_flush=True)
-		if model:
-			model.update(flag, fbit)
+		if callback:
+			callback.update(flag, fbit)
 		if log.verbose:
 			flag = hex(flag)[2:] if dim else flag
 			log(msg.format(layer, flag, stack_size, local.points), end='\r', flush=True)
