@@ -63,14 +63,14 @@ class NbitTreeProbEncoder(Model):
 		if transformer:
 			self.conv_strid = [Conv1D(
 				self.kernel, strides, strides,
-				activation='tanh',
+				activation='relu',
 				padding='same',
 				name='conv_strid_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
 			self.ABt = [layers.Dense(
 				self.kernel,
-				activation='tanh',
+				activation='relu',
 				dtype=dtype,
 				name=n,
 				**kwargs
@@ -90,7 +90,7 @@ class NbitTreeProbEncoder(Model):
 
 		self.output_layers = [layers.Dense(
 			self.flag_size,
-			activation='softplus',
+			activation='softmax', #'softplus',
 			dtype=dtype,
 			name='output_layer_{}'.format(i),
 			**kwargs
@@ -181,9 +181,7 @@ class NbitTreeProbEncoder(Model):
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0)
 			flags = bitops.encode(X1, idx0, meta.dim, ftype)
-			#shift = tf.cast((meta.tree_depth-layer-1)*meta.dim, uids.dtype)
-			#uids = bitops.left_shift(uids, shift)
-			uids = bitops.right_shift(uids[:,None], np.arange(meta.word_length))
+			uids = bitops.right_shift(uids[:,None], tf.range(meta.word_length, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
 			return (uids, flags, layer, *args)
@@ -214,7 +212,8 @@ class NbitTreeProbEncoder(Model):
 		def filter_labels(uids, flags, layer, *args):
 			m = tf.range(uids.shape[-1]) <= layer * self.dim
 			uids = uids * 2 - tf.cast(m, self.dtype)
-			labels = bitops.right_shift(flags[..., None], np.arange(self.flag_size))
+			uids = tf.roll(uids, uids.shape[-1]-(layer+1)*self.dim, axis=-1)
+			labels = bitops.right_shift(flags[..., None], tf.range(self.flag_size, dtype=flags.dtype))
 			labels = bitops.bitwise_and(labels, 1)
 			labels = tf.cast(labels, tf.uint8)
 			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
