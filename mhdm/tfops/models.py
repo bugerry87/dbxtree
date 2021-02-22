@@ -309,7 +309,7 @@ class NbitTreeProbEncoder(Model):
 					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
 					)
 				return tf.constant([''])
-
+			
 			cdf = probs
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
@@ -323,7 +323,7 @@ class NbitTreeProbEncoder(Model):
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		do_encode, uids, probs, labels = X
+		uids, probs, labels, do_encode = X
 		labels = tf.cast(tf.where(labels)[:,-1], tf.int16)
 		probs = tf.concat([probs, tf.reshape(self(uids, training=False), (-1, self.bins))], axis=0)
 		code = tf.cond(do_encode, encode, ignore)

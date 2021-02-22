@@ -40,7 +40,7 @@ def encode(X,
 		fbit = 1<<dim if dim >= 0 else 1
 		flag = 0
 
-		if dim == -1:
+		if dim == 0:
 			if tail > 0:
 				m = (X & 1).astype(bool)
 				if np.any(m):
@@ -60,7 +60,7 @@ def encode(X,
 				local.points += 1
 		elif len(X) == 0:
 			pass
-		elif dim == 0:
+		elif dim == -1:
 			fbit = len(X).bit_length()
 			if tail > 1:
 				m = (X & 1).astype(bool)
@@ -139,15 +139,15 @@ def decode(Y, num_points,
 	def expand(x, layer, pos, n=0):
 		tail = max(tree_depth - pos, 0)
 		dim = dims[layer] if layer < len(dims) else dims[-1]
-		if dim == 0:
+		if dim == -1:
 			fbit = n.bit_length()
-		elif dim == -1:
+		elif dim == 0:
 			fbit = 1
 		else:
 			fbit = 1<<dim 
 		flag = Y.read(fbit)
 		
-		if dim == -1:
+		if dim == 0:
 			if tail > 0:
 				if flag:
 					yield expand(x.copy(), layer+1, pos+1)
@@ -161,7 +161,7 @@ def decode(Y, num_points,
 			elif flag:
 				X[local.points] = x
 				local.points += 1
-		elif dim == 0:
+		elif dim == -1:
 			right = n - flag
 			if tail > 1:
 				if right > 0:

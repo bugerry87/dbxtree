@@ -56,7 +56,7 @@ class TestCallback(LambdaCallback):
 			else:
 				acc_labels = tf.concat([acc_labels, labels], axis=1)
 			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
-			probs, code = self.model.predict_on_batch((encode, uids, probs, acc_labels))
+			probs, code = self.model.predict_on_batch((uids, probs, acc_labels, encode))
 			code = code[0]
 			
 			if self.encoder:
