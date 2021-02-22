@@ -90,7 +90,7 @@ class NbitTreeProbEncoder(Model):
 
 		self.output_layers = [layers.Dense(
 			self.flag_size,
-			activation='softmax', #'softplus',
+			activation='softplus',
 			dtype=dtype,
 			name='output_layer_{}'.format(i),
 			**kwargs
