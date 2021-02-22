@@ -181,8 +181,8 @@ class NbitTreeProbEncoder(Model):
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0)
 			flags = bitops.encode(X1, idx0, meta.dim, ftype)
-			shift = tf.cast(meta.tree_depth-layer*meta.dim, uids.dtype)
-			uids = bitops.left_shift(uids, shift)
+			#shift = tf.cast((meta.tree_depth-layer-1)*meta.dim, uids.dtype)
+			#uids = bitops.left_shift(uids, shift)
 			uids = bitops.right_shift(uids[:,None], np.arange(meta.word_length))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
