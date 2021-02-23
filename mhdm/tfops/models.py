@@ -94,7 +94,6 @@ class NbitTreeProbEncoder(Model):
 			self.output_size,
 			activation='softplus',
 			dtype=dtype,
-			trainable=False,
 			name='head_{}'.format(i),
 			**kwargs
 			) for i in range(heads)]
@@ -326,7 +325,7 @@ class NbitTreeProbEncoder(Model):
 			symbols = tf.reshape(labels, (-1, self.bins))
 			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
 			
-			cdf = probs
+			cdf = labels
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
