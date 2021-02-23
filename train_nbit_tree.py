@@ -200,6 +200,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--heads', '-H',
+		metavar='INT',
+		type=int,
+		default=1,
+		help='Number of output heads'
+		)
+	
+	main_args.add_argument(
 		'--kernel', '-k',
 		metavar='INT',
 		type=int,
@@ -261,6 +269,7 @@ def main(
 	convolutions=2,
 	unet=False,
 	transformer=False,
+	heads=1,
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
@@ -299,6 +308,7 @@ def main(
 		convolutions=convolutions,
 		unet=unet,
 		transformer=transformer,
+		heads=heads,
 		floor=floor,
 		name=name,
 		**kwargs
@@ -352,7 +362,7 @@ def main(
 		metrics=['accuracy'],
 		sample_weight_mode='temporal'
 		)
-	model.build_by_meta(master_meta)
+	model.build(meta=master_meta)
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	

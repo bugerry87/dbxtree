@@ -60,7 +60,8 @@ class TestCallback(LambdaCallback):
 			code = code[0]
 			
 			if self.encoder:
-				labels = np.nonzero(labels.numpy())[-1]
+				labels = labels.numpy().reshape(-1, self.meta.bins)
+				labels = np.nonzero()[-1]
 				cdfs = range_coder.cdf(probs, precision=16, floor=self.model.floor)
 				code = self.encoder.updates(labels, cdfs)
 

@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Concatenate, Conv1D
+from tensorflow.keras.layers import Dense, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
@@ -25,10 +25,11 @@ class NbitTreeProbEncoder(Model):
 		dim=3,
 		kernel=None,
 		kernel_width=3,
-		strides=3,
+		strides=None,
 		convolutions=0,
 		unet=False,
 		transformer=False,
+		heads=1,
 		floor=0.0,
 		dtype=tf.float32,
 		name=None,
@@ -38,11 +39,12 @@ class NbitTreeProbEncoder(Model):
 		"""
 		super(NbitTreeProbEncoder, self).__init__(name=name, **kwargs)
 		self.dim = dim
-		self.kernel = kernel if kernel else self.bins
+		self.kernel = kernel or self.bins
 		self.kernel_width = kernel_width
-		self.strides = strides
+		self.strides = strides or 1<<self.dim
 		self.unet = unet
 		self.floor = floor
+		assert(heads>0)
 
 		if unet:
 			self.conv_down = [Conv1D(
@@ -88,13 +90,14 @@ class NbitTreeProbEncoder(Model):
 				**kwargs
 				) for i in range(convolutions)]
 
-		self.output_layers = [layers.Dense(
-			self.flag_size,
+		self.heads = [Dense(
+			self.output_size,
 			activation='softplus',
 			dtype=dtype,
-			name='output_layer_{}'.format(i),
+			trainable=False,
+			name='head_{}'.format(i),
 			**kwargs
-			) for i in range(self.bins)]
+			) for i in range(heads)]
 		pass
 
 	def set_meta(self, index, bits_per_dim,
@@ -249,16 +252,19 @@ class NbitTreeProbEncoder(Model):
 		"""
 		return self.trainer(*args, encoder=encoder, **kwargs)
 	
-	def build_by_meta(self, meta):
-		if self.transformer:
-			dummy = tf.ones(meta.word_length)[None, None, ...]
-			self(dummy)
+	def build(self, input_shape=None, meta=None):
+		if input_shape:
+			super(NbitTreeProbEncoder, self).build(input_shape)
 		else:
-			self.build(tf.TensorShape([1, None, meta.word_length]))
+			self.meta = meta or self.meta
+			dummy = tf.ones(self.meta.word_length)[None, None, ...]
+			self(dummy, build=True)
 	
-	def call(self, inputs, training=False):
+	def call(self, inputs, training=False, build=False):
 		"""
 		"""
+		layer = tf.math.reduce_sum(tf.math.abs(inputs), axis=-1)[0,0] - 1
+		layer = tf.cast(layer, tf.int32) // self.dim
 		X = inputs
 		X = tf.concat([X>0, X<0], axis=-1)
 		X = tf.cast(X, self.dtype)
@@ -281,12 +287,15 @@ class NbitTreeProbEncoder(Model):
 			
 			convs = len(self.conv_strid)
 			offset = inputs.shape[-1] / self.dim - convs
-			i = tf.math.reduce_sum(tf.math.abs(inputs), axis=-1)
-			i = tf.math.reduce_max(i) / self.dim - offset
+			i = layer - offset
 			i = tf.clip_by_value(i, 0, convs-1)
 			i = tf.cast(i, tf.int32)
-			branches = [branch(b, X) for b in range(convs)]
-			X = tf.switch_case(i, branches)
+			if build:
+				for conv in self.conv_strid:
+					X = conv(X)
+			else:
+				branches = [branch(b, X) for b in range(convs)]
+				X = tf.switch_case(i, branches)
 			ABt = [ABt(x) for ABt, x in zip(self.ABt, [X, stack[0], X])]
 			X = self.transformer(ABt)
 			pass
@@ -295,7 +304,12 @@ class NbitTreeProbEncoder(Model):
 			for conv in self.conv:
 				X = conv(X)
 		
-		X = tf.concat([o(X)[...,None] for o in self.output_layers], axis=-1)
+		if build:
+			X = tf.math.reduce_sum([head(X) for head in self.heads], axis=0)
+		else:
+			branches = [(lambda: head(X)) for head in self.heads]
+			X = tf.switch_case(layer, branches, default=branches[-1])
+		X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
 		return X
 	
 	def predict_step(self, data):
@@ -309,13 +323,16 @@ class NbitTreeProbEncoder(Model):
 					)
 				return tf.constant([''])
 			
+			symbols = tf.reshape(labels, (-1, self.bins))
+			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
+			
 			cdf = probs
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			code = tfc.range_encode(labels, cdf, precision=16)
+			code = tfc.range_encode(symbols, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():
@@ -323,7 +340,6 @@ class NbitTreeProbEncoder(Model):
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		uids, probs, labels, do_encode = X
-		labels = tf.cast(tf.where(labels)[:,-1], tf.int16)
 		probs = tf.concat([probs, tf.reshape(self(uids, training=False), (-1, self.bins))], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
@@ -338,7 +354,7 @@ class NbitTreeProbEncoder(Model):
 	
 	@property
 	def output_size(self):
-		return self.bins
+		return self.flag_size * self.bins
 	
 	@staticmethod
 	def decode(flags, meta, buffer=tf.constant([0], dtype=tf.int64)):
