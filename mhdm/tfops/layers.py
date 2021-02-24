@@ -331,7 +331,7 @@ class InnerTransformer(Layer):
 		normalize=False,
 		layer_types=Dense,
 		layer_A_args={},
-		layer_M_args={},
+		layer_B_args={},
 		layer_t_args={},
 		name='InnerTransformer',
 		**kwargs
@@ -378,8 +378,8 @@ class InnerTransformer(Layer):
 		if self.layer_types is None:
 			A, B, t = inputs
 		else:
-			A = self.n(inputs)
-			M = self.m(inputs)
+			A = self.A(inputs)
+			B = self.B(inputs)
 			t = self.t(inputs)
 		B = self.permute(B) #(b, k, B)
 		t = self.permute(t) #(b, k, t)

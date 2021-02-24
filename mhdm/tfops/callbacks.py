@@ -44,7 +44,7 @@ class TestCallback(LambdaCallback):
 		self.model.reset_metrics()
 		
 		for i, sample, data in zip(range(self.steps), self.samples, self.data):
-			uids, labels, weights = sample
+			uids, labels = sample
 			layer = data[2].numpy()
 			num_points = len(data[3])
 			tree_end = layer == self.meta.tree_depth-1
@@ -55,7 +55,7 @@ class TestCallback(LambdaCallback):
 				acc_labels = labels
 			else:
 				acc_labels = tf.concat([acc_labels, labels], axis=1)
-			metrics = self.model.test_on_batch(uids, labels, weights, reset_metrics=False, return_dict=True)
+			metrics = self.model.test_on_batch(uids, labels, reset_metrics=False, return_dict=True)
 			probs, code = self.model.predict_on_batch((uids, probs, acc_labels, encode))
 			code = code[0]
 			

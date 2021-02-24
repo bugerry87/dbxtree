@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Dense, Conv1D
+from tensorflow.keras.layers import Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
@@ -28,7 +28,7 @@ class NbitTreeProbEncoder(Model):
 		strides=None,
 		convolutions=0,
 		unet=False,
-		transformer=False,
+		transformers=0,
 		heads=1,
 		floor=0.0,
 		dtype=tf.float32,
@@ -51,6 +51,7 @@ class NbitTreeProbEncoder(Model):
 				self.kernel, 3, 1,
 				activation='relu',
 				padding='same',
+				dtype=self.dtype,
 				name='conv_down_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
@@ -61,39 +62,28 @@ class NbitTreeProbEncoder(Model):
 				name='conv_up_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
-		
-		if transformer:
-			self.conv_strid = [Conv1D(
-				self.kernel, strides, strides,
-				activation='relu',
-				padding='same',
-				name='conv_strid_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
-			self.ABt = [layers.Dense(
-				self.kernel,
-				activation='relu',
-				dtype=dtype,
-				name=n,
-				**kwargs
-				) for n in 'ABt']
-			self.transformer = layers.OuterTransformer(layer_type=None)
 		else:
-			self.transformer = None
-		
-		if not unet and not transformer:
 			self.conv = [Conv1D(
 				self.kernel, kernel_width, 1,
 				activation='relu',
 				padding='same',
+				dtype=self.dtype,
 				name='conv_{}'.format(i),
 				**kwargs
 				) for i in range(convolutions)]
+		
+		self.transformers = [layers.InnerTransformer(
+			self.kernel,
+			activation='relu',
+			dtype=self.dtype,
+			name='transformer_{}'.format(i),
+			**kwargs
+			) for i in range(transformers)]
 
-		self.heads = [Dense(
+		self.heads = [layers.Dense(
 			self.output_size,
 			activation='softplus',
-			dtype=dtype,
+			dtype=self.dtype,
 			name='head_{}'.format(i),
 			**kwargs
 			) for i in range(heads)]
@@ -173,11 +163,11 @@ class NbitTreeProbEncoder(Model):
 				permute = tf.constant([], dtype=X0.dtype)
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
-			X = tf.repeat(X[None,...], n_layers, axis=0)
 			layer = tf.range(n_layers)
-			permute = tf.repeat(permute[None,...], n_layers, axis=0)
-			offset = tf.repeat(offset[None,...], n_layers, axis=0)
-			scale = tf.repeat(scale[None,...], n_layers, axis=0)
+			X = [X] * n_layers
+			permute = [permute] * n_layers
+			offset = [offset] * n_layers
+			scale = [scale] * n_layers
 			return X0, X1, layer, X, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
@@ -206,6 +196,7 @@ class NbitTreeProbEncoder(Model):
 	
 	def trainer(self, *args,
 		encoder=None,
+		meta=None,
 		relax=100000,
 		**kwargs
 		):
@@ -219,15 +210,10 @@ class NbitTreeProbEncoder(Model):
 			labels = bitops.bitwise_and(labels, 1)
 			labels = tf.cast(labels, tf.uint8)
 			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
-			weights = tf.size(flags)
-			weights = tf.cast(weights, self.dtype)
-			weights = tf.ones_like(flags, self.dtype) - tf.math.exp(-weights/relax)
-			return uids, labels, weights
+			return uids, labels
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
-		else:
-			meta = None
 		trainer = encoder.map(filter_labels)
 		trainer = trainer.batch(1)
 		if meta is None:
@@ -262,14 +248,15 @@ class NbitTreeProbEncoder(Model):
 	def call(self, inputs, training=False, build=False):
 		"""
 		"""
-		layer = tf.math.reduce_sum(tf.math.abs(inputs), axis=-1)[0,0] - 1
-		layer = tf.cast(layer, tf.int32) // self.dim
+		layer = tf.math.reduce_sum(tf.math.abs(inputs[0,0]), axis=-1)
+		layer = tf.math.ceil(layer / self.dim)
+		layer = tf.cast(layer, tf.int32)
 		X = inputs
 		X = tf.concat([X>0, X<0], axis=-1)
 		X = tf.cast(X, self.dtype)
-		stack = [X]
 
 		if self.unet:
+			stack = [X]
 			for conv in self.conv_down:
 				X = conv(X)
 				stack.append(X)
@@ -277,37 +264,22 @@ class NbitTreeProbEncoder(Model):
 				Z = tf.concat((X,Z), axis=-1)
 				X = conv(Z)
 			X = tf.concat((X,stack[0]), axis=-1)
-		
-		if self.transformer:
-			def branch(i, x):
-				for conv in self.conv_strid[:i+1]:
-					x = conv(x)
-				return lambda: x
-			
-			convs = len(self.conv_strid)
-			offset = inputs.shape[-1] / self.dim - convs
-			i = layer - offset
-			i = tf.clip_by_value(i, 0, convs-1)
-			i = tf.cast(i, tf.int32)
-			if build:
-				for conv in self.conv_strid:
-					X = conv(X)
-			else:
-				branches = [branch(b, X) for b in range(convs)]
-				X = tf.switch_case(i, branches)
-			ABt = [ABt(x) for ABt, x in zip(self.ABt, [X, stack[0], X])]
-			X = self.transformer(ABt)
-			pass
-
-		if not self.unet and not self.transformer:
+		else:
 			for conv in self.conv:
 				X = conv(X)
 		
-		if build:
-			X = tf.math.reduce_sum([head(X) for head in self.heads], axis=0)
-		else:
-			branches = [(lambda: head(X)) for head in self.heads]
-			X = tf.switch_case(layer, branches, default=branches[-1])
+		if self.transformer:
+			ABt = [ABt(X) for ABt in self.ABt]
+			X = self.transformer(ABt)
+			pass
+		
+		heads = len(self.heads)
+		head = tf.clip_by_value(layer, 0, heads-1)
+		w = tf.one_hot(head, heads, dtype=tf.float32) + self.floor
+		X = self.heads[0](X) * w[0]
+		for i, head in enumerate(self.heads[1:]):
+			X += head(X) * w[i+1]
+		
 		X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
 		return X
 	
@@ -322,10 +294,10 @@ class NbitTreeProbEncoder(Model):
 					)
 				return tf.constant([''])
 			
-			cdf = tf.reshape(labels, (-1, self.bins))
+			symbols = tf.reshape(labels, (-1, self.bins))
 			symbols = tf.cast(tf.where(cdf)[:,-1], tf.int16)
 			
-			#cdf = labels
+			cdf = probs
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
