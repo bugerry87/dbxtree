@@ -43,8 +43,8 @@ class TestCallback(LambdaCallback):
 		
 		for i, sample, data in zip(range(self.steps), self.samples, self.data):
 			uids, labels = sample[:2]
-			layer = data[2].numpy()
-			num_points = len(data[3])
+			layer = data[3].numpy()
+			num_points = len(data[4])
 			tree_end = layer == self.meta.tree_depth-1
 			encode = self.encoder is None and tree_end
 			if layer == 0:

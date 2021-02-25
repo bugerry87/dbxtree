@@ -182,13 +182,13 @@ class NbitTreeProbEncoder(Model):
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0)
-			flags = bitops.encode(X1, idx0, meta.dim, ftype)
+			flags, labels = bitops.encode(X1, idx0, meta.dim, ftype)
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.word_length, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, flags, layer, *args)
+			return (uids, flags, labels, layer, *args)
 		
-		def filter(uids, flags, layer, *args):
+		def filter(uids, flags, labels, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -212,18 +212,15 @@ class NbitTreeProbEncoder(Model):
 		):
 		"""
 		"""
-		def filter_labels(uids, flags, layer, *args):
+		def filter_labels(uids, flags, labels, layer, *args):
 			m = tf.range(uids.shape[-1]) <= layer * self.dim
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			uids = tf.roll(uids, uids.shape[-1]-(layer+1)*self.dim, axis=-1)
-			labels = bitops.right_shift(flags[..., None], tf.range(self.flag_size, dtype=flags.dtype))
-			labels = bitops.bitwise_and(labels, 1)
-			labels = tf.cast(labels, tf.uint8)
-			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
+			labels /= tf.norm(labels, ord=1, axis=-1, keepdims=True)
 			if balance:
 				weights = tf.size(flags)
-				weights = tf.cast(weights, tf.float32)
-				weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/balance)
+				weights = tf.cast(weights, self.dtype)
+				weights = tf.ones_like(flags, dtype=self.dtype) - tf.math.exp(-weights/balance)
 				return uids, labels, weights
 			else:
 				return uids, labels

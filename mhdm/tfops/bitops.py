@@ -99,20 +99,18 @@ def tokenize(X, dim, depth, axis=0):
 
 
 @tf.function
-def encode(nodes, idx, dim, dtype=tf.uint64, buffer=None):
+def encode(nodes, idx, dim, ftype=tf.int64, Ltype=tf.float32):
 	with tf.name_scope("encode"):
 		bits = 1<<dim
 		shifts = tf.range(bits)
-		shifts = tf.cast(shifts, dtype)
+		shifts = tf.cast(shifts, ftype)
 		flags = bitwise_and(nodes, bits-1)
-		flags = tf.cast(flags, tf.uint8)
-		flags = tf.one_hot(flags, bits, dtype=dtype)
-		flags = tf.math.unsorted_segment_max(flags, idx, idx[-1]+1)
+		labels = tf.one_hot(flags, bits, dtype=Ltype)
+		labels = tf.math.unsorted_segment_sum(labels, idx, idx[-1]+1)
+		flags = tf.cast(flags>0, ftype)
 		flags = left_shift(flags, shifts)
 		flags = tf.math.reduce_sum(flags, axis=-1)
-		if buffer is not None:
-			flags = tf.concat([buffer, flags], axis=-1)
-	return flags
+	return flags, labels
 
 
 @tf.function
