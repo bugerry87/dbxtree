@@ -79,6 +79,14 @@ class NbitTreeProbEncoder(Model):
 			name='transformer_{}'.format(i),
 			**kwargs
 			) for i in range(transformers)]
+		
+		if heads > 1:
+			self.head_filter = layers.Dense(
+				heads,
+				activation='relu',
+				dtype=self.dtype,
+				name='head_filter'
+				)
 
 		self.heads = [layers.Dense(
 			self.output_size,
@@ -197,7 +205,7 @@ class NbitTreeProbEncoder(Model):
 	def trainer(self, *args,
 		encoder=None,
 		meta=None,
-		relax=100000,
+		balance=0,
 		**kwargs
 		):
 		"""
@@ -210,7 +218,13 @@ class NbitTreeProbEncoder(Model):
 			labels = bitops.bitwise_and(labels, 1)
 			labels = tf.cast(labels, tf.uint8)
 			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
-			return uids, labels
+			if balance:
+				weights = tf.size(flags)
+				weights = tf.cast(weights, tf.float32)
+				weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/balance)
+				return uids, labels, weights
+			else:
+				return uids, labels
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
@@ -254,9 +268,9 @@ class NbitTreeProbEncoder(Model):
 		X = inputs
 		X = tf.concat([X>0, X<0], axis=-1)
 		X = tf.cast(X, self.dtype)
+		stack = [X]
 
 		if self.unet:
-			stack = [X]
 			for conv in self.conv_down:
 				X = conv(X)
 				stack.append(X)
@@ -268,18 +282,24 @@ class NbitTreeProbEncoder(Model):
 			for conv in self.conv:
 				X = conv(X)
 		
-		if self.transformer:
-			ABt = [ABt(X) for ABt in self.ABt]
-			X = self.transformer(ABt)
+		if self.transformers:
+			X = [transformer(X) for transformer in self.transformers]
+			X = tf.concat(X, axis=-1)
 			pass
-		
-		heads = len(self.heads)
-		head = tf.clip_by_value(layer, 0, heads-1)
-		w = tf.one_hot(head, heads, dtype=tf.float32) + self.floor
-		X = self.heads[0](X) * w[0]
-		for i, head in enumerate(self.heads[1:]):
-			X += head(X) * w[i+1]
-		
+
+		if len(self.heads) > 1:
+			w = self.head_filter(stack[0])
+			w = tf.math.reduce_sum(w, axis=1, keepdims=True)
+			w /= tf.norm(w, ord=1, axis=-1, keepdims=True)
+			for i, head in enumerate(self.heads):
+				if i:
+					x += head(X) * w[...,i,None]
+				else:
+					x = head(X) * w[...,i,None]
+			X = x
+		else:
+			X = self.heads[0](X)
+
 		X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
 		return X
 	

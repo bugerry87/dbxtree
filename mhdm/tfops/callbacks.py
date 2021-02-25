@@ -28,8 +28,6 @@ class TestCallback(LambdaCallback):
 		self.freq = freq
 		self.writer = writer
 		self.encoder = encoder
-
-		self.compiled_metrics = None
 		pass
 
 	def __call__(self, *args):
@@ -44,7 +42,7 @@ class TestCallback(LambdaCallback):
 		self.model.reset_metrics()
 		
 		for i, sample, data in zip(range(self.steps), self.samples, self.data):
-			uids, labels = sample
+			uids, labels = sample[:2]
 			layer = data[2].numpy()
 			num_points = len(data[3])
 			tree_end = layer == self.meta.tree_depth-1

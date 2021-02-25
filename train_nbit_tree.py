@@ -194,9 +194,11 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--transformer', '-t',
-		action='store_true',
-		help='Whether to add an outer transformer or (default) not'
+		'--transformers', '-t',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Number of transformers'
 		)
 	
 	main_args.add_argument(
@@ -268,7 +270,7 @@ def main(
 	kernel=16,
 	convolutions=2,
 	unet=False,
-	transformer=False,
+	transformers=0,
 	heads=1,
 	log_dir='logs',
 	verbose=2,
@@ -307,7 +309,7 @@ def main(
 		kernel=kernel,
 		convolutions=convolutions,
 		unet=unet,
-		transformer=transformer,
+		transformers=transformers,
 		heads=heads,
 		floor=floor,
 		name=name,
