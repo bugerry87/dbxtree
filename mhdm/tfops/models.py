@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Conv1D
+from tensorflow.keras.layers import Dense, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 try:
@@ -74,21 +74,23 @@ class NbitTreeProbEncoder(Model):
 		
 		self.transformers = [layers.InnerTransformer(
 			self.kernel,
+			layer_types=(Dense, Dense, layers.Euclidean),
 			activation='relu',
 			dtype=self.dtype,
+			layer_t_args=dict(initializer='glorot_uniform', inverted=True),
 			name='transformer_{}'.format(i),
 			**kwargs
 			) for i in range(transformers)]
 		
 		if heads > 1:
-			self.head_filter = layers.Dense(
+			self.head_filter = Dense(
 				heads,
 				activation='relu',
 				dtype=self.dtype,
 				name='head_filter'
 				)
 
-		self.heads = [layers.Dense(
+		self.heads = [Dense(
 			self.output_size,
 			activation='softplus',
 			dtype=self.dtype,
@@ -315,7 +317,7 @@ class NbitTreeProbEncoder(Model):
 				return tf.constant([''])
 			
 			symbols = tf.reshape(labels, (-1, self.bins))
-			symbols = tf.cast(tf.where(cdf)[:,-1], tf.int16)
+			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
 			
 			cdf = probs
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)

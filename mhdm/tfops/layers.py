@@ -189,7 +189,7 @@ class Euclidean(Layer):
 		self.inverted=inverted
 		self.matrix_mode = matrix_mode
 		if activation is not None:
-			self.activation = Activtion(activation)
+			self.activation = Activation(activation)
 		else:
 			self.activation = None
 		
@@ -208,18 +208,22 @@ class Euclidean(Layer):
 	def call(self, inputs):
 		if self.matrix_mode:
 			a = tf.expand_dims(inputs, axis=-1)
-			a = (a - self.w)**2
+			a = a - self.w
+			a *= a 
 			a = tf.math.reduce_sum(a, axis=-2)
 		else:
 			def cond(*args):
 				return True
 			
 			def body(a, i):
-				a += (inputs[...,i,None] - self.w[i])**2
+				d = inputs[...,i,None] - self.w[i]
+				d *= d
+				a += a
 				return a, i+1
 			
 			i = tf.constant(1)
-			a = (inputs[...,0,None] - self.w[0])**2 #b,n,k
+			a = inputs[...,0,None] - self.w[0] #b,n,k
+			a *= a
 			a, i = tf.while_loop(cond, body,
 				loop_vars=(a, i),
 				maximum_iterations=self.dims-1,
@@ -228,6 +232,8 @@ class Euclidean(Layer):
 		
 		if self.inverted:
 			a = tf.math.exp(-a)
+		if self.activation:
+			a = self.activation(a)
 		return a
 	
 	def build(self, input_shape):
