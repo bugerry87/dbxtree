@@ -74,10 +74,10 @@ class NbitTreeProbEncoder(Model):
 		
 		self.transformers = [layers.InnerTransformer(
 			self.kernel,
-			layer_types=(Dense, Dense, layers.Euclidean),
 			activation='relu',
 			dtype=self.dtype,
-			layer_t_args=dict(initializer='glorot_uniform', inverted=True),
+			#layer_types=(Dense, Dense, layers.Euclidean),
+			#layer_t_args=dict(initializer='glorot_uniform', inverted=True),
 			name='transformer_{}'.format(i),
 			**kwargs
 			) for i in range(transformers)]

@@ -91,6 +91,8 @@ def encode(X,
 						yield expand(X[m]>>dim, layer+1, max(tail - dim, 1))
 					else:
 						local.points += 1
+			if flag == 0b11:
+				fbit = 0
 		
 		if flags:
 			flags.write(flag, fbit, soft_flush=True)
