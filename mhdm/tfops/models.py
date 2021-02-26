@@ -172,11 +172,11 @@ class NbitTreeProbEncoder(Model):
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers)
-			X = [X] * n_layers
+			n = [len(X)] * n_layers
 			permute = [permute] * n_layers
 			offset = [offset] * n_layers
 			scale = [scale] * n_layers
-			return X0, X1, layer, X, permute, offset, scale
+			return X0, X1, layer, n, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0)
