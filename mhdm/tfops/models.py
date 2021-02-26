@@ -76,8 +76,6 @@ class NbitTreeProbEncoder(Model):
 			self.kernel,
 			activation='relu',
 			dtype=self.dtype,
-			#layer_types=(Dense, Dense, layers.Euclidean),
-			#layer_t_args=dict(initializer='glorot_uniform', inverted=True),
 			name='transformer_{}'.format(i),
 			**kwargs
 			) for i in range(transformers)]
@@ -299,7 +297,7 @@ class NbitTreeProbEncoder(Model):
 		else:
 			X = self.heads[0](X)
 
-		X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
+		#X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
 		return X
 	
 	def predict_step(self, data):
@@ -344,7 +342,7 @@ class NbitTreeProbEncoder(Model):
 	
 	@property
 	def output_size(self):
-		return self.flag_size * self.bins
+		return self.flag_size
 	
 	@staticmethod
 	def decode(flags, meta, buffer=tf.constant([0], dtype=tf.int64)):

@@ -107,7 +107,7 @@ def encode(nodes, idx, dim, ftype=tf.int64, Ltype=tf.float32):
 		flags = bitwise_and(nodes, bits-1)
 		labels = tf.one_hot(flags, bits, dtype=Ltype)
 		labels = tf.math.unsorted_segment_sum(labels, idx, idx[-1]+1)
-		flags = tf.cast(flags>0, ftype)
+		flags = tf.cast(labels>0, ftype)
 		flags = left_shift(flags, shifts)
 		flags = tf.math.reduce_sum(flags, axis=-1)
 	return flags, labels
