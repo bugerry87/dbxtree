@@ -36,7 +36,10 @@ def encode(X,
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
 
 	def expand(X, layer, tail, skip=False):
-		dim = dims[layer] if layer < len(dims) else dims[-1]
+		if dims:
+			dim = dims[layer] if layer < len(dims) else dims[-1]
+		else:
+			dim = -1
 		fbit = 1<<dim if dim >= 0 else 1
 		flag = 0
 
