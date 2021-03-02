@@ -204,6 +204,7 @@ class BitBuffer():
 		Resets the internal buffer!
 		"""
 		self.buffer = 0xFF
+		self.size = 0
 	
 	def flush(self, hard=False):
 		"""
@@ -267,7 +268,7 @@ class BitBuffer():
 		self.close(reset)
 		self.fid = open(filename, mode)
 		if 'r' in mode:
-			self.size = path.getsize(self.name)
+			self.size = path.getsize(self.name) * 8
 		else:
 			self.size = 0
 		pass
@@ -288,6 +289,7 @@ class BitBuffer():
 		mask = (1<<shift) - 1
 		self.buffer <<= shift
 		self.buffer |= int(bits) & mask
+		self.size += shift
 		if soft_flush:
 			self.flush()
 		pass

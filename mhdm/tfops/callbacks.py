@@ -4,9 +4,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
-## Local
-from .. import range_coder
-
 
 class TestCallback(LambdaCallback):
 	"""
@@ -45,15 +42,16 @@ class TestCallback(LambdaCallback):
 			points_per_node = data[2].numpy()
 			layer = data[3].numpy()
 			if layer == 0:
-				bit_count = 32
+				bit_count = 0
+				total_points = points_per_node.sum()
 			metrics = self.model.test_on_batch(uids, labels, reset_metrics=False, return_dict=True)
 			probs = self.model.predict_on_batch(uids)
-			probs = probs.reshape(-1, self.meta.bins)
-			points = np.where(probs[:,0]>probs[:,1], points_per_node[:,0], points_per_node[:,1])
-			bit_count += sum([int(p).bit_length() for p in points])
+			probs = probs.reshape(-1, self.meta.output_size)
+			nodes = np.where(probs[:,0]>probs[:,1], points_per_node[:,0], points_per_node[:,1])
+			bits_per_node = [int(n).bit_length() for n in nodes]
+			bit_count += sum(bits_per_node)
 
 			if layer == self.meta.tree_depth-1:
-				total_points = points_per_node.sum()
 				bpp = float(bit_count) / float(total_points)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)

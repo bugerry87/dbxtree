@@ -13,8 +13,8 @@ from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, TerminateOnNaN
 
 ## Local
-from mhdm.tfops.models import NbitTreeProbEncoder
-from mhdm.tfops.metrics import RegularizedCrossentropy
+from mhdm.tfops.models import NbitTree
+from mhdm.tfops.metrics import RegularizedCosine
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
 
@@ -127,14 +127,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--dim', '-d',
-		metavar='INT',
-		type=int,
-		default=2,
-		help='Dimensionality of the tree'
-		)
-	
-	main_args.add_argument(
 		'--bits_per_dim', '-B',
 		metavar='INT',
 		nargs='+',
@@ -186,12 +178,6 @@ def init_main_args(parents=[]):
 		default=0,
 		help='Number of convolutions'
 		)
-
-	main_args.add_argument(
-		'--unet', '-u',
-		action='store_true',
-		help="Whether build an UNet or (default) not"
-		)
 	
 	main_args.add_argument(
 		'--transformers', '-t',
@@ -199,14 +185,6 @@ def init_main_args(parents=[]):
 		type=int,
 		default=0,
 		help='Number of transformers'
-		)
-	
-	main_args.add_argument(
-		'--heads', '-H',
-		metavar='INT',
-		type=int,
-		default=1,
-		help='Number of output heads'
 		)
 	
 	main_args.add_argument(
@@ -237,14 +215,6 @@ def init_main_args(parents=[]):
 		action='store_true',
 		help="Whether to allow cpu or (default) force gpu execution"
 		)
-	
-	main_args.add_argument(
-		'--floor',
-		metavar='FLOAT',
-		type=float,
-		default=0.0,
-		help='Probability floor, added to the estimated probabilities'
-		)
 	return main_args
 
 
@@ -261,7 +231,6 @@ def main(
 	validation_steps=0,
 	test_freq=1,
 	test_steps=0,
-	dim=2,
 	bits_per_dim=[16,16,16,0],
 	sort_bits=None,
 	permute=None,
@@ -269,13 +238,10 @@ def main(
 	scale=None,
 	kernels=16,
 	convolutions=2,
-	unet=False,
 	transformers=0,
-	heads=1,
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
-	floor=0.0,
 	name=None,
 	log_params={},
 	**kwargs
@@ -304,14 +270,10 @@ def main(
 	if kwargs:
 		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
-	model = NbitTreeProbEncoder(
-		dim=dim,
+	model = NbitTree(
 		kernels=kernels,
 		convolutions=convolutions,
-		unet=unet,
 		transformers=transformers,
-		heads=heads,
-		floor=floor,
 		name=name,
 		**kwargs
 		)
@@ -357,7 +319,7 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCrossentropy(msle_smoothing=0.1)
+	loss = RegularizedCosine(msle_smoothing=0.1)
 	model.compile(
 		optimizer='adam', 
 		loss=loss,
