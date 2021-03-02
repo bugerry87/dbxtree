@@ -24,7 +24,7 @@ class NbitTreeProbEncoder(Model):
 	def __init__(self,
 		dim=3,
 		kernels=None,
-		kernel_size=9,
+		kernel_size=3,
 		convolutions=0,
 		unet=False,
 		transformers=0,
@@ -40,60 +40,31 @@ class NbitTreeProbEncoder(Model):
 		self.dim = dim
 		self.kernels = kernels or self.bins
 		self.kernel_size = kernel_size
-		self.unet = unet
 		self.floor = floor
-		assert(heads>0)
 
-		if unet:
-			self.conv_down = [Conv1D(
-				self.kernels, self.kernel_size, 1,
-				activation='relu',
-				padding='same',
-				dtype=self.dtype,
-				name='conv_down_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
-			self.conv_up = [Conv1D(
-				self.kernels, self.kernel_size, 1,
-				activation='relu',
-				padding='same',
-				name='conv_up_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
-		else:
-			self.conv = [Conv1D(
-				self.kernels, self.kernel_size, 1,
-				activation='relu',
-				padding='same',
-				dtype=self.dtype,
-				name='conv_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
+		self.conv = [Conv1D(
+			self.kernels, self.kernel_size + 2*i, 1,
+			activation='relu',
+			padding='same',
+			dtype=self.dtype,
+			name='conv_{}'.format(i),
+			**kwargs
+			) for i in range(convolutions)]
 		
 		self.transformers = [layers.CovarTransformer(
-			self.kernels, self.kernel_size,
-			layer_type=Conv1D,
-			padding='same',
+			self.kernels,
 			dtype=self.dtype,
 			name='transformer_{}'.format(i),
 			**kwargs
 			) for i in range(transformers)]
-		
-		if heads > 1:
-			self.head_filter = Dense(
-				heads,
-				activation='relu',
-				dtype=self.dtype,
-				name='head_filter'
-				)
 
-		self.heads = [Dense(
+		self.head = Dense(
 			self.output_size,
 			activation='softplus',
 			dtype=self.dtype,
-			name='head_{}'.format(i),
+			name='head',
 			**kwargs
-			) for i in range(heads)]
+			)
 		pass
 
 	def set_meta(self, index, bits_per_dim,
@@ -259,38 +230,18 @@ class NbitTreeProbEncoder(Model):
 		"""
 		"""
 		X = inputs
-		X = tf.concat([X>0, X<0], axis=-1)
-		X = tf.cast(X, self.dtype)
 		stack = [X]
 
-		if self.unet:
-			for conv in self.conv_down:
-				X = conv(X)
-				stack.append(X)
-			for conv, Z in zip(self.conv_up, stack):
-				Z = tf.concat((X,Z), axis=-1)
-				X = conv(Z)
-			X = tf.concat((X,stack[0]), axis=-1)
-		else:
-			for conv in self.conv:
-				X = conv(X)
+		if self.conv:
+			x = tf.concat([X>0, X<0], axis=-1)
+			x = tf.cast(x, self.dtype)
+			stack += [conv(x) for conv in self.conv]
 		
 		if self.transformers:
-			X = [transformer(X) for transformer in self.transformers]
-			X = tf.concat(X, axis=-1)
-
-		if len(self.heads) > 1:
-			w = self.head_filter(stack[0])
-			w = tf.math.reduce_sum(w, axis=1, keepdims=True)
-			w /= tf.norm(w, ord=1, axis=-1, keepdims=True)
-			for i, head in enumerate(self.heads):
-				if i:
-					x += head(X) * w[...,i,None]
-				else:
-					x = head(X) * w[...,i,None]
-			X = x
-		else:
-			X = self.heads[0](X)
+			stack += [transformer(X) for transformer in self.transformers]
+		
+		X = tf.concat(stack, axis=-1)
+		X = self.head(X)
 		return X
 	
 	def predict_step(self, data):
