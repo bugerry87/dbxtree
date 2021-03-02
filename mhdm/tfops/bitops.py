@@ -99,7 +99,7 @@ def tokenize(X, dim, depth, axis=0):
 
 
 @tf.function
-def encode(nodes, idx, dim, ftype=tf.int64, Ltype=tf.float32):
+def encode(nodes, idx, dim, ftype=tf.int64, Ltype=tf.int64):
 	with tf.name_scope("encode"):
 		bits = 1<<dim
 		shifts = tf.range(bits)
