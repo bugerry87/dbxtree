@@ -187,7 +187,7 @@ class NbitTreeProbEncoder(Model):
 			return (uids, flags, labels, layer, *args)
 		
 		def filter(uids, flags, labels, layer, *args):
-			return layer == 6 #< meta.tree_depth
+			return layer == meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
