@@ -23,9 +23,8 @@ class NbitTreeProbEncoder(Model):
 	"""
 	def __init__(self,
 		dim=3,
-		kernel=None,
-		kernel_width=3,
-		strides=None,
+		kernels=None,
+		kernel_size=9,
 		convolutions=0,
 		unet=False,
 		transformers=0,
@@ -39,16 +38,15 @@ class NbitTreeProbEncoder(Model):
 		"""
 		super(NbitTreeProbEncoder, self).__init__(name=name, **kwargs)
 		self.dim = dim
-		self.kernel = kernel or self.bins
-		self.kernel_width = kernel_width
-		self.strides = strides or 1<<self.dim
+		self.kernels = kernels or self.bins
+		self.kernel_size = kernel_size
 		self.unet = unet
 		self.floor = floor
 		assert(heads>0)
 
 		if unet:
 			self.conv_down = [Conv1D(
-				self.kernel, 3, 1,
+				self.kernels, self.kernel_size, 1,
 				activation='relu',
 				padding='same',
 				dtype=self.dtype,
@@ -56,7 +54,7 @@ class NbitTreeProbEncoder(Model):
 				**kwargs
 				) for i in range(convolutions)]
 			self.conv_up = [Conv1D(
-				self.kernel, 3, 1,
+				self.kernels, self.kernel_size, 1,
 				activation='relu',
 				padding='same',
 				name='conv_up_{}'.format(i),
@@ -64,7 +62,7 @@ class NbitTreeProbEncoder(Model):
 				) for i in range(convolutions)]
 		else:
 			self.conv = [Conv1D(
-				self.kernel, kernel_width, 1,
+				self.kernels, self.kernel_size, 1,
 				activation='relu',
 				padding='same',
 				dtype=self.dtype,
@@ -72,9 +70,10 @@ class NbitTreeProbEncoder(Model):
 				**kwargs
 				) for i in range(convolutions)]
 		
-		self.transformers = [layers.InnerTransformer(
-			self.kernel,
-			activation='relu',
+		self.transformers = [layers.CovarTransformer(
+			self.kernels, self.kernel_size,
+			layer_type=Conv1D,
+			padding='same',
 			dtype=self.dtype,
 			name='transformer_{}'.format(i),
 			**kwargs
@@ -187,7 +186,7 @@ class NbitTreeProbEncoder(Model):
 			return (uids, flags, labels, layer, *args)
 		
 		def filter(uids, flags, labels, layer, *args):
-			return layer == meta.tree_depth
+			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
@@ -259,9 +258,6 @@ class NbitTreeProbEncoder(Model):
 	def call(self, inputs, training=False, build=False):
 		"""
 		"""
-		layer = tf.math.reduce_sum(tf.math.abs(inputs[0,0]), axis=-1)
-		layer = tf.math.ceil(layer / self.dim)
-		layer = tf.cast(layer, tf.int32)
 		X = inputs
 		X = tf.concat([X>0, X<0], axis=-1)
 		X = tf.cast(X, self.dtype)
@@ -282,7 +278,6 @@ class NbitTreeProbEncoder(Model):
 		if self.transformers:
 			X = [transformer(X) for transformer in self.transformers]
 			X = tf.concat(X, axis=-1)
-			pass
 
 		if len(self.heads) > 1:
 			w = self.head_filter(stack[0])
@@ -296,8 +291,6 @@ class NbitTreeProbEncoder(Model):
 			X = x
 		else:
 			X = self.heads[0](X)
-
-		#X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
 		return X
 	
 	def predict_step(self, data):

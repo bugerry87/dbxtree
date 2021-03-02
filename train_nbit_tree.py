@@ -210,7 +210,7 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--kernel', '-k',
+		'--kernels', '-k',
 		metavar='INT',
 		type=int,
 		default=16,
@@ -267,7 +267,7 @@ def main(
 	permute=None,
 	offset=None,
 	scale=None,
-	kernel=16,
+	kernels=16,
 	convolutions=2,
 	unet=False,
 	transformers=0,
@@ -306,7 +306,7 @@ def main(
 	
 	model = NbitTreeProbEncoder(
 		dim=dim,
-		kernel=kernel,
+		kernels=kernels,
 		convolutions=convolutions,
 		unet=unet,
 		transformers=transformers,

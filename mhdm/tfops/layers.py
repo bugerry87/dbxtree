@@ -15,6 +15,25 @@ from . import bitops
 def arg_filter(trainable=True, dtype=None, dynamic=False, **kwargs):
 	return dict(trainable=trainable, dtype=dtype, dynamic=dynamic)
 
+@tf.function
+def cov(a, b=None, axis=0, normalize=True):
+	m = tf.math.reduce_mean(a, axis=axis, keepdims=True)
+	am = a - m
+
+	if b is None:
+		bm = am
+	else:
+		m = tf.math.reduce_mean(b, axis=axis, keepdims=True)
+		bm = b - m
+	c = tf.linalg.matmul(am, bm, transpose_a=True)
+
+	if normalize:
+		n = tf.ones_like(a)
+		n = tf.math.reduce_sum(n, axis=axis, keepdims=True)
+		c /= tf.math.reduce_max(n)
+	return c
+
+
 class NbitTreeEncoder(Layer):
 	"""
 	"""
@@ -472,6 +491,62 @@ class OuterTransformer(Layer):
 			return self.t.count_params()
 		else:
 			return 0		
+	
+	def get_config(self):
+		return self.config
+
+
+class CovarTransformer(Layer):
+	"""
+	"""
+	def __init__(self,
+		*args,
+		axis=1,
+		layer_type=Dense,
+		layer_args={},
+		normalize=True,
+		name='CovarTransformer',
+		**kwargs
+		):
+		"""
+		"""
+		super(CovarTransformer, self).__init__(name=name, **arg_filter(**kwargs))
+		self.normalize = normalize
+		
+		if layer_type is not None:
+			self.layer = layer_type(*args, name='out', **layer_args, **kwargs)
+		else:
+			self.layer = None
+		
+		self.config = dict(
+			args = args,
+			normalize = normalize,
+			layer_type = layer_type,
+			layer_args = layer_args,
+			name = name,
+			**kwargs
+			)
+		pass
+
+	def build(self, input_shape):
+		if self.layer is not None:
+			self.layer.build(input_shape)
+		return self
+	
+	def call(self, X):
+		"""
+		"""
+		if self.layer:
+			X = self.layer(X)
+		C = cov(X, normalize=self.normalize)
+		X = tf.linalg.matmul(X, C)
+		return X
+	
+	def count_params(self):
+		if self.layer is None:
+			return 0
+		else:
+			return self.layer.count_params()
 	
 	def get_config(self):
 		return self.config
