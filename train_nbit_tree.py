@@ -377,6 +377,7 @@ def main(
 			)
 	elif tester is not None:
 		history = dict()
+		test_callback.model = model
 		test_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")

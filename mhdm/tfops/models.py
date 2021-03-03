@@ -124,7 +124,7 @@ class NbitTree(Model):
 				X0, permute = bitops.sort(X0, bits=meta.tree_depth, absolute=absolute, reverse=reverse)
 			else:
 				permute = tf.constant([], dtype=X0.dtype)
-			X0 = bitops.tokenize(X0, 1, n_layers)
+			X0 = bitops.tokenize(X0, self.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers)
 			X = [X] * n_layers
@@ -134,14 +134,14 @@ class NbitTree(Model):
 			return X0, X1, layer, X, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
-			uids, idx0 = tf.unique(X0)
-			flags, labels = bitops.encode(X1, idx0, 1, ftype)
+			uids, idx0, counts = tf.unique_with_counts(X0)
+			flags, points_per_node = bitops.encode(X1, idx0, self.dim, ftype)
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, flags, labels, layer, *args)
+			return (uids, flags, points_per_node, layer, *args)
 		
-		def filter(uids, flags, labels, layer, *args):
+		def filter(uids, flags, points_per_node, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -160,24 +160,17 @@ class NbitTree(Model):
 	def trainer(self, *args,
 		encoder=None,
 		meta=None,
-		balance=0,
 		**kwargs
 		):
 		"""
 		"""
-		def filter_labels(uids, flags, labels, layer, *args):
+		def filter_labels(uids, flags, points_per_node, layer, *args):
 			m = tf.range(uids.shape[-1]) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			uids = tf.roll(uids, uids.shape[-1]-(layer+1), axis=-1)
-			labels = tf.cast(labels, self.dtype)
+			labels = tf.cast(points_per_node, self.dtype)
 			labels /= tf.norm(labels, ord=1, axis=-1, keepdims=True)
-			if balance:
-				weights = tf.size(flags)
-				weights = tf.cast(weights, self.dtype)
-				weights = tf.ones_like(flags, dtype=self.dtype) - tf.math.exp(-weights/balance)
-				return uids, labels, weights
-			else:
-				return uids, labels
+			return uids, labels
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
@@ -205,6 +198,8 @@ class NbitTree(Model):
 		return self.trainer(*args, encoder=encoder, **kwargs)
 	
 	def build(self, input_shape=None, meta=None):
+		"""
+		"""
 		if input_shape:
 			super(NbitTree, self).build(input_shape)
 		else:
@@ -230,30 +225,38 @@ class NbitTree(Model):
 		return X
 	
 	@property
+	def dim(self):
+		return 1
+
+	@property
 	def output_size(self):
 		return 2
-	
+
 	@staticmethod
-	def parse(filename, meta):
-		from .. import bitops
-		buffer = bitops.BitBuffer(filename)
-		remains = buffer.read(5)
+	def parse(self, filename):
+		from ..bitops import BitBuffer
+		buffer = BitBuffer(filename)
+		remains = np.array([buffer.read(5)])
 		while len(buffer):
+			counts = [buffer.read(r) for r in remains]
+			remains = remains - counts
+			remains = np.hstack([remains, counts]).T
+			flags = remains > 0
+			remains = remains[flags]
+			yield flags
 	
-	@staticmethod
-	def decode(probs, nodes, remains, buffer=tf.constant([0], dtype=tf.int64)):
+	def decode(self, probs, flags, X=tf.constant([0], dtype=tf.int64)):
 		"""
 		"""
-		flags = tf.reshape(probs, (-1,1))
-		flags = bitops.right_shift(flags, np.arange(2))
-		flags = bitops.bitwise_and(flags, 1)
-		X = tf.where(flags)
-		i = X[...,0]
-		X = X[...,1]
-		buffer = bitops.left_shift(buffer, 1)
-		X = X + tf.gather(buffer, i)
-		remains = remains 
-		return X, remains
+		probs = tf.reshape(probs, (-1, self.output_size))
+		probs = tf.argmin(probs, axis=-1)
+		x = tf.where(flags)
+		i = x[...,0]
+		x = x[...,1]
+		x = bitops.bitwise_xor(x, probs)
+		X = bitops.left_shift(X, self.dim)
+		X = x + tf.gather(X, i)
+		return X
 	
 	@staticmethod
 	def finalize(X, meta, permute=None, offset=None, scale=None):

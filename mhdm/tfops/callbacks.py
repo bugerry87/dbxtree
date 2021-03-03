@@ -35,21 +35,22 @@ class TestCallback(LambdaCallback):
 		bpp_sum = 0
 		bpp_min = (1<<32)-1
 		bpp_max = 0
-		self.model.reset_metrics()
 		
 		for i, sample, data in zip(range(self.steps), self.samples, self.data):
 			uids, labels = sample[:2]
+			flags data[1].numpy()
 			points_per_node = data[2].numpy()
 			layer = data[3].numpy()
 			if layer == 0:
 				bit_count = 0
 				total_points = points_per_node.sum()
-			metrics = self.model.test_on_batch(uids, labels, reset_metrics=False, return_dict=True)
+				Y = tf.constant([0], dtype=tf.int64)
 			probs = self.model.predict_on_batch(uids)
 			probs = probs.reshape(-1, self.meta.output_size)
 			nodes = np.where(probs[:,0]>probs[:,1], points_per_node[:,0], points_per_node[:,1])
 			bits_per_node = [int(n).bit_length() for n in nodes]
 			bit_count += sum(bits_per_node)
+			Y = self.model.decode(probs, flags, Y)
 
 			if layer == self.meta.tree_depth-1:
 				bpp = float(bit_count) / float(total_points)
@@ -57,9 +58,11 @@ class TestCallback(LambdaCallback):
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
 		
-		metrics['bpp'] = bpp_sum / self.meta.num_of_files
-		metrics['bpp_min'] = bpp_min
-		metrics['bpp_max'] = bpp_max
+		metrics = dict(
+			bpp = bpp_sum / self.meta.num_of_files,
+			bpp_min = bpp_min,
+			bpp_max = bpp_max
+			)
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name
