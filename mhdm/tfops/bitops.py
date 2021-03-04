@@ -105,12 +105,12 @@ def encode(nodes, idx, dim, ftype=tf.int64, Ltype=tf.int64):
 		shifts = tf.range(bits)
 		shifts = tf.cast(shifts, ftype)
 		flags = bitwise_and(nodes, bits-1)
-		points_per_node = tf.one_hot(flags, bits, dtype=Ltype)
-		points_per_node = tf.math.unsorted_segment_sum(points_per_node, idx, idx[-1]+1)
-		flags = tf.cast(points_per_node>0, ftype)
+		hist = tf.one_hot(flags, bits, dtype=Ltype)
+		hist = tf.math.unsorted_segment_sum(hist, idx, idx[-1]+1)
+		flags = tf.cast(hist>0, ftype)
 		flags = left_shift(flags, shifts)
 		flags = tf.math.reduce_sum(flags, axis=-1)
-	return flags, points_per_node
+	return flags, hist
 
 
 @tf.function

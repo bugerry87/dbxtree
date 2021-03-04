@@ -67,13 +67,7 @@ def encode(X,
 			fbit = len(X).bit_length()
 			if tail > 1:
 				m = (X & 1).astype(bool)
-				right = np.sum(m)
-				left = len(X) - right
-				if right >= left:
-					flag = right
-				else:
-					flag = left
-					m[:] = ~m
+				flag = np.sum(m)
 				if len(X) != flag:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
 				if flag:
@@ -94,8 +88,6 @@ def encode(X,
 						yield expand(X[m]>>dim, layer+1, max(tail - dim, 1))
 					else:
 						local.points += 1
-			if flag == 0b11:
-				fbit = 0
 		
 		if flags:
 			flags.write(flag, fbit, soft_flush=True)

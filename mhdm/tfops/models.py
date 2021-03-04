@@ -127,21 +127,20 @@ class NbitTree(Model):
 			X0 = bitops.tokenize(X0, self.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers)
-			X = [X] * n_layers
 			permute = [permute] * n_layers
 			offset = [offset] * n_layers
 			scale = [scale] * n_layers
-			return X0, X1, layer, X, permute, offset, scale
+			return X0, X1, layer, X1, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0, counts = tf.unique_with_counts(X0)
-			flags, points_per_node = bitops.encode(X1, idx0, self.dim, ftype)
+			flags, hist = bitops.encode(X1, idx0, self.dim, ftype)
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, flags, points_per_node, layer, *args)
+			return (uids, counts, flags, hist, layer, *args)
 		
-		def filter(uids, flags, points_per_node, layer, *args):
+		def filter(uids, counts, flags, hist, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -164,11 +163,11 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def filter_labels(uids, flags, points_per_node, layer, *args):
+		def filter_labels(uids, counts, flags, hist, layer, *args):
 			m = tf.range(uids.shape[-1]) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			uids = tf.roll(uids, uids.shape[-1]-(layer+1), axis=-1)
-			labels = tf.cast(points_per_node, self.dtype)
+			labels = tf.cast(hist, self.dtype)
 			labels /= tf.norm(labels, ord=1, axis=-1, keepdims=True)
 			return uids, labels
 	
@@ -227,6 +226,10 @@ class NbitTree(Model):
 	@property
 	def dim(self):
 		return 1
+	
+	@property
+	def flag_size(self):
+		return 1<<self.dim
 
 	@property
 	def output_size(self):
@@ -245,15 +248,15 @@ class NbitTree(Model):
 			remains = remains[flags]
 			yield flags
 	
-	def decode(self, probs, flags, X=tf.constant([0], dtype=tf.int64)):
+	def decode(self, flags, X=tf.constant([0], dtype=tf.int64)):
 		"""
 		"""
-		probs = tf.reshape(probs, (-1, self.output_size))
-		probs = tf.argmin(probs, axis=-1)
+		flags = tf.reshape(flags, (-1, 1))
+		flags = bitops.right_shift(flags, np.arange(self.flag_size))
+		flags = bitops.bitwise_and(flags, 1)
 		x = tf.where(flags)
 		i = x[...,0]
 		x = x[...,1]
-		x = bitops.bitwise_xor(x, probs)
 		X = bitops.left_shift(X, self.dim)
 		X = x + tf.gather(X, i)
 		return X

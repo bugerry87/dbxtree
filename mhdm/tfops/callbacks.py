@@ -4,6 +4,9 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
+## Local
+from .. import bitops
+
 
 class TestCallback(LambdaCallback):
 	"""
@@ -24,6 +27,7 @@ class TestCallback(LambdaCallback):
 		self.steps = steps or meta.num_of_samples
 		self.freq = freq
 		self.writer = writer
+		self.buffer = bitops.BitBuffer()
 		pass
 
 	def __call__(self, *args):
@@ -38,26 +42,31 @@ class TestCallback(LambdaCallback):
 		
 		for i, sample, data in zip(range(self.steps), self.samples, self.data):
 			uids, labels = sample[:2]
-			flags data[1].numpy()
-			points_per_node = data[2].numpy()
-			layer = data[3].numpy()
+			counts = data[1].numpy()
+			hist = data[3].numpy()
+			layer = data[4].numpy()
 			if layer == 0:
-				bit_count = 0
-				total_points = points_per_node.sum()
-				Y = tf.constant([0], dtype=tf.int64)
+				total_points = counts.sum()
+				bits = int(total_points).bit_length()
+				self.buffer.open('data/test_{}.bin'.format(i), mode='wb')
+				self.buffer.write(bits, 5, soft_flush=True)
+				self.buffer.write(total_points, bits, soft_flush=True)
+				bits_per_node = [bits]
 			probs = self.model.predict_on_batch(uids)
 			probs = probs.reshape(-1, self.meta.output_size)
-			nodes = np.where(probs[:,0]>probs[:,1], points_per_node[:,0], points_per_node[:,1])
-			bits_per_node = [int(n).bit_length() for n in nodes]
-			bit_count += sum(bits_per_node)
-			Y = self.model.decode(probs, flags, Y)
+			nodes = np.where(probs[:,0]>probs[:,1], hist[:,0], hist[:,1])
+			assert(len(nodes) == len(bits_per_node))
+			for bits, points in zip(bits_per_node, nodes):
+				self.buffer.write(points, bits, soft_flush=True)
+			bits_per_node = [int(h).bit_length() for h in hist[hist>0]]
 
 			if layer == self.meta.tree_depth-1:
-				bpp = float(bit_count) / float(total_points)
+				bpp = len(self.buffer) / float(total_points)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
 		
+		self.buffer.close()
 		metrics = dict(
 			bpp = bpp_sum / self.meta.num_of_files,
 			bpp_min = bpp_min,
