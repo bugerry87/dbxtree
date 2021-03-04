@@ -13,7 +13,7 @@ from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, TerminateOnNaN
 
 ## Local
-from mhdm.tfops.models import NbitTreeProbEncoder
+from mhdm.tfops.models import NbitTree
 from mhdm.tfops.metrics import RegularizedCrossentropy
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
@@ -202,14 +202,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--heads', '-H',
-		metavar='INT',
-		type=int,
-		default=1,
-		help='Number of output heads'
-		)
-	
-	main_args.add_argument(
 		'--kernels', '-k',
 		metavar='INT',
 		type=int,
@@ -304,13 +296,12 @@ def main(
 	if kwargs:
 		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
-	model = NbitTreeProbEncoder(
+	model = NbitTree(
 		dim=dim,
 		kernels=kernels,
 		convolutions=convolutions,
 		unet=unet,
 		transformers=transformers,
-		heads=heads,
 		floor=floor,
 		name=name,
 		**kwargs

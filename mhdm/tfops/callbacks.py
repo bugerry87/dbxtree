@@ -27,6 +27,7 @@ class TestCallback(LambdaCallback):
 		self.steps = steps or meta.num_of_samples
 		self.freq = freq
 		self.writer = writer
+		self.encoder = encoder
 		pass
 
 	def __call__(self, *args):
@@ -42,26 +43,36 @@ class TestCallback(LambdaCallback):
 		
 		for i, sample, data in zip(range(self.steps), self.samples, self.data):
 			uids, labels = sample[:2]
-			points_per_node = data[2].numpy()
-			layer = data[3].numpy()
+			layer = data[2].numpy()
+			num_points = len(data[3])
+			tree_end = layer == self.meta.tree_depth-1
+			encode = self.encoder is None and tree_end
 			if layer == 0:
-				bit_count = 32
+				self.encoder and self.encoder.reset()
+				probs = np.zeros((0, self.meta.bins), dtype=self.meta.dtype)
+				acc_labels = labels
+			else:
+				acc_labels = tf.concat([acc_labels, labels], axis=1)
 			metrics = self.model.test_on_batch(uids, labels, reset_metrics=False, return_dict=True)
-			probs = self.model.predict_on_batch(uids)
-			probs = probs.reshape(-1, self.meta.bins)
-			points = np.where(probs[:,0]>probs[:,1], points_per_node[:,0], points_per_node[:,1])
-			bit_count += sum([int(p).bit_length() for p in points])
+			probs, code = self.model.predict_on_batch((uids, probs, acc_labels, encode))
+			code = code[0]
+			
+			if self.encoder:
+				labels = labels.numpy().reshape(-1, self.meta.bins)
+				labels = np.nonzero()[-1]
+				cdfs = range_coder.cdf(probs, precision=16, floor=self.model.floor)
+				code = self.encoder.updates(labels, cdfs)
 
-			if layer == self.meta.tree_depth-1:
-				total_points = points_per_node.sum()
-				bpp = float(bit_count) / float(total_points)
+			if tree_end:
+				bpp = float(len(code) * 8 / num_points)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
 		
-		metrics['bpp'] = bpp_sum / self.meta.num_of_files
-		metrics['bpp_min'] = bpp_min
-		metrics['bpp_max'] = bpp_max
+		if code:
+			metrics['bpp'] = bpp_sum / self.meta.num_of_files
+			metrics['bpp_min'] = bpp_min
+			metrics['bpp_max'] = bpp_max
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name

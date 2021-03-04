@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 
 ## Local
-from mhdm.tfops.models import NbitTreeProbEncoder
+from mhdm.tfops.models import NbitTree
 from mhdm import viz
 
 
@@ -19,7 +19,7 @@ if __name__ == '__main__':
 	k = 16
 	animate = False
 	
-	model = NbitTreeProbEncoder(2, k, transformers=4, normalize=False)
+	model = NbitTree(2, k, transformers=4, normalize=False)
 	model.load_weights(model_name)
 	model.build(tf.TensorShape([1,None,48]))
 	model.summary()
@@ -40,8 +40,8 @@ if __name__ == '__main__':
 				if layer == 0:
 					buffer = tf.constant([0], dtype=tf.int64)
 				
-				buffer = NbitTreeProbEncoder.decode(flags, meta, buffer)
-				X = NbitTreeProbEncoder.finalize(buffer, meta, offset, scale)
+				buffer = NbitTree.decode(flags, meta, buffer)
+				X = NbitTree.finalize(buffer, meta, offset, scale)
 				x = X.numpy()
 				
 				if layer < meta.tree_depth:

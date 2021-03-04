@@ -12,8 +12,14 @@ from . import bitops
 from . import layers
 from .. import utils
 
+## Optional
+try:
+	import tensorflow_compression as tfc
+except ModuleNotFoundError:
+	tfc = None
 
-class NbitTreeProbEncoder(Model):
+
+class NbitTree(Model):
 	"""
 	"""
 	def __init__(self,
@@ -23,7 +29,6 @@ class NbitTreeProbEncoder(Model):
 		convolutions=0,
 		unet=False,
 		transformers=0,
-		heads=1,
 		floor=0.0,
 		dtype=tf.float32,
 		name=None,
@@ -31,7 +36,7 @@ class NbitTreeProbEncoder(Model):
 		):
 		"""
 		"""
-		super(NbitTreeProbEncoder, self).__init__(name=name, **kwargs)
+		super(NbitTree, self).__init__(name=name, **kwargs)
 		self.dim = dim
 		self.kernels = kernels or self.bins
 		self.kernel_size = kernel_size
@@ -136,21 +141,22 @@ class NbitTreeProbEncoder(Model):
 				permute = tf.constant([], dtype=X0.dtype)
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
+			X = [X] * n_layers
 			layer = tf.range(n_layers)
 			permute = [permute] * n_layers
 			offset = [offset] * n_layers
 			scale = [scale] * n_layers
-			return X0, X1, layer, permute, offset, scale
+			return X0, X1, layer, X, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
 			uids, idx0 = tf.unique(X0)
-			flags, labels = bitops.encode(X1, idx0, meta.dim, ftype)
+			flags = bitops.encode(X1, idx0, meta.dim, ftype)[0]
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.word_length, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, flags, labels, layer, *args)
+			return (uids, flags, layer, *args)
 		
-		def filter(uids, flags, labels, layer, *args):
+		def filter(uids, flags, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -174,16 +180,18 @@ class NbitTreeProbEncoder(Model):
 		):
 		"""
 		"""
-		def filter_labels(uids, flags, labels, layer, *args):
+		def filter_labels(uids, flags, layer, *args):
 			m = tf.range(uids.shape[-1]) <= layer * self.dim
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			uids = tf.roll(uids, uids.shape[-1]-(layer+1)*self.dim, axis=-1)
-			labels = tf.cast(labels, self.dtype)
-			labels /= tf.norm(labels, ord=1, axis=-1, keepdims=True)
+			labels = bitops.right_shift(flags[..., None], tf.range(self.flag_size, dtype=flags.dtype))
+			labels = bitops.bitwise_and(labels, 1)
+			labels = tf.cast(labels, tf.uint8)
+			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
 			if balance:
 				weights = tf.size(flags)
-				weights = tf.cast(weights, self.dtype)
-				weights = tf.ones_like(flags, dtype=self.dtype) - tf.math.exp(-weights/balance)
+				weights = tf.cast(weights, tf.float32)
+				weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/balance)
 				return uids, labels, weights
 			else:
 				return uids, labels
@@ -215,7 +223,7 @@ class NbitTreeProbEncoder(Model):
 	
 	def build(self, input_shape=None, meta=None):
 		if input_shape:
-			super(NbitTreeProbEncoder, self).build(input_shape)
+			super(NbitTree, self).build(input_shape)
 		else:
 			self.meta = meta or self.meta
 			dummy = tf.ones(self.meta.word_length)[None, None, ...]
@@ -237,7 +245,40 @@ class NbitTreeProbEncoder(Model):
 		
 		X = tf.concat(stack, axis=-1)
 		X = self.head(X)
+		X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
 		return X
+	
+	def predict_step(self, data):
+		"""
+		"""
+		def encode():
+			if tfc is None:
+				tf.get_logger().warn(
+					"Model has no range_encoder and will only return raw probabilities and an empty string. " \
+					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
+					)
+				return tf.constant([''])
+			
+			symbols = tf.reshape(labels, (-1, self.bins))
+			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
+			
+			cdf = probs
+			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
+			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
+			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
+			cdf = tf.cast(cdf * float(1<<16), tf.int32)
+			cdf = tf.pad(cdf, [(0,0),(1,0)])
+			code = tfc.range_encode(symbols, cdf, precision=16)
+			return tf.expand_dims(code, axis=0)
+		
+		def ignore():
+			return tf.constant([''])
+		
+		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
+		uids, probs, labels, do_encode = X
+		probs = tf.concat([probs, tf.reshape(self(uids, training=False), (-1, self.bins))], axis=0)
+		code = tf.cond(do_encode, encode, ignore)
+		return probs, code
 
 	@property
 	def flag_size(self):
@@ -249,7 +290,7 @@ class NbitTreeProbEncoder(Model):
 	
 	@property
 	def output_size(self):
-		return self.flag_size
+		return self.flag_size * self.bins
 	
 	@staticmethod
 	def decode(flags, meta, buffer=tf.constant([0], dtype=tf.int64)):
