@@ -39,38 +39,51 @@ class TestCallback(LambdaCallback):
 		bpp_sum = 0
 		bpp_min = (1<<32)-1
 		bpp_max = 0
+		overflows = 0
 		
 		for i, sample, data in zip(range(self.steps), self.samples, self.data):
 			uids, labels = sample[:2]
-			counts = data[1].numpy()
 			hist = data[3].numpy()
 			layer = data[4].numpy()
 			if layer == 0:
+				overflow = 0
+				counts = data[1].numpy()
 				total_points = counts.sum()
 				bits = int(total_points).bit_length()
+				bits_per_node = [bits]
 				self.buffer.open('data/test_{}.bin'.format(i), mode='wb')
 				self.buffer.write(bits, 5, soft_flush=True)
 				self.buffer.write(total_points, bits, soft_flush=True)
-				bits_per_node = [bits]
 			probs = self.model.predict_on_batch(uids)
 			probs = probs.reshape(-1, self.meta.output_size)
-			nodes = np.where(probs[:,0]>probs[:,1], hist[:,0], hist[:,1])
-			assert(len(nodes) == len(bits_per_node))
+			probs /= np.linalg.norm(probs, ord=1, axis=-1, keepdims=True)
+			minor = np.where(probs[:,0]<probs[:,1], hist[:,0], hist[:,1])
+			probs = np.maximum(probs.min(axis=-1), overflow)
+			bits_per_node = np.ceil(np.log2(probs * counts + 1)).astype(int)
+			mask = (1<<bits_per_node)-1
+			nodes = np.minimum(minor, mask)
+			counts = np.minimum(hist, mask[...,None])
+			counts = counts[counts>0]
+			overflow = counts > hist[hist>0]
+			
 			for bits, points in zip(bits_per_node, nodes):
 				self.buffer.write(points, bits, soft_flush=True)
-			bits_per_node = [int(h).bit_length() for h in hist[hist>0]]
 
 			if layer == self.meta.tree_depth-1:
 				bpp = len(self.buffer) / float(total_points)
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
+			else:
+				overflows += (minor > nodes).sum()
+
 		
 		self.buffer.close()
 		metrics = dict(
 			bpp = bpp_sum / self.meta.num_of_files,
 			bpp_min = bpp_min,
-			bpp_max = bpp_max
+			bpp_max = bpp_max,
+			overflows = overflows / self.meta.num_of_files
 			)
 		
 		for name, metric in metrics.items():

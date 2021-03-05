@@ -20,8 +20,10 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 	X += offset
 	if scale is None:
 		scale = X.max(axis=0)
-		m = scale != 0
-		scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
+	else:
+		scale = np.array(scale)
+	m = scale != 0
+	scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
 	X *= scale
 	X = np.round(X).astype(qtype)
 	return X, offset, scale 
