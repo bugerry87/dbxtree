@@ -67,10 +67,21 @@ def encode(X,
 			fbit = len(X).bit_length()
 			if tail > 1:
 				m = (X & 1).astype(bool)
-				flag = np.sum(m)
-				if len(X) != flag:
+				right = np.sum(m)
+				left = len(X) - right
+
+				if fbit == 1 or right <= left:
+					flag = minor = right
+					major = left
+				else:
+					flag = left + (1<<fbit-1)
+					minor = left
+					major = right
+					m ^= True
+				
+				if major:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
-				if flag:
+				if minor:
 					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
 				flag = np.sum((X & 1).astype(bool))
@@ -159,12 +170,17 @@ def decode(Y, num_points,
 				X[local.points] = x
 				local.points += 1
 		elif dim == -1:
-			right = n - flag
+			if fbit > 1:
+				xor = flag >> fbit-1
+				flag ^= 1 << fbit-1
+			minor = flag
+			major = n - flag
+
 			if tail > 1:
-				if right > 0:
-					yield expand(x.copy(), layer+1, pos+1, right)
-				if flag > 0:
-					yield expand(x | 1<<pos, layer+1, pos+1, flag)
+				if major > 0:
+					yield expand(x | (0^xor)<<pos, layer+1, pos+1, major)
+				if minor > 0:
+					yield expand(x | (1^xor)<<pos, layer+1, pos+1, minor)
 			else:
 				X[local.points] = x | bool(flag)<<pos
 				local.points += 1
