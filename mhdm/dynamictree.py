@@ -64,27 +64,17 @@ def encode(X,
 		elif len(X) == 0:
 			pass
 		elif dim == -1:
-			fbit = len(X).bit_length()
+			fbit = min(len(X), 2)
 			if tail > 1:
 				m = (X & 1).astype(bool)
-				right = np.sum(m)
-				left = len(X) - right
-
-				if fbit == 1 or right <= left:
-					flag = minor = right
-					major = left
-				else:
-					flag = left + (1<<fbit-1)
-					minor = left
-					major = right
-					m ^= True
+				flag = fbit & 2 | np.any(m)
 				
-				if major:
+				if flag & 2 or flag == 0:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
-				if minor:
+				if flag:
 					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
-				flag = np.sum((X & 1).astype(bool))
+				flag = np.any(X & 1)
 				local.points += len(X)
 		elif payload and len(X) == 1:
 			payload.write(int(X), tail, soft_flush=True)
