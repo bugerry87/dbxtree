@@ -35,47 +35,50 @@ def encode(X,
 	if payload is True:
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
 
-	def expand(X, layer, tail, skip=False):
+	def expand(X, layer, tail, fbit=2):
 		if dims:
 			dim = dims[layer] if layer < len(dims) else dims[-1]
 		else:
-			dim = -1
-		fbit = 1<<dim if dim >= 0 else 1
+			dim = 0
+		
+		if dim > 0:
+			fbit = 1<<dim
 		flag = 0
 
-		if dim == 0:
-			if tail > 0:
-				m = (X & 1).astype(bool)
-				if np.any(m):
-					flag = 1
-					yield expand(X[~m]>>1, layer+1, max(tail-1, 0))
-					yield expand(X[m]>>1, layer+1, max(tail-1, 0))
-				elif skip:
-					yield expand(X[~m]>>1, layer+1, max(tail-1, 0))
-				elif np.any(~m):
-					flag = 1
-					fbit = 2
-					yield expand(X[~m]>>1, layer+1, max(tail-1, 0), True)
-				else:
-					fbit = 2
-			elif len(X):
-				flag = 1
-				local.points += 1
-		elif len(X) == 0:
+		if len(X) == 0:
 			pass
 		elif dim == -1:
-			fbit = min(len(X), 2)
+			fbit = len(X).bit_length()
 			if tail > 1:
 				m = (X & 1).astype(bool)
-				flag = fbit & 2 | np.any(m)
-				
-				if flag & 2 or flag == 0:
+				flag = np.sum(m)
+				if len(X) != flag:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
 				if flag:
 					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
-				flag = np.any(X & 1)
+				flag = np.sum((X & 1).astype(bool))
 				local.points += len(X)
+		elif dim == 0:
+			m = (X & 1).astype(bool)
+			flag = min(len(X),2)
+			pyl = np.any(m)
+			overflow = flag | (np.any(~m)<<1) & fbit & 2
+
+			if tail > 1:
+				if overflow:
+					yield expand(X[~m]>>1, layer+1, max(tail-1, 1), 2)
+				elif not pyl:
+					yield expand(X[~m]>>1, layer+1, max(tail-1, 1), 1)
+				if pyl:
+					yield expand(X[m]>>1, layer+1, max(tail-1, 1), flag)
+			else:
+				local.points += 1
+
+			if payload:
+				payload.write(pyl, 1, soft_flush=True)
+			else:
+				flag = overflow | pyl
 		elif payload and len(X) == 1:
 			payload.write(int(X), tail, soft_flush=True)
 			local.points += 1
@@ -140,40 +143,38 @@ def decode(Y, num_points,
 		if dim == -1:
 			fbit = n.bit_length()
 		elif dim == 0:
-			fbit = 1
+			fbit = min(n, 2)
 		else:
 			fbit = 1<<dim 
 		flag = Y.read(fbit)
 		
-		if dim == 0:
-			if tail > 0:
-				if flag:
-					yield expand(x.copy(), layer+1, pos+1)
-					yield expand(x | 1<<pos, layer+1, pos+1)
-				elif n:
-					yield expand(x.copy(), layer+1, pos+1)
-				else:
-					flag = Y.read(fbit)
-					if flag:
-						yield expand(x.copy(), layer+1, pos+1, True)
-			elif flag:
-				X[local.points] = x
+		if dim == -1:
+			right = flag
+			left = n - right
+			if tail > 1:
+				if left > 0:
+					yield expand(x.copy(), layer+1, pos+1, left)
+				if right > 0:
+					yield expand(x | 1<<pos, layer+1, pos+1, right)
+			else:
+				X[local.points] = x | bool(right)<<pos
 				local.points += 1
-		elif dim == -1:
-			if fbit > 1:
-				xor = flag >> fbit-1
-				flag ^= 1 << fbit-1
-			minor = flag
-			major = n - flag
+		elif dim == 0:
+			overflow = flag >> 1
+			right = flag & 1
 
 			if tail > 1:
-				if major > 0:
-					yield expand(x | (0^xor)<<pos, layer+1, pos+1, major)
-				if minor > 0:
-					yield expand(x | (1^xor)<<pos, layer+1, pos+1, minor)
+				if fbit == 2 and not flag:
+					pass
+				elif overflow:
+					yield expand(x.copy(), layer+1, pos+1, 2)
+				elif not right:
+					yield expand(x.copy(), layer+1, pos+1, 1)
+				if right:
+					yield expand(x | 1<<pos, layer+1, pos+1, overflow<<1)
 			else:
-				X[local.points] = x | bool(flag)<<pos
-				local.points += 1
+				X[local.points] = x | right<<pos
+				local.points += overflow + 1
 		elif flag == 0:
 			if payload:
 				x |= payload.read(tail) << pos
@@ -190,7 +191,7 @@ def decode(Y, num_points,
 			pass
 		
 		if log.verbose:
-			progress = 100.0 * Y.tell() / len(Y)
+			progress = 800.0 * Y.tell() / len(Y)
 			flag = hex(flag)[2:] if dim else flag
 			log(msg.format(layer, flag, local.points, progress), end='\r', flush=True)
 		pass
