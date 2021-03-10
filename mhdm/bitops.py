@@ -125,7 +125,7 @@ class BitBuffer():
 	def __init__(self,
 		filename=None,
 		mode='rb',
-		interval=8,
+		interval=1,
 		buf=1024
 		):
 		"""
@@ -155,12 +155,18 @@ class BitBuffer():
 	def __del__(self):
 		self.close()
 	
+	def __next__(self):
+		try:
+			return self.read(self.interval)
+		except (EOFError, BufferError):
+			raise StopIteration()
+	
 	def __iter__(self):
 		try:
 			while True:
 				yield self.read(self.interval)
 		except (EOFError, BufferError):
-			raise StopIteration
+			pass
 	
 	def __bytes__(self):
 		n_bits = self.buffer.bit_length()

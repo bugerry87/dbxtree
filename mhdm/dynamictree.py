@@ -35,7 +35,7 @@ def encode(X,
 	if payload is True:
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
 
-	def expand(X, layer, tail, remains=1):
+	def expand(X, layer, tail):
 		if dims:
 			dim = dims[layer] if layer < len(dims) else dims[-1]
 		else:
@@ -44,25 +44,31 @@ def encode(X,
 		if dim > 0:
 			fbit = 1<<dim
 		else:
-			fbit = max(int(remains).bit_length() - 1, 1)
+			fbit = max(len(X).bit_length() - 1, 1)
 		flag = 0
 
-		if len(X) == 0:
-			pass
-		elif dim == -1:
-			mask = (1<<fbit)-1
+		if dim == -1:
 			m = (X & 1).astype(bool)
-			flag = min(np.sum(m), mask)
-			overflow = flag == mask
-			local.overflows += len(X)>1
+			overflow = (1<<fbit)-1
+			node = np.sum(m)
+			if node >= len(X) - node:
+				m[:] = ~m
+				node = len(X) - node
+
+			if node < overflow:
+				flag = node
+			else:
+				flag = (overflow << fbit) | (node - overflow)
+				local.overflows += fbit
+				fbit *= 2
 
 			if tail > 1:
-				if overflow or flag != remains:
-					yield expand(X[~m]>>1, layer+1, max(tail-1, 1), mask)
-				if flag:
-					yield expand(X[m]>>1, layer+1, max(tail-1, 1), flag)
+				if node < len(X):
+					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
+				if node:
+					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
-				local.points += len(X)
+				local.points += 1
 		elif dim == 0:
 			fbit = len(X).bit_length()
 			m = (X & 1).astype(bool)
@@ -97,7 +103,7 @@ def encode(X,
 			log(msg.format(layer, flag, stack_size, local.points, local.overflows), end='\r', flush=True)
 		pass
 	
-	nodes = deque(expand(X, 0, tree_depth, len(X)))
+	nodes = deque(expand(X, 0, tree_depth))
 	while nodes:
 		node = nodes.popleft() if breadth_first else nodes.pop()
 		nodes.extend(node)
@@ -129,23 +135,38 @@ def decode(Y, num_points,
 
 	tree_depth = tree_depth or np.iinfo(qtype).bits
 	X = np.zeros(num_points, dtype=qtype)
-	local = Prototype(points = 0)
-	msg = "Layer: {:>2}, Flag: {:>16}, Points: {:>8}, Done: {:>3.2f}%"
+	local = Prototype(points=0, overflows=0)
+	msg = "Layer: {:>2}, Flag: {:>16}, Points: {:>8}, Overflows: {:>8}, Done: {:>3.2f}%"
 	
-	def expand(x, layer, pos, n=0):
+	def expand(x, layer, pos, remains=0):
 		tail = max(tree_depth - pos, 0)
 		dim = dims[layer] if layer < len(dims) else dims[-1]
-		if dim == -1:
-			fbit = n.bit_length()
+		if dim > 0:
+			fbit = 1<<dim
 		elif dim == 0:
-			fbit = min(n, 2)
+			fbit = remains.bit_length()
 		else:
-			fbit = 1<<dim 
+			fbit = max(remains.bit_length() - 1, 1)
 		flag = Y.read(fbit)
 		
 		if dim == -1:
+			mask = (1<<fbit) - 1
+			overflow = flag == mask
+			local.overflows += overflow and remains > 1
+
+			if tail > 1:
+				if overflow:
+					yield expand(x.copy(), layer+1, pos+1, mask+1)
+				elif flag < remains:
+					yield expand(x.copy(), layer+1, pos+1, remains - flag)
+				if flag:
+					yield expand(x | 1<<pos, layer+1, pos+1, flag + overflow)
+			else:
+				X[local.points] = x | bool(flag)<<pos
+				local.points += 1
+		elif dim == 0:
 			right = flag
-			left = n - right
+			left = remains - right
 			if tail > 1:
 				if left > 0:
 					yield expand(x.copy(), layer+1, pos+1, left)
@@ -154,22 +175,6 @@ def decode(Y, num_points,
 			else:
 				X[local.points] = x | bool(right)<<pos
 				local.points += 1
-		elif dim == 0:
-			overflow = flag >> 1
-			right = flag & 1
-
-			if tail > 1:
-				if fbit == 2 and not flag:
-					pass
-				elif overflow:
-					yield expand(x.copy(), layer+1, pos+1, 2)
-				elif not right:
-					yield expand(x.copy(), layer+1, pos+1, 1)
-				if right:
-					yield expand(x | 1<<pos, layer+1, pos+1, overflow<<1)
-			else:
-				X[local.points] = x | right<<pos
-				local.points += overflow + 1
 		elif flag == 0:
 			if payload:
 				x |= payload.read(tail) << pos
@@ -188,7 +193,7 @@ def decode(Y, num_points,
 		if log.verbose:
 			progress = 800.0 * Y.tell() / len(Y)
 			flag = hex(flag)[2:] if dim else flag
-			log(msg.format(layer, flag, local.points, progress), end='\r', flush=True)
+			log(msg.format(layer, flag, local.points, local.overflows, progress), end='\r', flush=True)
 		pass
 	
 	nodes = deque(expand(np.zeros(1, dtype=qtype), 0, 0, num_points))
