@@ -44,10 +44,11 @@ def encode(X,
 		if dim > 0:
 			fbit = 1<<dim
 		else:
-			fbit = max(len(X).bit_length() - 1, 1)
+			fbit = len(X).bit_length()
 		flag = 0
 
 		if dim == -1:
+			fbit = max(fbit-1, 1)
 			m = (X & 1).astype(bool)
 			overflow = (1<<fbit)-1
 			node = np.sum(m)
@@ -70,16 +71,32 @@ def encode(X,
 			else:
 				local.points += 1
 		elif dim == 0:
-			fbit = len(X).bit_length()
+			assert len(X)
 			m = (X & 1).astype(bool)
-			flag = np.sum(m)
+			right = np.sum(m)
+			left = len(X) - right
+			if right <= left:
+				minor = right
+				major = left
+				flag = right << 1
+			else:
+				minor = left
+				major = right
+				flag = left << 1 | 1
+				m[:] = ~m
+
 			if tail > 1:
-				if flag != len(X):
+				if major:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
-				if flag:
+				if minor:
 					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
 				local.points += len(X)
+			
+			if payload:
+				payload.write(flag>>1, max(fbit-1, 1), soft_flush=True)
+				flag &= 1
+				fbit = 1
 		elif payload and len(X) == 1:
 			payload.write(int(X), tail, soft_flush=True)
 			local.points += 1
