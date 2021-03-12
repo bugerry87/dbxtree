@@ -270,4 +270,242 @@ class NbitTree(Model):
 			X = bitops.permute(X, permute, meta.tree_depth)
 		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
 		return X
+
+
+class PointRegression(Model):
+	"""
+	"""
+	def __init__(self,
+		kernels=None,
+		kernel_size=3,
+		convolutions=0,
+		transformers=0,
+		dtype=tf.float32,
+		name=None,
+		**kwargs
+		):
+		"""
+		"""
+		super(PointRegression, self).__init__(name=name, **kwargs)
+		self.kernels = kernels or self.output_size
+		self.kernel_size = kernel_size
+
+		self.conv = [Conv1D(
+			self.kernels, self.kernel_size + 2*i, 1,
+			activation='relu',
+			padding='same',
+			dtype=self.dtype,
+			name='conv_{}'.format(i),
+			**kwargs
+			) for i in range(convolutions)]
 		
+		self.transformers = [layers.CovarTransformer(
+			self.kernels,
+			dtype=self.dtype,
+			name='transformer_{}'.format(i),
+			**kwargs
+			) for i in range(transformers)]
+
+		self.head = Dense(
+			self.output_size,
+			activation='softplus',
+			dtype=self.dtype,
+			name='head',
+			**kwargs
+			)
+		pass
+
+	def set_meta(self, index, bits_per_dim,
+		sort_bits=None,
+		permute=None,
+		offset=None,
+		scale=None,
+		xtype='float32',
+		qtype='int64',
+		ftype='int64',
+		**kwargs
+		):
+		"""
+		"""
+		meta = utils.Prototype(
+			output_size = self.output_size,
+			bits_per_dim = bits_per_dim,
+			xtype = xtype,
+			qtype = qtype,
+			ftype = ftype,
+			dtype = self.dtype,
+			sort_bits = sort_bits,
+			permute = permute,
+			offset=offset,
+			scale=scale,
+			**kwargs
+			)
+		meta.input_dims = len(meta.bits_per_dim)
+		meta.tree_depth = sum(meta.bits_per_dim)
+		if isinstance(index, str) and index.endswith('.txt'):
+			meta.index = index
+			with open(index, 'r') as fid:
+				meta.num_of_files = sum(len(L) > 0 for L in fid)
+		else:
+			meta.index = [f for f in utils.ifile(index)]
+			meta.num_of_files = len(index)
+		meta.num_of_samples = meta.num_of_files * meta.tree_depth
+		self.meta = meta
+		return meta
+	
+	def encoder(self, index, bits_per_dim, *args,
+		sort_bits=None,
+		permute=None,
+		offset=None,
+		scale=None,
+		xtype='float32',
+		qtype='int64',
+		ftype='int64',
+		shuffle=0,
+		**kwargs
+		):
+		"""
+		"""
+		meta = self.set_meta(index, bits_per_dim, sort_bits, permute, offset, scale, xtype, qtype, ftype, **kwargs)
+		n_layers = meta.tree_depth+1
+
+		def parse(filename):
+			X = tf.io.read_file(filename)
+			X = tf.io.decode_raw(X, xtype)
+			X = tf.reshape(X, (-1, meta.input_dims))
+			X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
+			if meta.permute is not None:
+				permute = tf.cast(meta.permute, dtype=X.dtype)
+				X = bitops.permute(X, permute, meta.tree_depth)
+			elif meta.sort_bits is not None:
+				absolute = 'absolute' in meta.sort_bits
+				reverse = 'reverse' in meta.sort_bits
+				X, permute = bitops.sort(X, bits=meta.tree_depth, absolute=absolute, reverse=reverse)
+			else:
+				permute = tf.constant([], dtype=X0.dtype)
+			X = bitops.right_shift(X[:,None], tf.range(meta.tree_depth, dtype=X.dtype))
+			X = bitops.bitwise_and(X, 1)
+			return X, permute, offset, scale
+		
+		if isinstance(index, str) and index.endswith('.txt'):
+			encoder = tf.data.TextLineDataset(index)
+		else:
+			encoder = tf.data.Dataset.from_tensor_slices(index)
+		
+		if shuffle:
+			encoder = encoder.shuffle(shuffle)
+		encoder = encoder.map(parse)
+		return encoder, meta
+	
+	def trainer(self, *args,
+		encoder=None,
+		meta=None,
+		**kwargs
+		):
+		"""
+		"""
+		def filter_labels(X, *args):
+			X = X * 2 - 1
+			labels = tf.cast(hist, self.dtype)
+			labels /= tf.norm(labels, ord=1, axis=-1, keepdims=True)
+			return covar, labels
+	
+		if encoder is None:
+			encoder, meta = self.encoder(*args, **kwargs)
+		trainer = encoder.map(filter_labels)
+		trainer = trainer.batch(1)
+		if meta is None:
+			return trainer, encoder
+		else:
+			return trainer, encoder, meta
+	
+	def validator(self, *args,
+		encoder=None,
+		**kwargs
+		):
+		"""
+		"""
+		return self.trainer(*args, encoder=encoder, **kwargs)
+	
+	def tester(self, *args,
+		encoder=None,
+		**kwargs
+		):
+		"""
+		"""
+		return self.trainer(*args, encoder=encoder, **kwargs)
+	
+	def build(self, input_shape=None, meta=None):
+		"""
+		"""
+		if input_shape:
+			super(NbitTree, self).build(input_shape)
+		else:
+			self.meta = meta or self.meta
+			super(NbitTree, self).build(tf.TensorShape((None, None, self.meta.tree_depth)))
+	
+	def call(self, inputs, training=False):
+		"""
+		"""
+		X = inputs
+		stack = [X]
+
+		if self.conv:
+			x = tf.concat([X>0, X<0], axis=-1)
+			x = tf.cast(x, self.dtype)
+			stack += [conv(x) for conv in self.conv]
+		
+		if self.transformers:
+			stack += [transformer(X) for transformer in self.transformers]
+		
+		X = tf.concat(stack, axis=-1)
+		X = self.head(X)
+		return X
+	
+	@property
+	def dim(self):
+		return 1
+	
+	@property
+	def flag_size(self):
+		return 1<<self.dim
+
+	@property
+	def output_size(self):
+		return 2
+
+	@staticmethod
+	def parse(self, filename):
+		from ..bitops import BitBuffer
+		buffer = BitBuffer(filename)
+		remains = np.array([buffer.read(5)])
+		while len(buffer):
+			counts = [buffer.read(r) for r in remains]
+			remains = remains - counts
+			remains = np.hstack([remains, counts]).T
+			flags = remains > 0
+			remains = remains[flags]
+			yield flags
+	
+	def decode(self, flags, X=tf.constant([0], dtype=tf.int64)):
+		"""
+		"""
+		flags = tf.reshape(flags, (-1, 1))
+		flags = bitops.right_shift(flags, np.arange(self.flag_size))
+		flags = bitops.bitwise_and(flags, 1)
+		x = tf.where(flags)
+		i = x[...,0]
+		x = x[...,1]
+		X = bitops.left_shift(X, self.dim)
+		X = x + tf.gather(X, i)
+		return X
+	
+	@staticmethod
+	def finalize(X, meta, permute=None, offset=None, scale=None):
+		"""
+		"""
+		X = tf.reshape(X, (-1,1))
+		if permute is not None:
+			X = bitops.permute(X, permute, meta.tree_depth)
+		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
+		return X
