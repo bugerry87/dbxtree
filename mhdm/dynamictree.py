@@ -27,7 +27,7 @@ def encode(X,
 	tree_depth = tree_depth or np.iinfo(X.dtype).bits
 	stack_size = 0
 	local = Prototype(points=0, overflows=0)
-	msg = "Layer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}, Overflows: {:>8}"
+	msg = "Layer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}, Overflow Bits: {:>8}"
 	
 	if flags is True:
 		flags = BitBuffer(output + '.flg.bin', 'wb') if output else BitBuffer()
@@ -52,9 +52,6 @@ def encode(X,
 			m = (X & 1).astype(bool)
 			overflow = (1<<fbit)-1
 			node = np.sum(m)
-			if node >= len(X) - node:
-				m[:] = ~m
-				node = len(X) - node
 
 			if node < overflow:
 				flag = node
@@ -153,7 +150,7 @@ def decode(Y, num_points,
 	tree_depth = tree_depth or np.iinfo(qtype).bits
 	X = np.zeros(num_points, dtype=qtype)
 	local = Prototype(points=0, overflows=0)
-	msg = "Layer: {:>2}, Flag: {:>16}, Points: {:>8}, Overflows: {:>8}, Done: {:>3.2f}%"
+	msg = "Layer: {:>2}, Flag: {:>16}, Points: {:>8}, Overflows: {:>8}, Done: {:>6.2f}%"
 	
 	def expand(x, layer, pos, remains=0):
 		tail = max(tree_depth - pos, 0)

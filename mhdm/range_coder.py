@@ -5,15 +5,15 @@ import numpy as np
 from . import bitops
 
 
-def cdf(probs, precision=16, floor=0, dtype=np.uint64):
-	probs = np.array(probs, dtype=float)
+def prob2cdf(probs, precision=16, floor=0, dtype=np.uint64):
+	probs = np.array(probs, dtype=float) + floor
 	shape = [*probs.shape]
 	shape[-1] += 1
 	cdf = np.zeros(shape)
-	cdf[..., 1:] = probs + floor
+	cdf[..., 1:] = probs 
 	cdf /= np.linalg.norm(cdf, ord=1, axis=-1, keepdims=True)
 	cdf = np.cumsum(cdf, axis=-1)
-	cdf *= 1<<precision
+	cdf *= (1<<precision) - 1
 	return cdf.astype(dtype)
 
 
@@ -86,6 +86,9 @@ class RangeEncoder(RangeCoder):
 	def __init__(self, filename=None, precision=64):
 		self.output = bitops.BitBuffer(filename, 'wb')
 		super(RangeEncoder, self).__init__(filename, precision)
+	
+	def __len__(self):
+		return len(self.output)
 	
 	def __bytes__(self):
 		buffer = self.output.buffer << 1 | 1
