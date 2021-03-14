@@ -13,8 +13,8 @@ from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, TerminateOnNaN
 
 ## Local
-from mhdm.tfops.models import NbitTreeProbEncoder
-from mhdm.tfops.metrics import FlatTopKAccuracy, RegularizedCosine
+from mhdm.tfops.models import NbitTree
+from mhdm.tfops.metrics import RegularizedCosine
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
 
@@ -127,14 +127,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--dim', '-d',
-		metavar='INT',
-		type=int,
-		default=2,
-		help='Dimensionality of the tree'
-		)
-	
-	main_args.add_argument(
 		'--bits_per_dim', '-B',
 		metavar='INT',
 		nargs='+',
@@ -186,41 +178,21 @@ def init_main_args(parents=[]):
 		default=0,
 		help='Number of convolutions'
 		)
-
+	
 	main_args.add_argument(
-		'--unet', '-U',
-		action='store_true',
-		help="Whether build an UNet or (default) not"
+		'--transformers', '-t',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Number of transformers'
 		)
 	
 	main_args.add_argument(
-		'--transformer', '-t',
-		action='store_true',
-		help='Whether to add an outer transformers or (default) not'
-		)
-	
-	main_args.add_argument(
-		'--kernel', '-k',
+		'--kernels', '-k',
 		metavar='INT',
 		type=int,
 		default=16,
 		help='num of kernel units'
-		)
-	
-	main_args.add_argument(
-		'--smoothing',
-		metavar='FLOAT',
-		type=float,
-		default=0,
-		help="Set a value from [0..1) for label smoothing (default=0)"
-		)
-	
-	main_args.add_argument(
-		'--topk',
-		metavar='INT',
-		type=int,
-		default=5,
-		help="Considering top k (default=5)"
 		)
 	
 	main_args.add_argument(
@@ -243,20 +215,6 @@ def init_main_args(parents=[]):
 		action='store_true',
 		help="Whether to allow cpu or (default) force gpu execution"
 		)
-	
-	main_args.add_argument(
-		'--tensorflow_compression',
-		action='store_true',
-		help="Whether to use tensorflow_compression or (default) not"
-		)
-	
-	main_args.add_argument(
-		'--floor',
-		metavar='FLOAT',
-		type=float,
-		default=0.0,
-		help='Probability floor, added to the estimated probabilities'
-		)
 	return main_args
 
 
@@ -273,23 +231,17 @@ def main(
 	validation_steps=0,
 	test_freq=1,
 	test_steps=0,
-	dim=2,
 	bits_per_dim=[16,16,16,0],
 	sort_bits=None,
 	permute=None,
 	offset=None,
 	scale=None,
-	kernel=16,
+	kernels=16,
 	convolutions=2,
-	unet=False,
-	transformer=False,
-	smoothing=0,
-	topk=5,
+	transformers=0,
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
-	tensorflow_compression=False,
-	floor=0.0,
 	name=None,
 	log_params={},
 	**kwargs
@@ -318,23 +270,16 @@ def main(
 	if kwargs:
 		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
-	model = NbitTreeProbEncoder(
-		dim=dim,
-		kernel=kernel,
+	model = NbitTree(
+		kernels=kernels,
 		convolutions=convolutions,
-		unet=unet,
-		transformer=transformer,
-		tensorflow_compression=tensorflow_compression,
-		floor=floor,
+		transformers=transformers,
 		name=name,
 		**kwargs
 		)
 	
-	tree_depth = sum(bits_per_dim) // dim
-	words = 1<<(1<<dim)
-	mask = tf.Variable(tf.zeros([tree_depth, words]), name='flag_mask')
 	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
-	trainer, train_encoder, train_meta = model.trainer(train_index, smoothing=smoothing, mask=True, **quant_args) if train_index else (None, None, None)
+	trainer, train_encoder, train_meta = model.trainer(train_index, **quant_args) if train_index else (None, None, None)
 	validator, val_encoder, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
 	tester, test_encoder, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
@@ -369,22 +314,19 @@ def main(
 		test_steps *= test_meta.tree_depth
 		if fix_subset:
 			tester = tester.take(test_steps)
-		#else:
-		#	tester = iter(tester.repeat())
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCosine()
-	topk = FlatTopKAccuracy(topk, classes=master_meta.output_size, name='top{}'.format(topk))
+	loss = RegularizedCosine(msle_smoothing=0.1)
 	model.compile(
 		optimizer='adam', 
 		loss=loss,
-		metrics=['accuracy', topk],
+		metrics=['accuracy'],
 		sample_weight_mode='temporal'
 		)
-	model.build_by_meta(master_meta)
+	model.build(meta=master_meta)
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
@@ -435,6 +377,7 @@ def main(
 			)
 	elif tester is not None:
 		history = dict()
+		test_callback.model = model
 		test_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")

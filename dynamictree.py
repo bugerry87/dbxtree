@@ -78,7 +78,7 @@ def init_encode_args(parents=[], subparser=None):
 		'--scale', '-S',
 		type=float,
 		nargs='*',
-		default=[],
+		default=None,
 		metavar='FLOAT',
 		help='Scaling factors for the kitti data'
 		)
@@ -87,7 +87,7 @@ def init_encode_args(parents=[], subparser=None):
 		'--offset', '-O',
 		type=float,
 		nargs='*',
-		default=[],
+		default=None,
 		metavar='FLOAT',
 		help='Offsets for the kitti data'
 		)
@@ -282,6 +282,8 @@ def yield_merged_data(files, xtype=np.float32, dim=3, limit=1, **kwargs):
 def encode(files,
 	dims=[],
 	bits_per_dim=[16,16,16],
+	offset=None,
+	scale=None,
 	bits_for_chunk_id=8,
 	output='',
 	breadth_first=False,
@@ -307,7 +309,7 @@ def encode(files,
 		model = ProbTree(model, breadth_first)
 	
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
-		X, offset, scale = bitops.serialize(X, bits_per_dim, qtype=qtype)
+		X, _offset, _scale = bitops.serialize(X, bits_per_dim, qtype, offset, scale)
 		if sort_bits or absolute:
 			X, permute = bitops.sort(X, tree_depth, reverse, absolute)
 			permute = permute.tolist()
@@ -338,7 +340,7 @@ def encode(files,
 			tree_depth=tree_depth,
 			output=output_file,
 			breadth_first=breadth_first,
-			model=model,
+			callback=model,
 			**kwargs
 			)
 		
@@ -351,8 +353,8 @@ def encode(files,
 				payload = path.basename(payload.name) if payload else False,
 				num_points = len(X),
 				breadth_first = breadth_first,
-				offset = offset.tolist(),
-				scale = scale.tolist(),
+				offset = _offset.tolist(),
+				scale = _scale.tolist(),
 				permute = permute,
 				bits_per_dim=bits_per_dim,
 				xtype = xtype,

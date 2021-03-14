@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
 ## Local
-from .. import range_coder
+from .. import bitops
 
 
 class TestCallback(LambdaCallback):
@@ -75,7 +75,9 @@ class TestCallback(LambdaCallback):
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
-		
+			else:
+				overflows += (minor > nodes).sum()
+
 		if code:
 			metrics['bpp'] = bpp_sum / self.meta.num_of_files
 			metrics['bpp_min'] = bpp_min
@@ -86,14 +88,10 @@ class TestCallback(LambdaCallback):
 			log[name] = metric
 		
 		if self.writer is not None:
-			self.gt_flag_map /= self.gt_flag_map.max()
-			self.pred_flag_map /= self.pred_flag_map.max()
 			with self.writer.as_default():
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
 					tf.summary.scalar(name, metric, step)
-				tf.summary.image('gt_flag_map', self.gt_flag_map, step)
-				tf.summary.image('pred_flag_map', self.pred_flag_map, step)
 			self.writer.flush()
 		pass
 

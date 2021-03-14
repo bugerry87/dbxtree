@@ -15,6 +15,25 @@ from . import bitops
 def arg_filter(trainable=True, dtype=None, dynamic=False, **kwargs):
 	return dict(trainable=trainable, dtype=dtype, dynamic=dynamic)
 
+@tf.function
+def cov(a, b=None, axis=0, normalize=True):
+	m = tf.math.reduce_mean(a, axis=axis, keepdims=True)
+	am = a - m
+
+	if b is None:
+		bm = am
+	else:
+		m = tf.math.reduce_mean(b, axis=axis, keepdims=True)
+		bm = b - m
+	c = tf.linalg.matmul(am, bm, transpose_a=True)
+
+	if normalize:
+		n = tf.ones_like(a)
+		n = tf.math.reduce_sum(n, axis=axis, keepdims=True)
+		c /= tf.math.reduce_max(n)
+	return c
+
+
 class NbitTreeEncoder(Layer):
 	"""
 	"""
@@ -189,7 +208,7 @@ class Euclidean(Layer):
 		self.inverted=inverted
 		self.matrix_mode = matrix_mode
 		if activation is not None:
-			self.activation = Activtion(activation)
+			self.activation = Activation(activation)
 		else:
 			self.activation = None
 		
@@ -208,18 +227,22 @@ class Euclidean(Layer):
 	def call(self, inputs):
 		if self.matrix_mode:
 			a = tf.expand_dims(inputs, axis=-1)
-			a = (a - self.w)**2
+			a = a - self.w
+			a *= a 
 			a = tf.math.reduce_sum(a, axis=-2)
 		else:
 			def cond(*args):
 				return True
 			
 			def body(a, i):
-				a += (inputs[...,i,None] - self.w[i])**2
+				d = inputs[...,i,None] - self.w[i]
+				d *= d
+				a += a
 				return a, i+1
 			
 			i = tf.constant(1)
-			a = (inputs[...,0,None] - self.w[0])**2 #b,n,k
+			a = inputs[...,0,None] - self.w[0] #b,n,k
+			a *= a
 			a, i = tf.while_loop(cond, body,
 				loop_vars=(a, i),
 				maximum_iterations=self.dims-1,
@@ -228,6 +251,8 @@ class Euclidean(Layer):
 		
 		if self.inverted:
 			a = tf.math.exp(-a)
+		if self.activation:
+			a = self.activation(a)
 		return a
 	
 	def build(self, input_shape):
@@ -331,7 +356,7 @@ class InnerTransformer(Layer):
 		normalize=False,
 		layer_types=Dense,
 		layer_A_args={},
-		layer_M_args={},
+		layer_B_args={},
 		layer_t_args={},
 		name='InnerTransformer',
 		**kwargs
@@ -378,8 +403,8 @@ class InnerTransformer(Layer):
 		if self.layer_types is None:
 			A, B, t = inputs
 		else:
-			A = self.n(inputs)
-			M = self.m(inputs)
+			A = self.A(inputs)
+			B = self.B(inputs)
 			t = self.t(inputs)
 		B = self.permute(B) #(b, k, B)
 		t = self.permute(t) #(b, k, t)
@@ -466,6 +491,62 @@ class OuterTransformer(Layer):
 			return self.t.count_params()
 		else:
 			return 0		
+	
+	def get_config(self):
+		return self.config
+
+
+class CovarTransformer(Layer):
+	"""
+	"""
+	def __init__(self,
+		*args,
+		axis=1,
+		layer_type=Dense,
+		layer_args={},
+		normalize=True,
+		name='CovarTransformer',
+		**kwargs
+		):
+		"""
+		"""
+		super(CovarTransformer, self).__init__(name=name, **arg_filter(**kwargs))
+		self.normalize = normalize
+		
+		if layer_type is not None:
+			self.layer = layer_type(*args, name='out', **layer_args, **kwargs)
+		else:
+			self.layer = None
+		
+		self.config = dict(
+			args = args,
+			normalize = normalize,
+			layer_type = layer_type,
+			layer_args = layer_args,
+			name = name,
+			**kwargs
+			)
+		pass
+
+	def build(self, input_shape):
+		if self.layer is not None:
+			self.layer.build(input_shape)
+		return self
+	
+	def call(self, X):
+		"""
+		"""
+		if self.layer:
+			X = self.layer(X)
+		C = cov(X, normalize=self.normalize)
+		X = tf.linalg.matmul(X, C)
+		return X
+	
+	def count_params(self):
+		if self.layer is None:
+			return 0
+		else:
+			return self.layer.count_params()
 	
 	def get_config(self):
 		return self.config

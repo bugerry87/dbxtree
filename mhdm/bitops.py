@@ -20,8 +20,10 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 	X += offset
 	if scale is None:
 		scale = X.max(axis=0)
-		m = scale != 0
-		scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
+	else:
+		scale = np.array(scale)
+	m = scale != 0
+	scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
 	X *= scale
 	X = np.round(X).astype(qtype)
 	return X, offset, scale 
@@ -123,7 +125,7 @@ class BitBuffer():
 	def __init__(self,
 		filename=None,
 		mode='rb',
-		interval=8,
+		interval=1,
 		buf=1024
 		):
 		"""
@@ -153,12 +155,18 @@ class BitBuffer():
 	def __del__(self):
 		self.close()
 	
+	def __next__(self):
+		try:
+			return self.read(self.interval)
+		except (EOFError, BufferError):
+			raise StopIteration()
+	
 	def __iter__(self):
 		try:
 			while True:
 				yield self.read(self.interval)
 		except (EOFError, BufferError):
-			raise StopIteration
+			pass
 	
 	def __bytes__(self):
 		n_bits = self.buffer.bit_length()
@@ -204,6 +212,7 @@ class BitBuffer():
 		Resets the internal buffer!
 		"""
 		self.buffer = 0xFF
+		self.size = 0
 	
 	def flush(self, hard=False):
 		"""
@@ -267,7 +276,7 @@ class BitBuffer():
 		self.close(reset)
 		self.fid = open(filename, mode)
 		if 'r' in mode:
-			self.size = path.getsize(self.name)
+			self.size = path.getsize(self.name) * 8
 		else:
 			self.size = 0
 		pass
@@ -288,6 +297,7 @@ class BitBuffer():
 		mask = (1<<shift) - 1
 		self.buffer <<= shift
 		self.buffer |= int(bits) & mask
+		self.size += shift
 		if soft_flush:
 			self.flush()
 		pass
