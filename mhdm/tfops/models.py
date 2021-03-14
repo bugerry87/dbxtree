@@ -146,14 +146,14 @@ class NbitTree(Model):
 			return X0, X1, layer, X, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
-			uids, idx0, counts = tf.unique_with_counts(X0)
+			uids, idx0 = tf.unique(X0)
 			flags, hist = bitops.encode(X1, idx0, self.dim, ftype)
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, counts, flags, hist, layer, *args)
+			return (uids, flags, hist, layer, *args)
 		
-		def filter(uids, counts, flags, hist, layer, *args):
+		def filter(uids, flags, hist, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -176,12 +176,14 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def filter_labels(uids, counts, flags, hist, layer, *args):
+		def filter_labels(uids, flags, layer, *args):
 			m = tf.range(uids.shape[-1]) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			uids = tf.roll(uids, uids.shape[-1]-(layer+1), axis=-1)
-			labels = tf.cast(hist, self.dtype)
-			labels /= tf.norm(labels, ord=1, axis=-1, keepdims=True)
+			labels = bitops.right_shift(flags[...,None], np.arange(self.flag_size))
+			labels = bitops.bitwise_and(labels, 1)
+			labels = bitops.bitwise_xor(labels[...,None], (1,0))
+			labels = tf.reshape(labels, (-1, 2))
 			return uids, labels
 	
 		if encoder is None:
@@ -222,8 +224,6 @@ class NbitTree(Model):
 		"""
 		"""
 		X = inputs
-		X = tf.concat([X>0, X<0], axis=-1)
-		X = tf.cast(X, self.dtype)
 		stack = [X]
 
 		if self.conv:
