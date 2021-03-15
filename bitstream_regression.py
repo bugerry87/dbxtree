@@ -88,23 +88,25 @@ def main(filenames,
 		bits = binarize(fname)
 		x, y = cumsum_bits(bits)
 		args, covars = curve_fit(fnc, x[::skip], y[::skip])
-
-		plt.title(fname)
-		plt.plot(x[::skip], y[::skip], label='ground truth')
-		plt.plot(x[::skip], fnc(x[::skip], *args), '--', label='regression')
+		
+		plt.plot(x[::skip], y[::skip], label='{}_gt'.format(fname))
+		plt.plot(x[::skip], fnc(x[::skip], *args), '--', label='{}_reg'.format(fname))
+		plt.title("Bit Regression")
 		plt.legend()
 		plt.show()
-		
+	
 		grad = dx_fnc(x, *args)
 		cdfs = grad2cdf(grad)
-		rc.open('{}.rc.bin'.format(fname.replace('.bin', '')))
-		for i, (grad, symb, cdf) in enumerate(zip(grad, bits, cdfs)):
-			rc.update_cdf(symb, cdf)
-			done = 100.0 * i/len(bits)
-			print('Gradient: {:>6.2f}, Done: {:>6.2f}%'.format(grad, done), end='\r', flush=True)
-		print()
-		print('Num of output bits:', len(rc))
-		rc.close()
+		try:
+			rc.open('{}.rc.bin'.format(fname.replace('.bin', '')))
+			for i, (grad, symb, cdf) in enumerate(zip(grad, bits, cdfs)):
+				rc.update(symb, cdf)
+				done = 100.0 * i/len(bits)
+				print('Gradient: {:>6.2f}, Done: {:>6.2f}%'.format(grad, done), end='\r', flush=True)
+			print()
+			print('Num of output bits:', len(rc))
+		finally:
+			rc.close()
 
 
 if __name__ == '__main__':

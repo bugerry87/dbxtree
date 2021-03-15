@@ -127,6 +127,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--dim', '-d',
+		metavar='INT',
+		type=int,
+		default=2,
+		help='Dimensionality of the tree'
+		)
+	
+	main_args.add_argument(
 		'--bits_per_dim', '-B',
 		metavar='INT',
 		nargs='+',
@@ -231,6 +239,7 @@ def main(
 	validation_steps=0,
 	test_freq=1,
 	test_steps=0,
+	dim=2,
 	bits_per_dim=[16,16,16,0],
 	sort_bits=None,
 	permute=None,
@@ -271,6 +280,7 @@ def main(
 		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
 	model = NbitTree(
+		dim=dim,
 		kernels=kernels,
 		convolutions=convolutions,
 		transformers=transformers,

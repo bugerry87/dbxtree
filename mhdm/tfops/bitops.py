@@ -89,12 +89,11 @@ def permute(X, p, bits=63):
 
 @tf.function
 def tokenize(X, dim, depth, axis=0):
-	with tf.name_scope("tokenize"):
-		X = tf.sort(X, axis=axis)
-		shifts = tf.range(depth) * dim
-		shifts = tf.cast(shifts, X.dtype)
-		tokens = right_shift(X, shifts[::-1])
-		tokens = tf.transpose(tokens)
+	X = tf.sort(X, axis=axis)
+	shifts = tf.range(depth) * dim
+	shifts = tf.cast(shifts, X.dtype)
+	tokens = right_shift(X, shifts[::-1])
+	tokens = tf.transpose(tokens)
 	return tokens
 
 

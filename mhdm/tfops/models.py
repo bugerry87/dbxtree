@@ -12,11 +12,18 @@ from . import bitops
 from . import layers
 from .. import utils
 
+## Optional
+try:
+	import tensorflow_compression as tfc
+except ModuleNotFoundError:
+	tfc = None
+
 
 class NbitTree(Model):
 	"""
 	"""
 	def __init__(self,
+		dim=2,
 		kernels=None,
 		kernel_size=3,
 		convolutions=0,
@@ -28,6 +35,7 @@ class NbitTree(Model):
 		"""
 		"""
 		super(NbitTree, self).__init__(name=name, **kwargs)
+		self.dim = dim
 		self.kernels = kernels or self.output_size
 		self.kernel_size = kernel_size
 
@@ -48,21 +56,21 @@ class NbitTree(Model):
 			) for i in range(transformers)]
 
 		self.head = Dense(
-			self.output_size,
+			self.flag_size * self.bins,
 			activation='softplus',
 			dtype=self.dtype,
 			name='head',
 			**kwargs
 			)
 		pass
-
-	@property
-	def dim(self):
-		return 1
 	
 	@property
 	def flag_size(self):
 		return 1<<self.dim
+	
+	@property
+	def bins(self):
+		return 2
 
 	@property
 	def output_size(self):
@@ -82,6 +90,8 @@ class NbitTree(Model):
 		"""
 		meta = utils.Prototype(
 			output_size = self.output_size,
+			flag_size = self.flag_size,
+			bins = self.bins,
 			bits_per_dim = bits_per_dim,
 			xtype = xtype,
 			qtype = qtype,
@@ -139,10 +149,10 @@ class NbitTree(Model):
 			X0 = bitops.tokenize(X0, self.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers, dtype=X0.dtype)
-			X = tf.repeat(X[None,...], n_layers, axis=0)
-			permute = tf.repeat(permute[None,...], n_layers, axis=0)
-			offset = tf.repeat(offset[None,...], n_layers, axis=0)
-			scale = tf.repeat(scale[None,...], n_layers, axis=0)
+			X = [X] * n_layers
+			permute = [permute] * n_layers
+			offset = [offset] * n_layers
+			scale = [scale] * n_layers
 			return X0, X1, layer, X, permute, offset, scale
 		
 		def encode(X0, X1, layer, *args):
@@ -176,14 +186,14 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def filter_labels(uids, flags, layer, *args):
-			m = tf.range(uids.shape[-1]) <= layer
+		def filter_labels(uids, flags, hist, layer, *args):
+			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			uids = tf.roll(uids, uids.shape[-1]-(layer+1), axis=-1)
 			labels = bitops.right_shift(flags[...,None], np.arange(self.flag_size))
 			labels = bitops.bitwise_and(labels, 1)
 			labels = bitops.bitwise_xor(labels[...,None], (1,0))
-			labels = tf.reshape(labels, (-1, 2))
+			labels = tf.cast(labels, self.dtype)
 			return uids, labels
 	
 		if encoder is None:
@@ -236,40 +246,40 @@ class NbitTree(Model):
 		
 		X = tf.concat(stack, axis=-1)
 		X = self.head(X)
+		X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
 		return X
 	
 	def predict_on_batch(self, data):
 		"""
 		"""
-		if self.tensorflow_compression and range_encoder is None:
-			tf.get_logger().warn(
-				"Model has no range_encoder and will only return raw probabilities and an empty string. " \
-				"Please install 'tensorflow-compression' to obtain encoded bit-streams."
-				)
-			self.tensorflow_compression = False
-		
-		if not self.tensorflow_compression:
-			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			uids, _, _ = X
-			probs = self(uids, training=False)[0]
-			return probs, tf.constant([''])
-		
 		def encode():
+			if tfc is None:
+				tf.get_logger().warn(
+					"Model has no range_encoder and will only return raw probabilities and an empty string. " \
+					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
+					)
+				return probs, tf.constant([''])
+			
+			symbols = tf.reshape(labels, (-1, self.bins))
+			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
+
 			cdf = probs[:,1:]
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			data = tf.cast(flags-1, tf.int16)
+			data = tf.cast(symbols-1, tf.int16)
 			code = range_encoder.range_encode(data, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
-		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		uids, probs, flags = X
-		flags = tf.cast(flags, tf.int32)
+		def ignore():
+			return tf.constant([''])
+		
+		uids, probs, labels, do_encode = data
+		labels = tf.cast(labels, tf.int32)
 		probs = tf.concat([probs, self(uids, training=False)[0]], axis=0)
-		code = encode()
+		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
 
 	@staticmethod
