@@ -24,8 +24,9 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 		X = X + offset
 		
 		if scale is None:
+			X_max = tf.math.reduce_max(X, axis, keepdims=True)
 			scale = tf.cast(lim, X.dtype)
-			scale /= tf.math.reduce_max(X, axis, keepdims=True)
+			scale = tf.math.divide_no_nan(scale, X_max)
 		else:
 			scale = 1 / tf.cast(scale, X.dtype)
 		X = X * scale
@@ -41,12 +42,14 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 @tf.function
 def realize(X, bits_per_dim, offset, scale, xtype=tf.float32, qtype=tf.int64):
 	with tf.name_scope("realize"):
-		masks = (1<<np.array(bits_per_dim, dtype=qtype)) - 1
-		shifts = np.cumsum([0] + list(bits_per_dim[:-1]), dtype=qtype)
+		one = tf.constant(1, dtype=qtype, name='one')
+		bits_per_dim = tf.constant(bits_per_dim, dtype=qtype)
+		masks = left_shift(one, bits_per_dim) - one
+		shifts = tf.math.cumsum(bits_per_dim, exclusive=True)
 		X = right_shift(X, shifts)
 		X = bitwise_and(X, masks)
 		X = tf.cast(X, xtype)
-		X /= scale
+		X = tf.math.divide_no_nan(X, scale)
 		X -= offset
 	return X
 
@@ -89,11 +92,12 @@ def permute(X, p, bits=63):
 
 @tf.function
 def tokenize(X, dim, depth, axis=0):
-	X = tf.sort(X, axis=axis)
-	shifts = tf.range(depth) * dim
-	shifts = tf.cast(shifts, X.dtype)
-	tokens = right_shift(X, shifts[::-1])
-	tokens = tf.transpose(tokens)
+	with tf.name_scope("tokenize"):
+		X = tf.sort(X, axis=axis)
+		shifts = tf.range(depth) * dim
+		shifts = tf.cast(shifts, X.dtype)
+		tokens = right_shift(X, shifts[::-1])
+		tokens = tf.transpose(tokens)
 	return tokens
 
 

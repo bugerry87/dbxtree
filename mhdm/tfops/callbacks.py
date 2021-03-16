@@ -43,11 +43,12 @@ class TestCallback(LambdaCallback):
 
 		for i, sample, info in zip(range(self.steps), self.samples, self.info):
 			uids, labels = sample
-			layer = info[3].numpy()
-			X = info[4].numpy()
+			counts = info[3].numpy()
+			layer = info[5].numpy()
 			encode = self.range_encode and layer == self.meta.tree_depth-1
 			if layer == 0:
-				probs = np.zeros((0, self.meta.flag_size, self.meta.bins), dtype=self.meta.dtype)
+				total_points = counts
+				probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
 				acc_labels = labels
 			else:
 				acc_labels = tf.concat([acc_labels, labels], axis=1)
@@ -56,7 +57,7 @@ class TestCallback(LambdaCallback):
 			code = code[0]
 
 			if encode:
-				bpp = len(code) * 8 / len(X)
+				bpp = len(code) * 8 / total_points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
@@ -87,6 +88,9 @@ class LogCallback(Callback):
 		self.logger = logger
 		self.msg = None
 		pass
+
+	def __call__(self, log):
+		self.logger.info("Test: " + ", ".join(['{} = {}'.format(k,v) for k,v in log.items()]))
 
 	def on_epoch_end(self, epoch, log):
 		self.msg = "Epoch {}: ".format(epoch+1) + ", ".join(['{} = {}'.format(k,v) for k,v in log.items()])

@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTree
-from mhdm.tfops.metrics import RegularizedCosine
+from mhdm.tfops.metrics import RegularizedCrossentropy
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
 
@@ -329,7 +329,7 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCosine(msle_smoothing=0.1)
+	loss = RegularizedCrossentropy(msle_smoothing=0.1)
 	model.compile(
 		optimizer='adam', 
 		loss=loss,
@@ -364,7 +364,8 @@ def main(
 		test_callback = TestCallback(tester, test_encoder, test_meta, test_freq, test_steps, when, writer)
 		callbacks.append(test_callback)
 	
-	callbacks.append(LogCallback(tflog))
+	log_callback = LogCallback(tflog)
+	callbacks.append(log_callback)
 
 	if trainer is not None:
 		history = model.fit(
@@ -389,6 +390,7 @@ def main(
 		history = dict()
 		test_callback.model = model
 		test_callback(history)
+		log_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")
 	tflog.info('Done!')

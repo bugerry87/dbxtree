@@ -51,17 +51,19 @@ class NbitTree(Model):
 		self.transformers = [layers.CovarTransformer(
 			self.kernels,
 			dtype=self.dtype,
+			layer_type=layers.Euclidean if i else None,
+			layer_args=dict(inverted=True),
 			name='transformer_{}'.format(i),
 			**kwargs
 			) for i in range(transformers)]
 
-		self.head = Dense(
-			self.flag_size * self.bins,
+		self.heads = [Dense(
+			self.flag_size,
 			activation='softplus',
 			dtype=self.dtype,
-			name='head',
+			name='head_{}'.format(i),
 			**kwargs
-			)
+			) for i in range(self.bins)]
 		pass
 	
 	@property
@@ -89,6 +91,7 @@ class NbitTree(Model):
 		"""
 		"""
 		meta = utils.Prototype(
+			dim = self.dim,
 			output_size = self.output_size,
 			flag_size = self.flag_size,
 			bins = self.bins,
@@ -146,24 +149,28 @@ class NbitTree(Model):
 				X0, permute = bitops.sort(X0, bits=meta.tree_depth, absolute=absolute, reverse=reverse)
 			else:
 				permute = tf.constant([], dtype=X0.dtype)
-			X0 = bitops.tokenize(X0, self.dim, n_layers)
+			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers, dtype=X0.dtype)
-			X = [X] * n_layers
+			#X = [X] * n_layers
 			permute = [permute] * n_layers
 			offset = [offset] * n_layers
 			scale = [scale] * n_layers
-			return X0, X1, layer, X, permute, offset, scale
+			return X0, X1, layer, permute, offset, scale
 		
-		def encode(X0, X1, layer, *args):
-			uids, idx0 = tf.unique(X0)
-			flags, hist = bitops.encode(X1, idx0, self.dim, ftype)
+		def encode(X0, X1, layer, permute, offset, scale):
+			uids, idx0, counts = tf.unique_with_counts(X0)
+			flags, hist = bitops.encode(X1, idx0, meta.dim, ftype)
+			pos = NbitTree.finalize(uids, meta, permute, offset, scale)
+			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
+			pos = tf.math.divide_no_nan(pos, pos_max)
+			ordinal = tf.cast(uids, meta.dtype) / ((1<<meta.tree_depth) - 1)
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, flags, hist, layer, *args)
+			return (uids, pos, ordinal, counts, flags, layer, permute, offset, scale)
 		
-		def filter(uids, flags, hist, layer, *args):
+		def filter(uids, pos, ordinal, counts, flags, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -182,27 +189,36 @@ class NbitTree(Model):
 	def trainer(self, *args,
 		encoder=None,
 		meta=None,
+		balance=0,
 		**kwargs
 		):
 		"""
 		"""
-		def filter_labels(uids, flags, hist, layer, *args):
+		def feature_label_filter(uids, pos, ordinal, counts, flags, layer, *args):
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
-			uids = tf.roll(uids, uids.shape[-1]-(layer+1), axis=-1)
-			labels = bitops.right_shift(flags[...,None], np.arange(self.flag_size))
+			counts = tf.cast(counts, self.dtype)
+			counts /= tf.math.reduce_sum(counts)
+			feature = tf.concat((uids, pos, ordinal[...,None], counts[...,None]), axis=-1)
+			labels = bitops.right_shift(flags[...,None], tf.range(self.flag_size, dtype=flags.dtype))
 			labels = bitops.bitwise_and(labels, 1)
-			labels = bitops.bitwise_xor(labels[...,None], (1,0))
-			labels = tf.cast(labels, self.dtype)
-			return uids, labels
+			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
+			if balance:
+				weights = tf.size(flags)
+				weights = tf.cast(weights, tf.float32)
+				weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/balance)
+				return feature, labels, weights
+			else:
+				return feature, labels
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
-		trainer = encoder.map(filter_labels)
+		trainer = encoder.map(feature_label_filter)
 		trainer = trainer.batch(1)
 		if meta is None:
 			return trainer, encoder
 		else:
+			meta.feature_size = meta.tree_depth + meta.input_dims + 2
 			return trainer, encoder, meta
 	
 	def validator(self, *args,
@@ -228,7 +244,7 @@ class NbitTree(Model):
 			super(NbitTree, self).build(input_shape)
 		else:
 			self.meta = meta or self.meta
-			super(NbitTree, self).build(tf.TensorShape((None, None, self.meta.tree_depth)))
+			super(NbitTree, self).build(tf.TensorShape((None, None, self.meta.feature_size)))
 	
 	def call(self, inputs, training=False):
 		"""
@@ -245,11 +261,11 @@ class NbitTree(Model):
 			stack += [transformer(X) for transformer in self.transformers]
 		
 		X = tf.concat(stack, axis=-1)
-		X = self.head(X)
-		X = tf.concat([X[...,::2,None], X[...,1::2,None]], axis=-1)
+		X = [head(X)[...,None] for head in self.heads]
+		X = tf.concat(X, axis=-1)
 		return X
 	
-	def predict_on_batch(self, data):
+	def predict_step(self, data):
 		"""
 		"""
 		def encode():
@@ -258,7 +274,7 @@ class NbitTree(Model):
 					"Model has no range_encoder and will only return raw probabilities and an empty string. " \
 					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
 					)
-				return probs, tf.constant([''])
+				return tf.constant([''])
 			
 			symbols = tf.reshape(labels, (-1, self.bins))
 			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
@@ -276,9 +292,11 @@ class NbitTree(Model):
 		def ignore():
 			return tf.constant([''])
 		
-		uids, probs, labels, do_encode = data
+		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
+		uids, probs, labels, do_encode = X
 		labels = tf.cast(labels, tf.int32)
-		probs = tf.concat([probs, self(uids, training=False)[0]], axis=0)
+		pred = tf.reshape(self(uids, training=False)[0], (-1, self.bins))
+		probs = tf.concat([probs, pred], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
 
@@ -296,16 +314,18 @@ class NbitTree(Model):
 			yield flags
 	
 	@staticmethod
-	def decode(self, flags, X=tf.constant([0], dtype=tf.int64)):
+	def decode(flags, meta, X=tf.constant([0], dtype=tf.int64)):
 		"""
 		"""
+		shifts = tf.range(meta.flag_size, dtype=X.dtype)
+		flags = tf.cast(flags, dtype=X.dtype)
 		flags = tf.reshape(flags, (-1, 1))
-		flags = bitops.right_shift(flags, np.arange(self.flag_size))
+		flags = bitops.right_shift(flags, shifts)
 		flags = bitops.bitwise_and(flags, 1)
 		x = tf.where(flags)
 		i = x[...,0]
 		x = x[...,1]
-		X = bitops.left_shift(X, self.dim)
+		X = bitops.left_shift(X, meta.dim)
 		X = x + tf.gather(X, i)
 		return X
 	
