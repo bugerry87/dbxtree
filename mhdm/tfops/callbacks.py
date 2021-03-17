@@ -44,16 +44,17 @@ class TestCallback(LambdaCallback):
 		for i, sample, info in zip(range(self.steps), self.samples, self.info):
 			uids, labels = sample
 			counts = info[3].numpy()
+			flags = info[4]
 			layer = info[5].numpy()
 			encode = self.range_encode and layer == self.meta.tree_depth-1
 			if layer == 0:
 				total_points = int(counts)
 				probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
-				acc_labels = labels
+				acc_flags = flags
 			else:
-				acc_labels = tf.concat([acc_labels, labels], axis=1)
+				acc_flags = tf.concat([acc_flags, flags], axis=-1)
 			metrics = self.model.test_on_batch(uids, labels, reset_metrics=False, return_dict=True)
-			probs, code = self.model.predict_on_batch((uids, probs, acc_labels, encode))
+			probs, code = self.model.predict_on_batch((uids, probs, acc_flags, encode))
 			code = code[0]
 
 			if encode:

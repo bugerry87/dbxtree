@@ -282,9 +282,6 @@ class NbitTree(Model):
 					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
 					)
 				return tf.constant([''])
-			
-			symbols = tf.reshape(labels, (-1, self.bins))
-			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
 
 			cdf = tf.math.reduce_max(probs[:,1:], axis=-1, keepdims=True)
 			cdf = tf.math.divide_no_nan(probs, cdf)
@@ -294,14 +291,15 @@ class NbitTree(Model):
 			cdf = tf.math.round(cdf * float(1<<16))
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			code = tfc.range_encode(symbols-1, cdf, precision=16)
+			code = tfc.range_encode(flags-1, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		uids, probs, labels, do_encode = X
+		uids, probs, flags, do_encode = X
+		flags = tf.cast(flags, tf.int16)
 		pred = tf.reshape(self(uids, training=False)[0], (-1, self.bins))
 		probs = tf.concat([probs, pred], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
