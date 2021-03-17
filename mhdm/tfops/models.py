@@ -291,7 +291,7 @@ class NbitTree(Model):
 			symbols = tf.reshape(labels, (-1, self.bins))
 			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
 
-			cdf = probs[:,1:]
+			cdf = probs
 			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
 			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
