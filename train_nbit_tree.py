@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTree
-from mhdm.tfops.metrics import RegularizedCrossentropy
+from mhdm.tfops.metrics import RegularizedCosine
 from mhdm.tfops.callbacks import TestCallback, LogCallback
 
 
@@ -339,7 +339,7 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCrossentropy(msle_smoothing=0.0625)
+	loss = RegularizedCosine(msle_smoothing=0.0625)
 	model.compile(
 		optimizer='adam',
 		loss=loss,

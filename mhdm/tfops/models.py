@@ -66,13 +66,13 @@ class NbitTree(Model):
 			**kwargs
 			) for i in range(convolutions)]
 
-		self.heads = [Dense(
-			self.flag_size,
+		self.head = Dense(
+			self.output_size,
 			activation='softplus',
 			dtype=self.dtype,
-			name='head_{}'.format(i),
+			name='head',
 			**kwargs
-			) for i in range(self.bins)]
+			)
 		pass
 	
 	@property
@@ -81,11 +81,11 @@ class NbitTree(Model):
 	
 	@property
 	def bins(self):
-		return 2
+		return 1<<self.flag_size
 
 	@property
 	def output_size(self):
-		return 2
+		return self.bins
 
 	def set_meta(self, index, bits_per_dim,
 		sort_bits=None,
@@ -206,12 +206,8 @@ class NbitTree(Model):
 		def feature_label_filter(uids, pos, ordinal, counts, flags, layer, *args):
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
-			counts = tf.cast(counts, self.dtype)
-			counts /= tf.math.reduce_sum(counts)
-			feature = tf.concat((uids, pos, ordinal[...,None], counts[...,None]), axis=-1)
-			labels = bitops.right_shift(flags[...,None], tf.range(self.flag_size, dtype=flags.dtype))
-			labels = bitops.bitwise_and(labels, 1)
-			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
+			feature = tf.concat((uids, pos, ordinal[...,None]), axis=-1)
+			labels = tf.one_hot(flags, self.bins, dtype=self.dtype)
 			if balance:
 				weights = tf.size(flags)
 				weights = tf.cast(weights, tf.float32)
@@ -227,7 +223,7 @@ class NbitTree(Model):
 		if meta is None:
 			return trainer, encoder
 		else:
-			meta.feature_size = meta.tree_depth + meta.input_dims + 2
+			meta.feature_size = meta.tree_depth + meta.input_dims + 1
 			return trainer, encoder, meta
 	
 	def validator(self, *args,
@@ -273,8 +269,7 @@ class NbitTree(Model):
 			C = tf.concat([X, x], axis=-1)
 		X = C
 		
-		X = [head(X)[...,None] for head in self.heads]
-		X = tf.concat(X, axis=-1)
+		X = self.head(X)
 		return X
 	
 	def predict_step(self, data):
@@ -291,7 +286,7 @@ class NbitTree(Model):
 			symbols = tf.reshape(labels, (-1, self.bins))
 			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
 
-			cdf = tf.math.reduce_max(probs, axis=-1, keepdims=True)
+			cdf = tf.math.reduce_max(probs[:,1:], axis=-1, keepdims=True)
 			cdf = tf.math.divide_no_nan(probs, cdf)
 			cdf = tf.clip_by_value(cdf, self.floor, 1.0)
 			cdf = tf.math.cumsum(cdf, axis=-1)
@@ -299,7 +294,7 @@ class NbitTree(Model):
 			cdf = tf.math.round(cdf * float(1<<16))
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			code = tfc.range_encode(symbols, cdf, precision=16)
+			code = tfc.range_encode(symbols-1, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():
@@ -307,7 +302,6 @@ class NbitTree(Model):
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		uids, probs, labels, do_encode = X
-		labels = tf.cast(labels, tf.int32)
 		pred = tf.reshape(self(uids, training=False)[0], (-1, self.bins))
 		probs = tf.concat([probs, pred], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
@@ -347,7 +341,7 @@ class NbitTree(Model):
 		"""
 		"""
 		X = tf.reshape(X, (-1,1))
-		if permute is not None:
+		if permute is not None and permute.shape[0]:
 			X = bitops.permute(X, permute, meta.tree_depth)
 		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
 		return X
