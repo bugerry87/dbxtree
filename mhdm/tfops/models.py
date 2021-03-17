@@ -297,8 +297,7 @@ class NbitTree(Model):
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.cast(cdf * float(1<<16), tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			data = tf.cast(symbols-1, tf.int16)
-			code = tfc.range_encode(data, cdf, precision=16)
+			code = tfc.range_encode(symbols, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():
