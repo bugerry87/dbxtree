@@ -283,8 +283,8 @@ class NbitTree(Model):
 					)
 				return tf.constant([''])
 
-			cdf = tf.math.reduce_max(probs[:,1:], axis=-1, keepdims=True)
-			cdf = tf.math.divide_no_nan(probs, cdf)
+			cdf = tf.math.reduce_max(probs, axis=-1, keepdims=True)
+			cdf = tf.math.divide_no_nan(probs, cdf)[:,1:]
 			cdf = tf.clip_by_value(cdf, self.floor, 1.0)
 			cdf = tf.math.cumsum(cdf, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
