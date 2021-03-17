@@ -291,11 +291,13 @@ class NbitTree(Model):
 			symbols = tf.reshape(labels, (-1, self.bins))
 			symbols = tf.cast(tf.where(symbols)[:,-1], tf.int16)
 
-			cdf = probs
-			cdf /= tf.norm(cdf, ord=1, axis=-1, keepdims=True)
-			cdf = tf.math.cumsum(cdf + self.floor, axis=-1)
+			cdf = tf.math.reduce_max(probs, axis=-1, keepdims=True)
+			cdf = tf.math.divide_no_nan(probs, cdf)
+			cdf = tf.clip_by_value(cdf, self.floor, 1.0)
+			cdf = tf.math.cumsum(cdf, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
-			cdf = tf.cast(cdf * float(1<<16), tf.int32)
+			cdf = tf.math.round(cdf * float(1<<16))
+			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
 			code = tfc.range_encode(symbols, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
