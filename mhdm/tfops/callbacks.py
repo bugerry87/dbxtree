@@ -47,7 +47,7 @@ class TestCallback(LambdaCallback):
 			layer = info[5].numpy()
 			encode = self.range_encode and layer == self.meta.tree_depth-1
 			if layer == 0:
-				total_points = counts
+				total_points = int(counts)
 				probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
 				acc_labels = labels
 			else:
