@@ -28,6 +28,7 @@ class NbitTree(Model):
 		kernel_size=3,
 		convolutions=0,
 		transformers=0,
+		floor=0.0,
 		dtype=tf.float32,
 		name=None,
 		**kwargs
@@ -38,6 +39,7 @@ class NbitTree(Model):
 		self.dim = dim
 		self.kernels = kernels or self.output_size
 		self.kernel_size = kernel_size
+		self.floor = floor
 
 		self.transformers = [layers.InnerTransformer(
 			self.kernels,

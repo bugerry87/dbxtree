@@ -204,6 +204,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--floor',
+		metavar='FLOAT',
+		type=float,
+		default=0.0,
+		help='Probability floor, added to the estimated probabilities'
+		)
+	
+	main_args.add_argument(
 		'--log_dir',
 		metavar='PATH',
 		default='logs',
@@ -248,6 +256,7 @@ def main(
 	kernels=16,
 	convolutions=2,
 	transformers=0,
+	floor=0.0,
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
@@ -284,6 +293,7 @@ def main(
 		kernels=kernels,
 		convolutions=convolutions,
 		transformers=transformers,
+		floor=floor,
 		name=name,
 		**kwargs
 		)
