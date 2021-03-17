@@ -329,9 +329,9 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCrossentropy(msle_smoothing=0.1)
+	loss = RegularizedCrossentropy(msle_smoothing=0.0625)
 	model.compile(
-		optimizer='adam', 
+		optimizer='adam',
 		loss=loss,
 		metrics=['accuracy'],
 		sample_weight_mode='temporal'

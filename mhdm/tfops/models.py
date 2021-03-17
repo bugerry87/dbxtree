@@ -39,6 +39,22 @@ class NbitTree(Model):
 		self.kernels = kernels or self.output_size
 		self.kernel_size = kernel_size
 
+		self.transformers = [layers.InnerTransformer(
+			self.kernels,
+			dtype=self.dtype,
+			layer_types=[Dense, Dense, layers.Euclidean],
+			layer_A_args=dict(
+				kernel_initializer='random_normal'
+				),
+			layer_B_args=dict(
+				kernel_initializer='random_normal',
+				trainable=False
+				),
+			layer_t_args=dict(inverted=True),
+			name='transformer_{}'.format(i),
+			**kwargs
+			) for i in range(transformers)]
+
 		self.conv = [Conv1D(
 			self.kernels, self.kernel_size + 2*i, 1,
 			activation='relu',
@@ -47,15 +63,6 @@ class NbitTree(Model):
 			name='conv_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
-		
-		self.transformers = [layers.CovarTransformer(
-			self.kernels,
-			dtype=self.dtype,
-			layer_type=layers.Euclidean if i else None,
-			layer_args=dict(inverted=True),
-			name='transformer_{}'.format(i),
-			**kwargs
-			) for i in range(transformers)]
 
 		self.heads = [Dense(
 			self.flag_size,
@@ -206,7 +213,7 @@ class NbitTree(Model):
 			if balance:
 				weights = tf.size(flags)
 				weights = tf.cast(weights, tf.float32)
-				weights = tf.ones_like(flags, dtype=tf.float32) - tf.math.exp(-weights/balance)
+				weights = tf.zeros_like(flags, dtype=tf.float32) + tf.math.exp(-weights/balance)
 				return feature, labels, weights
 			else:
 				return feature, labels
@@ -250,17 +257,20 @@ class NbitTree(Model):
 		"""
 		"""
 		X = inputs
-		stack = [X]
 
-		if self.conv:
-			x = tf.concat([X>0, X<0], axis=-1)
-			x = tf.cast(x, self.dtype)
-			stack += [conv(x) for conv in self.conv]
-		
 		if self.transformers:
-			stack += [transformer(X) for transformer in self.transformers]
+			X = tf.concat([transformer(X) for transformer in self.transformers], axis=-1)
+		else:
+			Xmin = tf.math.minimum(X, 0.0)
+			Xmax = tf.math.maximum(X, 0.0)
+			X = tf.concat([Xmin, Xmax], axis=-1)
+
+		C = X
+		for conv in self.conv:
+			x = conv(C)
+			C = tf.concat([X, x], axis=-1)
+		X = C
 		
-		X = tf.concat(stack, axis=-1)
 		X = [head(X)[...,None] for head in self.heads]
 		X = tf.concat(X, axis=-1)
 		return X
