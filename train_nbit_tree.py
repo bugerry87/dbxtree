@@ -163,7 +163,7 @@ def init_main_args(parents=[]):
 	
 	main_args.add_argument(
 		'--offset',
-		metavar='INT',
+		metavar='FLOAT',
 		nargs='+',
 		type=float,
 		default=None,
@@ -172,7 +172,7 @@ def init_main_args(parents=[]):
 	
 	main_args.add_argument(
 		'--scale',
-		metavar='INT',
+		metavar='FLOAT',
 		nargs='+',
 		type=float,
 		default=None,

@@ -81,7 +81,7 @@ def encode(X,
 				major = right
 				flag = left << 1 | 1
 				m[:] = ~m
-
+			
 			if tail > 1:
 				if major:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
