@@ -27,7 +27,7 @@ def encode(X,
 	tree_depth = tree_depth or np.iinfo(X.dtype).bits
 	stack_size = 0
 	local = Prototype(points=0, overflows=0)
-	msg = "Layer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}, Overflow Bits: {:>8}"
+	msg = "\rLayer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}, Overflow Bits: {:>8}"
 	
 	if flags is True:
 		flags = BitBuffer(output + '.flg.bin', 'wb') if output else BitBuffer()
@@ -36,6 +36,8 @@ def encode(X,
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
 
 	def expand(X, layer, tail):
+		assert(len(X))
+
 		if dims:
 			dim = dims[layer] if layer < len(dims) else dims[-1]
 		else:
@@ -50,13 +52,13 @@ def encode(X,
 		if dim == -1:
 			fbit = max(fbit-1, 1)
 			m = (X & 1).astype(bool)
-			overflow = (1<<fbit)-1
+			mask = (1<<fbit)-1
 			node = np.sum(m)
 
-			if node < overflow:
+			if len(X) <= 1 or node < mask:
 				flag = node
 			else:
-				flag = (overflow << fbit) | (node - overflow)
+				flag = (mask << fbit) | (node - mask)
 				local.overflows += fbit
 				fbit *= 2
 
@@ -68,7 +70,6 @@ def encode(X,
 			else:
 				local.points += 1
 		elif dim == 0:
-			assert len(X)
 			m = (X & 1).astype(bool)
 			right = np.sum(m)
 			left = len(X) - right
@@ -114,7 +115,7 @@ def encode(X,
 			callback.update(flag, fbit)
 		if log.verbose:
 			flag = hex(flag)[2:] if dim else flag
-			log(msg.format(layer, flag, stack_size, local.points, local.overflows), end='\r', flush=True)
+			log(msg.format(layer, flag, stack_size, local.points, local.overflows), end='', flush=True)
 		pass
 	
 	nodes = deque(expand(X, 0, tree_depth))
@@ -150,7 +151,7 @@ def decode(Y, num_points,
 	tree_depth = tree_depth or np.iinfo(qtype).bits
 	X = np.zeros(num_points, dtype=qtype)
 	local = Prototype(points=0, overflows=0)
-	msg = "Layer: {:>2}, Flag: {:>16}, Points: {:>8}, Overflows: {:>8}, Done: {:>6.2f}%"
+	msg = "\rLayer: {:>2}, Flag: {:>16}, Points: {:>8}, Overflows: {:>8}, Done: {:>6.2f}%"
 	
 	def expand(x, layer, pos, remains=0):
 		tail = max(tree_depth - pos, 0)
@@ -164,17 +165,17 @@ def decode(Y, num_points,
 		flag = Y.read(fbit)
 		
 		if dim == -1:
+			assert(remains)
 			mask = (1<<fbit) - 1
-			overflow = flag == mask
-			local.overflows += overflow and remains > 1
+			if remains > 1 and flag == mask:
+				local.overflows += fbit
+				flag = mask + Y.read(fbit)
 
 			if tail > 1:
-				if overflow:
-					yield expand(x.copy(), layer+1, pos+1, mask+1)
-				elif flag < remains:
+				if flag < remains:
 					yield expand(x.copy(), layer+1, pos+1, remains - flag)
 				if flag:
-					yield expand(x | 1<<pos, layer+1, pos+1, flag + overflow)
+					yield expand(x | 1<<pos, layer+1, pos+1, flag)
 			else:
 				X[local.points] = x | bool(flag)<<pos
 				local.points += 1
@@ -207,7 +208,7 @@ def decode(Y, num_points,
 		if log.verbose:
 			progress = 800.0 * Y.tell() / len(Y)
 			flag = hex(flag)[2:] if dim else flag
-			log(msg.format(layer, flag, local.points, local.overflows, progress), end='\r', flush=True)
+			log(msg.format(layer, flag, local.points, local.overflows, progress), end='', flush=True)
 		pass
 	
 	nodes = deque(expand(np.zeros(1, dtype=qtype), 0, 0, num_points))

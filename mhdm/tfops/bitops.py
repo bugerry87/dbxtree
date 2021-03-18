@@ -26,7 +26,7 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 		if scale is None:
 			X_max = tf.math.reduce_max(X, axis, keepdims=True)
 			lim = tf.cast(lim, X.dtype)
-			scale = tf.math.divide_no_nan(lim, X_max)
+			scale = tf.math.divide_no_nan(scale, X_max)
 		else:
 			lim = tf.cast(lim, X.dtype)
 			scale = tf.cast(scale, X.dtype)
