@@ -335,7 +335,7 @@ def encode(files,
 			log("...")
 			log("\n---Encoding---\n")
 		
-		flags, payload = dynamictree.encode(X,
+		flags, payload, kwargs = dynamictree.encode(X,
 			dims=dims,
 			tree_depth=tree_depth,
 			output=output_file,
@@ -358,7 +358,7 @@ def encode(files,
 				permute = permute,
 				bits_per_dim=bits_per_dim,
 				xtype = xtype,
-				qtype = qtype,
+				qtype = qtype
 				)
 			log("---Header---")
 			log("\n".join(["{}: {}".format(k,v) for k,v in header.items()]))		

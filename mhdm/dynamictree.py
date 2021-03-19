@@ -16,9 +16,9 @@ def encode(X,
 	output=None,
 	flags=True,
 	payload=False,
-	callback=None,
 	tree_depth=None,
 	breadth_first=False,
+	callback=None,
 	**kwargs
 	):
 	"""
@@ -52,9 +52,9 @@ def encode(X,
 		if dim == -1:
 			fbit = max(fbit-1, 1)
 			m = (X & 1).astype(bool)
-			mask = (1<<fbit)-1
 			right = np.sum(m)
 			left = len(X) - right
+			mask = (1<<fbit)-1
 
 			if len(X) == 1 or right < mask:
 				minor = right
@@ -148,7 +148,7 @@ def encode(X,
 		flags.close()
 	if payload:
 		payload.close()
-	return flags, payload
+	return flags, payload, kwargs
 
 
 def decode(Y, num_points,
