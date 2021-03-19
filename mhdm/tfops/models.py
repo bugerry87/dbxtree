@@ -81,7 +81,7 @@ class NbitTree(Model):
 	
 	@property
 	def bins(self):
-		return 1<<self.flag_size
+		return 2
 
 	@property
 	def output_size(self):
@@ -177,9 +177,9 @@ class NbitTree(Model):
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, pos, ordinal, counts, flags, layer, permute, offset, scale)
+			return (uids, pos, ordinal, counts, hist, layer, permute, offset, scale)
 		
-		def filter(uids, pos, ordinal, counts, flags, layer, *args):
+		def filter(uids, pos, ordinal, counts, hist, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -203,15 +203,16 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def feature_label_filter(uids, pos, ordinal, counts, flags, layer, *args):
+		def feature_label_filter(uids, pos, ordinal, counts, hist, layer, *args):
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			feature = tf.concat((uids, pos, ordinal[...,None]), axis=-1)
-			labels = tf.one_hot(flags, self.bins, dtype=self.dtype)
+			labels = tf.math.argmin(hist, axis=-1)
+			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
 			if balance:
-				weights = tf.size(flags)
-				weights = tf.cast(weights, tf.float32)
-				weights = tf.zeros_like(flags, dtype=tf.float32) + tf.math.exp(-weights/balance)
+				weights = tf.size(counts)
+				weights = tf.cast(weights, self.dtype)
+				weights = tf.zeros_like(counts, dtype=self.dtype) + tf.math.exp(-weights/balance)
 				return feature, labels, weights
 			else:
 				return feature, labels
@@ -275,6 +276,13 @@ class NbitTree(Model):
 	def predict_step(self, data):
 		"""
 		"""
+		if self.dim <= 0:
+			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
+			uids, probs, flags, do_encode = X
+			pred = tf.reshape(self(uids, training=False), (-1, self.bins))
+			probs = tf.concat([probs, pred], axis=0)
+			return probs, tf.constant([''])
+
 		def encode():
 			if tfc is None:
 				tf.get_logger().warn(
