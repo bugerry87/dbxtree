@@ -67,12 +67,12 @@ def binarize(fname):
 	return bits.reshape(-1)
 
 
-def cumsum_bits(bits):
+def cumsum_bits(bits, normalize=False):
 	y = bits.astype(float)
 	y[y==0] = -1
-	y = np.cumsum(y, dtype=float) / len(y)
+	y = np.cumsum(y, dtype=float) / (not normalize or len(y))
 	y -= y.min()
-	x = np.arange(len(y), dtype=float) / len(y)
+	x = np.arange(len(y), dtype=float) / (not normalize or len(y))
 	return x, y
 
 
@@ -82,11 +82,20 @@ def main(filenames,
 	):
 	"""
 	"""
-	rc = RangeEncoder()	
+	rc = RangeEncoder()
 
 	for fname in ifile(filenames):
 		bits = binarize(fname)
 		x, y = cumsum_bits(bits)
+		
+		plt.plot(x[::skip], y[::skip], label=fname)
+		plt.title("Overview")
+	plt.legend()
+	plt.show()
+
+	for fname in ifile(filenames):
+		bits = binarize(fname)
+		x, y = cumsum_bits(bits, normalize=True)
 		args, covars = curve_fit(fnc, x[::skip], y[::skip])
 		
 		plt.plot(x[::skip], y[::skip], label='{}_gt'.format(fname))

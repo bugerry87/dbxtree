@@ -344,7 +344,7 @@ def encode(files,
 			**kwargs
 			)
 		
-		log("\n")
+		log("\r\n")
 		if flags:
 			header_file, header = save_header(
 				output_file + '.hdr.pkl',

@@ -53,19 +53,39 @@ def encode(X,
 			fbit = max(fbit-1, 1)
 			m = (X & 1).astype(bool)
 			mask = (1<<fbit)-1
-			node = np.sum(m)
+			right = np.sum(m)
+			left = len(X) - right
 
-			if len(X) <= 1 or node < mask:
-				flag = node
-			else:
-				flag = (mask << fbit) | (node - mask)
-				local.overflows += fbit
+			if len(X) == 1 or right < mask:
+				minor = right
+				flag = minor
+			elif right == left:
+				minor = right
+				flag = mask<<fbit | minor
 				fbit *= 2
+				local.overflows += fbit
+			elif left < mask:
+				minor = left
+				m[:] = ~m
+				flag = mask<<fbit | minor
+				fbit *= 2
+				local.overflows += fbit
+			elif left < right:
+				minor = left
+				m[:] = ~m
+				flag = mask<<fbit+1 | mask<<1 | 0
+				fbit = fbit*2 + 1
+				local.overflows += fbit + 1
+			else:
+				minor = right
+				flag = mask<<fbit+1 | mask<<1 | 1
+				fbit = fbit*2 + 1
+				local.overflows += fbit + 1
 
 			if tail > 1:
-				if node < len(X):
+				if minor < len(X):
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
-				if node:
+				if minor:
 					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
 				local.points += 1
@@ -167,15 +187,24 @@ def decode(Y, num_points,
 		if dim == -1:
 			assert(remains)
 			mask = (1<<fbit) - 1
-			if remains > 1 and flag == mask:
-				local.overflows += fbit
-				flag = mask + Y.read(fbit)
+			if remains != 1 and flag == mask:
+				flag = Y.read(fbit)
+				if flag*2 == remains:
+					minor = 1
+				elif flag == mask:
+					minor = Y.read(1)
+					local.overflows += 1
+				else:
+					minor = 0
+				local.overflows += fbit*2
+			else:
+				minor = 1
 
 			if tail > 1:
 				if flag < remains:
-					yield expand(x.copy(), layer+1, pos+1, remains - flag)
+					yield expand(x | (1^minor)<<pos, layer+1, pos+1, remains - flag)
 				if flag:
-					yield expand(x | 1<<pos, layer+1, pos+1, flag)
+					yield expand(x | minor<<pos, layer+1, pos+1, flag)
 			else:
 				X[local.points] = x | bool(flag)<<pos
 				local.points += 1
