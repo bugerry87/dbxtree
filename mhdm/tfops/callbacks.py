@@ -31,9 +31,9 @@ class NbitTreeCallback(LambdaCallback):
 		self.range_encode = range_encode
 		self.binary = binary
 
-		if self.model.mode > 0:
+		if self.meta.mode > 0:
 			self.mode = flag_mode
-		elif self.model.mode == 0:
+		elif self.meta.mode == 0:
 			self.mode = counter_mode
 		else:
 			self.mode = overflow_mode

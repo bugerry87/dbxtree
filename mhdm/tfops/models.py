@@ -102,6 +102,7 @@ class NbitTree(Model):
 		"""
 		meta = utils.Prototype(
 			dim = self.dim,
+			mode = self.mode,
 			output_size = self.output_size,
 			flag_size = self.flag_size,
 			bins = self.bins,
