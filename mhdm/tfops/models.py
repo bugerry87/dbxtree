@@ -206,7 +206,7 @@ class NbitTree(Model):
 		def feature_label_filter(uids, pos, flags, hist, layer, *args):
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
-			feature = tf.concat((uids, pos, ordinal[...,None]), axis=-1)
+			feature = tf.concat((uids, pos), axis=-1)
 			labels = tf.math.argmin(hist, axis=-1)
 			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
 			if balance:
