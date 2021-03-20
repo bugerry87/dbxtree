@@ -15,7 +15,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 ## Local
 from mhdm.tfops.models import NbitTree
 from mhdm.tfops.metrics import RegularizedCosine
-from mhdm.tfops.callbacks import TestCallback, LogCallback
+from mhdm.tfops.callbacks import NbitTreeCallback, LogCallback
 
 
 def init_main_args(parents=[]):
@@ -371,7 +371,7 @@ def main(
 	if test_encoder is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		when = ['on_test_end' if trainer is None else 'on_epoch_end']
-		test_callback = TestCallback(tester, test_encoder, test_meta, test_freq, test_steps, when, writer)
+		test_callback = NbitTreeCallback(tester, test_encoder, test_meta, test_freq, test_steps, when, writer)
 		callbacks.append(test_callback)
 	
 	log_callback = LogCallback(tflog)

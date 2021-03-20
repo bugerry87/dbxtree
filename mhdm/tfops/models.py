@@ -161,25 +161,24 @@ class NbitTree(Model):
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
 			X1 = tf.roll(X0, -1, 0)
 			layer = tf.range(n_layers, dtype=X0.dtype)
-			#X = [X] * n_layers
+			filename = [filename] * n_layers
 			permute = [permute] * n_layers
 			offset = [offset] * n_layers
 			scale = [scale] * n_layers
-			return X0, X1, layer, permute, offset, scale
+			return X0, X1, layer, filename, permute, offset, scale
 		
-		def encode(X0, X1, layer, permute, offset, scale):
-			uids, idx0, counts = tf.unique_with_counts(X0)
+		def encode(X0, X1, layer, filename, permute, offset, scale):
+			uids, idx0 = tf.unique(X0)
 			flags, hist = bitops.encode(X1, idx0, meta.dim, ftype)
 			pos = NbitTree.finalize(uids, meta, permute, offset, scale)
 			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
 			pos = tf.math.divide_no_nan(pos, pos_max)
-			ordinal = tf.cast(uids, meta.dtype) / ((1<<meta.tree_depth) - 1)
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, meta.dtype)
-			return (uids, pos, ordinal, counts, hist, layer, permute, offset, scale)
+			return (uids, pos, flags, hist, layer, filename, permute, offset, scale)
 		
-		def filter(uids, pos, ordinal, counts, hist, layer, *args):
+		def filter(uids, pos, flags, hist, layer, *args):
 			return layer < meta.tree_depth
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -203,7 +202,7 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def feature_label_filter(uids, pos, ordinal, counts, hist, layer, *args):
+		def feature_label_filter(uids, pos, flags, hist, layer, *args):
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			feature = tf.concat((uids, pos, ordinal[...,None]), axis=-1)
@@ -224,7 +223,7 @@ class NbitTree(Model):
 		if meta is None:
 			return trainer, encoder
 		else:
-			meta.feature_size = meta.tree_depth + meta.input_dims + 1
+			meta.feature_size = meta.tree_depth + meta.input_dims
 			return trainer, encoder, meta
 	
 	def validator(self, *args,
@@ -278,10 +277,9 @@ class NbitTree(Model):
 		"""
 		if self.dim <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			uids, probs, flags, do_encode = X
-			pred = tf.reshape(self(uids, training=False), (-1, self.bins))
-			probs = tf.concat([probs, pred], axis=0)
-			return probs, tf.constant([''])
+			feature, hist = X
+			probs = tf.reshape(self(feature, training=False), (-1, self.bins))
+			return probs
 
 		def encode():
 			if tfc is None:
@@ -306,9 +304,9 @@ class NbitTree(Model):
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		uids, probs, flags, do_encode = X
+		feature, probs, flags, do_encode = X
 		flags = tf.cast(flags, tf.int16)
-		pred = tf.reshape(self(uids, training=False), (-1, self.bins))
+		pred = tf.reshape(self(feature, training=False), (-1, self.bins))
 		probs = tf.concat([probs, pred], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
