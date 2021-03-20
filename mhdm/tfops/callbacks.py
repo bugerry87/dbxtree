@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
 ## Local
-from .. import bitops
+from ..bitops import BitBuffer
 
 
 class NbitTreeCallback(LambdaCallback):
@@ -30,20 +30,22 @@ class NbitTreeCallback(LambdaCallback):
 		self.writer = writer
 		self.range_encode = range_encode
 		self.binary = binary
+		self.buffer = bitops.BitBuffer()
 
 		if self.meta.dim > 0:
 			self.mode = flag_mode
-		else:
+		elif self.meta.dim == 0:
 			self.mode = counter_mode
+		else:
+			self.mode = overflow_mode
 		pass
 
-	def flag_mode(self, step, sample, info):
+	def flag_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
 		flags = info[2]
-		layer = info[4].numpy()
-		encode = self.range_encode and layer == self.meta.tree_depth-1
+		encode = tree_end and self.range_encode
 
-		if layer == 0:
+		if tree_start:
 			probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
 			acc_flags = flags	
 		else:
@@ -54,7 +56,7 @@ class NbitTreeCallback(LambdaCallback):
 		bits = int(len(code)*8)
 		return probs, code, bits
 
-	def counter_mode(self, step, sample, info):
+	def overflow_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
 		hist = info[3].numpy()
 		layer = info[4].numpy()
@@ -64,24 +66,22 @@ class NbitTreeCallback(LambdaCallback):
 
 		probs = self.model.predict_on_batch(feature)
 		pred_minor = np.argmin(probs, axis=-1)[...,None]
-		symbol = np.take_along_axis(hist, pred_minor, axis=-1)
-		symbol = np.min(symbol, mask)
+		code = np.take_along_axis(hist, pred_minor, axis=-1)
+		code = np.min(code, mask)
 
 		gt = np.argmin(hist, axis=-1)[...,None]
 		gt_minor = np.take_along_axis(hist, gt, axis=-1)
 		sym_overflow = (hist[...,0] == hist[...,1]) & (counts > 1)
-		pred_overflow = (symbol == mask) & (counts > 1)
+		pred_overflow = (code == mask) & (counts > 1)
 		first_overflow = pred_overflow | sym_overflow
 		second_overflow = (gt_minor >= mask) & ~sym_overflow & (counts > 1)
 		gt_minor = np.min(gt_minor, mask)
 
-		symbol[first_overflow] = mask[first_overflow] << bits[first_overflow] + gt_minor[first_overflow]
-		symbol[second_overflow] <<= 1
-		symbol[second_overflow] |= gt
+		code[first_overflow] = mask[first_overflow] << bits[first_overflow] + gt_minor[first_overflow]
+		code[second_overflow] <<= 1
+		code[second_overflow] |= gt
 		bits[first_overflow] *= 2
 		bits[second_overflow] += 1
-
-		bits = int(bits.sum())
 		return probs, code, bits
 
 	def __call__(self, *args):
@@ -97,20 +97,25 @@ class NbitTreeCallback(LambdaCallback):
 
 		for step, sample, info in zip(range(self.steps), self.samples, self.info):
 			feature, labels = sample[:2]
+			tree_start = (step % self.meta.tree_depth) == 0
+			tree_end = (step+1) % self.meta.tree_depth
 			metrics = self.model.test_on_batch(feature, labels, reset_metrics=False, return_dict=True)
-			probs, code, bits = self.mode(step, sample, info)
+			probs, code, bits = self.mode(step, sample, info, tree_start, tree_end)
 
-			if bits:
+			if tree_start:
+				bit_count = 0
+			bit_count += int(sum(bits))
+			
+			if tree_end:
 				points = int(info[3].numpy().sum())
-				bpp = bits / points
+				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
 
-		if bits:
-			metrics['bpp'] = bpp_sum / self.meta.num_of_files
-			metrics['bpp_min'] = bpp_min
-			metrics['bpp_max'] = bpp_max
+		metrics['bpp'] = bpp_sum / self.meta.num_of_files
+		metrics['bpp_min'] = bpp_min
+		metrics['bpp_max'] = bpp_max
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name
