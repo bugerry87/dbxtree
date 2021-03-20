@@ -279,8 +279,7 @@ class NbitTree(Model):
 		"""
 		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			feature, hist = X
-			probs = tf.reshape(self(feature, training=False), (-1, self.bins))
+			probs = tf.reshape(self(X, training=False), (-1, self.bins))
 			return probs
 
 		def encode():
