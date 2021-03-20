@@ -32,11 +32,11 @@ class NbitTreeCallback(LambdaCallback):
 		self.binary = binary
 
 		if self.meta.mode > 0:
-			self.mode = flag_mode
+			self.mode = self.flag_mode
 		elif self.meta.mode == 0:
-			self.mode = counter_mode
+			self.mode = self.counter_mode
 		else:
-			self.mode = overflow_mode
+			self.mode = self.overflow_mode
 		pass
 
 	def flag_mode(self, step, sample, info, tree_start, tree_end):
