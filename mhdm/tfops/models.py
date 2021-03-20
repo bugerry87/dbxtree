@@ -36,7 +36,8 @@ class NbitTree(Model):
 		"""
 		"""
 		super(NbitTree, self).__init__(name=name, **kwargs)
-		self.dim = dim
+		self.mode = dim
+		self.dim = max(dim, 1)
 		self.kernels = kernels or self.output_size
 		self.kernel_size = kernel_size
 		self.floor = floor
@@ -275,7 +276,7 @@ class NbitTree(Model):
 	def predict_step(self, data):
 		"""
 		"""
-		if self.dim <= 0:
+		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 			feature, hist = X
 			probs = tf.reshape(self(feature, training=False), (-1, self.bins))
