@@ -275,6 +275,7 @@ def main(
 	log_dir = os.path.join(log_dir, timestamp)
 	log_model = os.path.join(log_dir, "ckpts", "nbittree_{}".format(timestamp))
 	log_output = os.path.join(log_dir, timestamp + '.log')
+	log_data = os.path.join(log_dir, 'test')
 	os.makedirs(log_dir, exist_ok=True)
 	train_index = train_index[0] if train_index and len(train_index) == 1 else train_index
 	val_index = val_index[0] if val_index and len(val_index) == 1 else val_index
@@ -371,7 +372,17 @@ def main(
 	if test_encoder is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		when = ['on_test_end' if trainer is None else 'on_epoch_end']
-		test_callback = NbitTreeCallback(tester, test_encoder, test_meta, test_freq, test_steps, when, writer)
+		test_callback = NbitTreeCallback(
+			samples=tester,
+			info=test_encoder,
+			meta=test_meta,
+			freq=test_freq,
+			steps=test_steps,
+			when=when,
+			writer=writer,
+			range_encode=True,
+			output=log_data
+			)
 		callbacks.append(test_callback)
 	
 	log_callback = LogCallback(tflog)

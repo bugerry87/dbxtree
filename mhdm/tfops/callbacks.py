@@ -1,4 +1,7 @@
 
+## Build In
+import os.path as path
+
 ## Installed
 import numpy as np
 import tensorflow as tf
@@ -17,7 +20,7 @@ class NbitTreeCallback(LambdaCallback):
 		when=['on_epoch_end'],
 		writer=None,
 		range_encode=True,
-		binary=False,
+		output=None,
 		):
 		"""
 		"""
@@ -29,7 +32,8 @@ class NbitTreeCallback(LambdaCallback):
 		self.freq = freq
 		self.writer = writer
 		self.range_encode = range_encode
-		self.binary = binary
+		self.output = output
+		self.buffer = BitBuffer() if output else None
 
 		if self.meta.mode > 0:
 			self.mode = self.flag_mode
@@ -59,26 +63,27 @@ class NbitTreeCallback(LambdaCallback):
 		feature = sample[0]
 		hist = info[3].numpy()
 		layer = info[4].numpy()
-		counts = hist.sum(axis=-1, keepdims=True)
-		bits = np.max(np.floor(np.log2(counts+1)), 1).astype(hist.dtype)
+		counts = hist.sum(axis=-1)
+		bits = np.maximum(np.floor(np.log2(counts+1)), 1).astype(hist.dtype)
 		mask = (1<<bits) - 1
 
 		probs = self.model.predict_on_batch(feature)
 		pred_minor = np.argmin(probs, axis=-1)[...,None]
-		code = np.take_along_axis(hist, pred_minor, axis=-1)
-		code = np.min(code, mask)
+		code = np.take_along_axis(hist, pred_minor, axis=-1).flatten()
+		code = np.minimum(code, mask)
 
-		gt = np.argmin(hist, axis=-1)[...,None]
-		gt_minor = np.take_along_axis(hist, gt, axis=-1)
-		sym_overflow = (hist[...,0] == hist[...,1]) & (counts > 1)
-		pred_overflow = (code == mask) & (counts > 1)
+		gt = np.argmin(hist, axis=-1)
+		gt_minor = np.take_along_axis(hist, gt[...,None], axis=-1).flatten()
+		more = counts > 1
+		sym_overflow = (hist[...,0] == hist[...,1]) & more
+		pred_overflow = (code == mask) & more
 		first_overflow = pred_overflow | sym_overflow
-		second_overflow = (gt_minor >= mask) & ~sym_overflow & (counts > 1)
-		gt_minor = np.min(gt_minor, mask)
+		second_overflow = (gt_minor >= mask) & ~sym_overflow & more
+		gt_minor = np.minimum(gt_minor, mask)
 
 		code[first_overflow] = mask[first_overflow] << bits[first_overflow] + gt_minor[first_overflow]
 		code[second_overflow] <<= 1
-		code[second_overflow] |= gt
+		code[second_overflow] |= gt[second_overflow]
 		bits[first_overflow] *= 2
 		bits[second_overflow] += 1
 		return probs, code, bits
@@ -96,13 +101,21 @@ class NbitTreeCallback(LambdaCallback):
 
 		for step, sample, info in zip(range(self.steps), self.samples, self.info):
 			feature, labels = sample[:2]
-			tree_start = (step % self.meta.tree_depth) == 0
-			tree_end = (step+1) % self.meta.tree_depth
+			filename = str(info[5].numpy())
+			tree_start = step % self.meta.tree_depth == 0
+			tree_end = (step+1) % self.meta.tree_depth == 0
 			metrics = self.model.test_on_batch(feature, labels, reset_metrics=False, return_dict=True)
 			probs, code, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
 				bit_count = 0
+				if self.buffer:
+					filename = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.bin')
+					self.buffer.open(filename, 'wb')
+			
+			if self.buffer:
+				for c, b in zip(code, bits):
+					self.buffer.write(c, b, soft_flush=True)
 			bit_count += int(sum(bits))
 			
 			if tree_end:
@@ -111,6 +124,8 @@ class NbitTreeCallback(LambdaCallback):
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
+				if self.buffer:
+					self.buffer.close()
 
 		metrics['bpp'] = bpp_sum / self.meta.num_of_files
 		metrics['bpp_min'] = bpp_min

@@ -91,22 +91,13 @@ def encode(X,
 				local.points += 1
 		elif dim == 0:
 			m = (X & 1).astype(bool)
-			right = np.sum(m)
+			flag = right = np.sum(m)
 			left = len(X) - right
-			if right <= left:
-				minor = right
-				major = left
-				flag = right << 1
-			else:
-				minor = left
-				major = right
-				flag = left << 1 | 1
-				m[:] = ~m
 			
 			if tail > 1:
-				if major:
+				if left:
 					yield expand(X[~m]>>1, layer+1, max(tail-1, 1))
-				if minor:
+				if right:
 					yield expand(X[m]>>1, layer+1, max(tail-1, 1))
 			else:
 				local.points += len(X)

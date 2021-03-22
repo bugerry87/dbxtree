@@ -207,8 +207,10 @@ class NbitTree(Model):
 		def feature_label_filter(uids, pos, flags, hist, layer, *args):
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
-			feature = tf.concat((uids, pos), axis=-1)
-			labels = tf.math.argmin(hist, axis=-1)
+			counts = tf.cast(hist, self.dtype)
+			counts = tf.math.reduce_sum(counts, axis=-1, keepdims=True) / tf.math.reduce_sum(counts)
+			feature = tf.concat((uids, pos, counts), axis=-1)
+			labels = tf.math.argmax(hist, axis=-1)
 			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
 			if balance:
 				weights = tf.size(counts)
@@ -225,7 +227,7 @@ class NbitTree(Model):
 		if meta is None:
 			return trainer, encoder
 		else:
-			meta.feature_size = meta.tree_depth + meta.input_dims
+			meta.feature_size = meta.tree_depth + meta.input_dims + 1
 			return trainer, encoder, meta
 	
 	def validator(self, *args,
