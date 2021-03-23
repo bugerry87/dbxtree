@@ -10,6 +10,12 @@ from tensorflow.keras.callbacks import Callback, LambdaCallback
 ## Local
 from ..bitops import BitBuffer
 
+## Optional
+try:
+	import py7zr
+except:
+	py7zr = None
+
 
 class NbitTreeCallback(LambdaCallback):
 	"""
@@ -109,23 +115,32 @@ class NbitTreeCallback(LambdaCallback):
 
 			if tree_start:
 				bit_count = 0
-				if self.buffer:
-					filename = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.bin')
-					self.buffer.open(filename, 'wb')
+				if self.output:
+					if py7zr:
+						arcfile = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.7z')
+						arcname = path.splitext(path.basename(filename))[0] + '.nbit.bin'
+						buffer = path.join(self.output, '~nbit.tmp')
+					else:
+						buffer = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.bin')
+					self.buffer.open(buffer, 'wb')
 			
-			if self.buffer:
+			if self.output:
 				for c, b in zip(code, bits):
 					self.buffer.write(c, b, soft_flush=True)
 			bit_count += int(sum(bits))
 			
 			if tree_end:
 				points = int(info[3].numpy().sum())
+				self.buffer.close()
+				if self.output and py7zr:
+					with py7zr.SevenZipFile(arcfile, 'w') as z:
+						z.write(buffer, arcname)
+					bpp = path.getsize(arcfile) * 8 / points
+					bpp_min = min(bpp_min, bpp)
 				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
-				if self.buffer:
-					self.buffer.close()
 
 		metrics['bpp'] = bpp_sum / self.meta.num_of_files
 		metrics['bpp_min'] = bpp_min
