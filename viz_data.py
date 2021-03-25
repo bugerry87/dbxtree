@@ -19,7 +19,7 @@ if __name__ == '__main__':
 	k = 16
 	animate = False
 	
-	model = NbitTree(2, k, transformers=4, normalize=False)
+	model = NbitTree(2, k, heads=4, normalize=False)
 	model.load_weights(model_name)
 	model.build(tf.TensorShape([1,None,48]))
 	model.summary()

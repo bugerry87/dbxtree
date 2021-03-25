@@ -180,7 +180,7 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--convolutions', '-c',
+		'--convolutions', '-C',
 		metavar='INT',
 		type=int,
 		default=0,
@@ -188,11 +188,11 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--transformers', '-t',
+		'--dense', '-D',
 		metavar='INT',
 		type=int,
 		default=0,
-		help='Number of transformers'
+		help='Number of dense layers'
 		)
 	
 	main_args.add_argument(
@@ -255,7 +255,7 @@ def main(
 	scale=None,
 	kernels=16,
 	convolutions=2,
-	transformers=0,
+	dense=0,
 	floor=0.0,
 	log_dir='logs',
 	verbose=2,
@@ -293,7 +293,7 @@ def main(
 		dim=dim,
 		kernels=kernels,
 		convolutions=convolutions,
-		transformers=transformers,
+		dense=dense,
 		floor=floor,
 		name=name,
 		**kwargs

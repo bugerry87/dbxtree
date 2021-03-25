@@ -26,8 +26,8 @@ class NbitTree(Model):
 		dim=2,
 		kernels=None,
 		kernel_size=3,
-		convolutions=0,
-		transformers=0,
+		convolutions=4,
+		dense=0,
 		floor=0.0,
 		dtype=tf.float32,
 		name=None,
@@ -42,39 +42,49 @@ class NbitTree(Model):
 		self.kernel_size = kernel_size
 		self.floor = floor
 
-		self.transformers = [layers.InnerTransformer(
-			self.kernels,
-			dtype=self.dtype,
-			layer_types=[Dense, Dense, layers.Euclidean],
-			layer_A_args=dict(
-				kernel_initializer='random_normal'
-				),
-			layer_B_args=dict(
-				kernel_initializer='random_normal',
-				trainable=False
-				),
-			layer_t_args=dict(inverted=True),
-			name='transformer_{}'.format(i),
-			**kwargs
-			) for i in range(transformers)]
-
-		self.conv_input = [Conv1D(
+		self.conv_uids = [Conv1D(
 			self.kernels, self.kernel_size, 1,
 			activation='relu',
 			padding='same',
 			dtype=self.dtype,
-			name='conv_input_{}'.format(i),
+			name='conv_uids_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
 		
-		self.conv = [Conv1D(
+		self.conv_pos = [Conv1D(
 			self.kernels, self.kernel_size, 1,
 			activation='relu',
 			padding='same',
 			dtype=self.dtype,
-			name='conv_{}'.format(i),
+			name='conv_pos_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
+		
+		self.conv_voxels = [Conv1D(
+			self.kernels, self.kernel_size, 1,
+			activation='relu',
+			padding='same',
+			dtype=self.dtype,
+			name='conv_voxels_{}'.format(i),
+			**kwargs
+			) for i in range(convolutions)]
+		
+		self.conv_meta = [Conv1D(
+			self.kernels, self.kernel_size, 1,
+			activation='relu',
+			padding='same',
+			dtype=self.dtype,
+			name='conv_meta_{}'.format(i),
+			**kwargs
+			) for i in range(convolutions)]
+		
+		self.dense = [Dense(
+			self.kernels,
+			activation='relu',
+			dtype=self.dtype,
+			name='dense_{}'.format(i),
+			**kwargs
+			) for i in range(dense)]
 
 		self.head = Dense(
 			self.output_size,
@@ -286,14 +296,37 @@ class NbitTree(Model):
 	def call(self, inputs, training=False):
 		"""
 		"""
-		X = inputs
-		if self.transformers:
-			X = tf.concat([transformer(X) for transformer in self.transformers], axis=-1)
+		def incr(j):
+			incr.i += j
+			return incr.i
+		incr.i = 0
 
-		for conv_input, conv in zip(self.conv_input, self.conv):
-			X = tf.concat((conv_input(inputs), X), axis=-1)
-			X = conv(X)
-		X = tf.concat((inputs, X), axis=-1)
+		X = inputs
+		stack = [X]
+		uids = X[...,incr(0):incr(self.meta.tree_depth*2)]
+		pos = X[...,incr(0):incr(self.meta.input_dims*2)]
+		voxels = X[...,incr(0):incr(self.kernels)]
+		meta = X[..., incr(0):]
+		
+		for conv in self.conv_uids:
+			uids = conv(uids)
+		stack.append(uids)
+
+		for conv in self.conv_pos:
+			pos = conv(pos)
+		stack.append(pos)
+
+		for conv in self.conv_voxels:
+			voxels = conv(voxels)
+		stack.append(voxels)
+
+		for conv in self.conv_meta:
+			meta = conv(meta)
+		stack.append(meta)
+
+		X = tf.concat(stack, axis=-1)
+		for dense in self.dense:
+			X = dense(X)
 		X = self.head(X)
 		return X
 	
