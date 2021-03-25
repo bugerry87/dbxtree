@@ -58,23 +58,21 @@ class NbitTree(Model):
 			**kwargs
 			) for i in range(transformers)]
 
-		self.conv_down = [Conv1D(
+		self.conv_input = [Conv1D(
 			self.kernels, self.kernel_size, 1,
-			kernel_initializer='random_normal',
 			activation='relu',
 			padding='same',
 			dtype=self.dtype,
-			name='conv_down_{}'.format(i),
+			name='conv_input_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
 		
-		self.conv_up = [Conv1D(
+		self.conv = [Conv1D(
 			self.kernels, self.kernel_size, 1,
-			kernel_initializer='random_normal',
 			activation='relu',
 			padding='same',
 			dtype=self.dtype,
-			name='conv_up_{}'.format(i),
+			name='conv_{}'.format(i),
 			**kwargs
 			) for i in range(convolutions)]
 
@@ -219,17 +217,29 @@ class NbitTree(Model):
 				-tf.ones([1, self.kernels], dtype=tf.float64),
 				tf.eye(self.kernels, dtype=tf.float64)[half:]
 				], axis=0)
+			
 			voxels = tf.concat([tf.roll(uids, half-i, 0)[...,None] for i in range(self.kernels+1)], axis=-1)
 			voxels = tf.cast(voxels, kernel.dtype)
 			voxels = voxels@kernel - tf.cast(tf.roll(tf.range(self.kernels), half, 0), kernel.dtype)
 			voxels = tf.cast(voxels, self.dtype)
-			voxels = tf.math.divide_no_nan(2*voxels, tf.reduce_min(tf.abs(voxels), axis=-1, keepdims=True))
+			voxels = tf.math.divide_no_nan(2*voxels, tf.reduce_mean(tf.abs(voxels)))
 			voxels = tf.exp(-voxels*voxels)
+
 			counts = tf.cast(hist, self.dtype)
 			counts = tf.math.reduce_sum(counts, axis=-1, keepdims=True) / tf.math.reduce_sum(counts)
-			feature = tf.concat((voxels, pos, counts), axis=-1)
+
+			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
+			uids = bitops.bitwise_and(uids, 1)
+			uids = tf.cast(uids, self.dtype)
+			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
+			uids = uids * 2 - tf.cast(m, self.dtype)
+			uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
+			pos = tf.concat([tf.math.minimum(pos, 0.0), tf.math.maximum(pos, 0.0)], axis=-1)
+
+			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 			labels = tf.math.argmax(hist, axis=-1)
 			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
+
 			if balance:
 				weights = tf.size(counts)
 				weights = tf.cast(weights, self.dtype)
@@ -245,7 +255,7 @@ class NbitTree(Model):
 		if meta is None:
 			return trainer, encoder
 		else:
-			meta.feature_size = self.kernels + meta.input_dims + 1
+			meta.feature_size = meta.tree_depth*2 + meta.input_dims*2 + self.kernels + 1
 			return trainer, encoder, meta
 	
 	def validator(self, *args,
@@ -277,19 +287,13 @@ class NbitTree(Model):
 		"""
 		"""
 		X = inputs
-
 		if self.transformers:
 			X = tf.concat([transformer(X) for transformer in self.transformers], axis=-1)
 
-		stack = []
-		for down in self.conv_down:
-			stack.append(X)
-			X = down(X)
-		
-		for x, up in zip(stack[::-1], self.conv_up):
-			x = tf.concat((X, x), axis=-1)
-			X = up(x)
-		
+		for conv_input, conv in zip(self.conv_input, self.conv):
+			X = tf.concat((conv_input(inputs), X), axis=-1)
+			X = conv(X)
+		X = tf.concat((inputs, X), axis=-1)
 		X = self.head(X)
 		return X
 	
