@@ -57,10 +57,10 @@ class NbitTreeCallback(LambdaCallback):
 		else:
 			self.flags = tf.concat([self.flags, info[2]], axis=-1)
 
-		probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
+		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
 		code = code[0]
 		bits = [8] * len(code)
-		return probs, code, bits
+		return self.probs, code, bits
 
 	def overflow_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
