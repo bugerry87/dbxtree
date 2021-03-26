@@ -188,6 +188,15 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--branches',
+		metavar='STR',
+		nargs='+',
+		choices=('uids', 'pos', 'voxels', 'meta'),
+		default=('uids', 'pos', 'voxels', 'meta'),
+		help='Sort the bits according their probabilities (default=None)'
+		)
+	
+	main_args.add_argument(
 		'--dense', '-D',
 		metavar='INT',
 		type=int,
@@ -255,6 +264,7 @@ def main(
 	scale=None,
 	kernels=16,
 	convolutions=2,
+	branches=('uids', 'pos', 'voxels', 'meta'),
 	dense=0,
 	floor=0.0,
 	log_dir='logs',
@@ -293,6 +303,7 @@ def main(
 		dim=dim,
 		kernels=kernels,
 		convolutions=convolutions,
+		branches=branches,
 		dense=dense,
 		floor=floor,
 		name=name,

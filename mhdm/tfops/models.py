@@ -27,6 +27,7 @@ class NbitTree(Model):
 		kernels=None,
 		kernel_size=3,
 		convolutions=4,
+		branches=('uids', 'pos', 'voxels', 'meta'),
 		dense=0,
 		floor=0.0,
 		dtype=tf.float32,
@@ -42,41 +43,53 @@ class NbitTree(Model):
 		self.kernel_size = kernel_size
 		self.floor = floor
 
-		self.conv_uids = [Conv1D(
-			self.kernels, self.kernel_size, 1,
-			activation='relu',
-			padding='same',
-			dtype=self.dtype,
-			name='conv_uids_{}'.format(i),
-			**kwargs
-			) for i in range(convolutions)]
+		if 'uids' in branches:
+			self.conv_uids = [Conv1D(
+				self.kernels, self.kernel_size, 1,
+				activation='relu',
+				padding='same',
+				dtype=self.dtype,
+				name='conv_uids_{}'.format(i),
+				**kwargs
+				) for i in range(convolutions)]
+		else:
+			self.conv_uids = []
 		
-		self.conv_pos = [Conv1D(
-			self.kernels, self.kernel_size, 1,
-			activation='relu',
-			padding='same',
-			dtype=self.dtype,
-			name='conv_pos_{}'.format(i),
-			**kwargs
-			) for i in range(convolutions)]
+		if 'pos' in branches:
+			self.conv_pos = [Conv1D(
+				self.kernels, self.kernel_size, 1,
+				activation='relu',
+				padding='same',
+				dtype=self.dtype,
+				name='conv_pos_{}'.format(i),
+				**kwargs
+				) for i in range(convolutions)]
+		else:
+			self.conv_pos = []
 		
-		self.conv_voxels = [Conv1D(
-			self.kernels, self.kernel_size, 1,
-			activation='relu',
-			padding='same',
-			dtype=self.dtype,
-			name='conv_voxels_{}'.format(i),
-			**kwargs
-			) for i in range(convolutions)]
+		if 'voxels' in branches:
+			self.conv_voxels = [Conv1D(
+				self.kernels, self.kernel_size, 1,
+				activation='relu',
+				padding='same',
+				dtype=self.dtype,
+				name='conv_voxels_{}'.format(i),
+				**kwargs
+				) for i in range(convolutions)]
+		else:
+			self.conv_voxels = []
 		
-		self.conv_meta = [Conv1D(
-			self.kernels, self.kernel_size, 1,
-			activation='relu',
-			padding='same',
-			dtype=self.dtype,
-			name='conv_meta_{}'.format(i),
-			**kwargs
-			) for i in range(convolutions)]
+		if 'meta' in branches:
+			self.conv_meta = [Conv1D(
+				self.kernels, self.kernel_size, 1,
+				activation='relu',
+				padding='same',
+				dtype=self.dtype,
+				name='conv_meta_{}'.format(i),
+				**kwargs
+				) for i in range(convolutions)]
+		else:
+			self.conv_meta = []
 		
 		self.dense = [Dense(
 			self.kernels,
@@ -101,7 +114,10 @@ class NbitTree(Model):
 	
 	@property
 	def bins(self):
-		return 2
+		if self.mode > 0:
+			return 1<<self.flag_size
+		else:
+			return 2
 
 	@property
 	def output_size(self):
@@ -247,8 +263,11 @@ class NbitTree(Model):
 			pos = tf.concat([tf.math.minimum(pos, 0.0), tf.math.maximum(pos, 0.0)], axis=-1)
 
 			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
-			labels = tf.math.argmax(hist, axis=-1)
-			labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
+			if self.mode > 0:
+				labels = tf.one_hot(flags, self.bins, dtype=self.dtype)
+			else:
+				labels = tf.math.argmax(hist, axis=-1)
+				labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
 
 			if balance:
 				weights = tf.size(counts)
@@ -308,29 +327,33 @@ class NbitTree(Model):
 		voxels = X[...,incr(0):incr(self.kernels)]
 		meta = X[..., incr(0):]
 		
-		X = uids
-		for conv in self.conv_uids:
-			x = conv(X)
-			X = tf.concat((X, x), axis=-1)
-		stack.append(X)
+		if self.conv_uids:
+			X = uids
+			for conv in self.conv_uids:
+				x = conv(X)
+				X = tf.concat((X, x), axis=-1)
+			stack.append(X)
 
-		X = pos
-		for conv in self.conv_pos:
-			x = conv(X)
-			X = tf.concat((X, x), axis=-1)
-		stack.append(X)
+		if self.conv_pos:
+			X = pos
+			for conv in self.conv_pos:
+				x = conv(X)
+				X = tf.concat((X, x), axis=-1)
+			stack.append(X)
 
-		X = voxels
-		for conv in self.conv_voxels:
-			x = conv(X)
-			X = tf.concat((X, x), axis=-1)
-		stack.append(X)
+		if self.conv_voxels:
+			X = voxels
+			for conv in self.conv_voxels:
+				x = conv(X)
+				X = tf.concat((X, x), axis=-1)
+			stack.append(X)
 
-		X = meta
-		for conv in self.conv_meta:
-			x = conv(X)
-			X = tf.concat((X, x), axis=-1)
-		stack.append(X)
+		if self.conv_meta:
+			X = meta
+			for conv in self.conv_meta:
+				x = conv(X)
+				X = tf.concat((X, x), axis=-1)
+			stack.append(X)
 
 		X = tf.concat(stack, axis=-1)
 		for dense in self.dense:
