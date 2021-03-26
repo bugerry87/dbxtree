@@ -308,21 +308,29 @@ class NbitTree(Model):
 		voxels = X[...,incr(0):incr(self.kernels)]
 		meta = X[..., incr(0):]
 		
+		X = uids
 		for conv in self.conv_uids:
-			uids = conv(uids)
-		stack.append(uids)
+			x = conv(X)
+			X = tf.concat((X, x), axis=-1)
+		stack.append(X)
 
+		X = pos
 		for conv in self.conv_pos:
-			pos = conv(pos)
-		stack.append(pos)
+			x = conv(X)
+			X = tf.concat((X, x), axis=-1)
+		stack.append(X)
 
+		X = voxels
 		for conv in self.conv_voxels:
-			voxels = conv(voxels)
-		stack.append(voxels)
+			x = conv(X)
+			X = tf.concat((X, x), axis=-1)
+		stack.append(X)
 
+		X = meta
 		for conv in self.conv_meta:
-			meta = conv(meta)
-		stack.append(meta)
+			x = conv(X)
+			X = tf.concat((X, x), axis=-1)
+		stack.append(X)
 
 		X = tf.concat(stack, axis=-1)
 		for dense in self.dense:
