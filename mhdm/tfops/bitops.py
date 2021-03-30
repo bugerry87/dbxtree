@@ -24,10 +24,13 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 		X = X + offset
 		
 		if scale is None:
-			scale = tf.cast(lim, X.dtype)
-			scale /= tf.math.reduce_max(X, axis, keepdims=True)
+			X_max = tf.math.reduce_max(X, axis, keepdims=True)
+			lim = tf.cast(lim, X.dtype)
+			scale = tf.math.divide_no_nan(scale, X_max)
 		else:
-			scale = 1 / tf.cast(scale, X.dtype)
+			lim = tf.cast(lim, X.dtype)
+			scale = tf.cast(scale, X.dtype)
+			scale = tf.math.divide_no_nan(lim, scale)
 		X = X * scale
 		
 		X = tf.math.round(X)
@@ -41,12 +44,14 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 @tf.function
 def realize(X, bits_per_dim, offset, scale, xtype=tf.float32, qtype=tf.int64):
 	with tf.name_scope("realize"):
-		masks = (1<<np.array(bits_per_dim, dtype=qtype)) - 1
-		shifts = np.cumsum([0] + list(bits_per_dim[:-1]), dtype=qtype)
+		one = tf.constant(1, dtype=qtype, name='one')
+		bits_per_dim = tf.constant(bits_per_dim, dtype=qtype)
+		masks = left_shift(one, bits_per_dim) - one
+		shifts = tf.math.cumsum(bits_per_dim, exclusive=True)
 		X = right_shift(X, shifts)
 		X = bitwise_and(X, masks)
 		X = tf.cast(X, xtype)
-		X /= scale
+		X = tf.math.divide_no_nan(X, scale)
 		X -= offset
 	return X
 

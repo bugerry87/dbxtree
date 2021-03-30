@@ -20,8 +20,10 @@ def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
 	X += offset
 	if scale is None:
 		scale = X.max(axis=0)
-		m = scale != 0
-		scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
+	else:
+		scale = np.array(scale)
+	m = scale != 0
+	scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
 	X *= scale
 	X = np.round(X).astype(qtype)
 	return X, offset, scale 
@@ -51,33 +53,32 @@ def deserialize(X, bits_per_dim, qtype=object):
 	return X
 
 
-def pattern(X, bits=None):
-	if bits is None:
-		bits = np.iinfo(X.dtype).bits
-	X = X.flatten()
-	p = np.array([np.sum(X>>i & 1) for i in range(bits)])
-	p = np.argmax((p, len(X)-p), axis=0)
-	p = np.packbits(p, bitorder='little')
-	p = int.from_bytes(p.tobytes(), 'little')
-	return p
-
-
 def sort(X, bits=None, reverse=False, absp=False):
 	if bits is None:
 		bits = np.iinfo(X.dtype).bits
 	shape = X.shape
+	shifts = np.arange(bits, dtype=X.dtype)
 	X = X.flatten()
-	Y = np.zeros_like(X)
-	p = np.array([np.sum(X>>i & 1) for i in range(bits)])
+	X = X[...,None]>>shifts & 1
+	p = np.sum(X, axis=0)
 	if absp:
-		p = np.max((p, len(Y)-p), axis=0)
+		p = np.max((p, len(X)-p), axis=0)
 	p = np.argsort(p)
 	if reverse:
 		p = p[::-1]
 	
-	for i in range(bits):
-		Y |= (X>>p[i] & 1) << i
-	return Y.reshape(shape), p.astype(np.uint8)
+	X = np.sum(X[:,p] << shifts, axis=-1)
+	return X.reshape(shape), p.astype(np.uint8)
+
+
+def pattern(X, bits):
+	if bits is None:
+		bits = np.iinfo(X.dtype).bits
+	shape = X.shape
+	shifts = np.arange(bits, dtype=X.dtype)
+	X = X.flatten()
+	X = X[...,None]>>shifts & 1
+	return np.sum(X, axis=0) < len(X)//2
 
 
 def permute(X, p):
@@ -123,7 +124,7 @@ class BitBuffer():
 	def __init__(self,
 		filename=None,
 		mode='rb',
-		interval=8,
+		interval=1,
 		buf=1024
 		):
 		"""
@@ -153,12 +154,18 @@ class BitBuffer():
 	def __del__(self):
 		self.close()
 	
+	def __next__(self):
+		try:
+			return self.read(self.interval)
+		except (EOFError, BufferError):
+			raise StopIteration()
+	
 	def __iter__(self):
 		try:
 			while True:
 				yield self.read(self.interval)
 		except (EOFError, BufferError):
-			raise StopIteration
+			pass
 	
 	def __bytes__(self):
 		n_bits = self.buffer.bit_length()
@@ -204,6 +211,7 @@ class BitBuffer():
 		Resets the internal buffer!
 		"""
 		self.buffer = 0xFF
+		self.size = 0
 	
 	def flush(self, hard=False):
 		"""
@@ -267,7 +275,7 @@ class BitBuffer():
 		self.close(reset)
 		self.fid = open(filename, mode)
 		if 'r' in mode:
-			self.size = path.getsize(self.name)
+			self.size = path.getsize(self.name) * 8
 		else:
 			self.size = 0
 		pass
@@ -288,6 +296,7 @@ class BitBuffer():
 		mask = (1<<shift) - 1
 		self.buffer <<= shift
 		self.buffer |= int(bits) & mask
+		self.size += shift
 		if soft_flush:
 			self.flush()
 		pass

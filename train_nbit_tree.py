@@ -14,8 +14,8 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTree
-from mhdm.tfops.metrics import RegularizedCrossentropy
-from mhdm.tfops.callbacks import TestCallback, LogCallback
+from mhdm.tfops.metrics import RegularizedCosine
+from mhdm.tfops.callbacks import NbitTreeCallback, LogCallback
 
 
 def init_main_args(parents=[]):
@@ -163,7 +163,7 @@ def init_main_args(parents=[]):
 	
 	main_args.add_argument(
 		'--offset',
-		metavar='INT',
+		metavar='FLOAT',
 		nargs='+',
 		type=float,
 		default=None,
@@ -172,7 +172,7 @@ def init_main_args(parents=[]):
 	
 	main_args.add_argument(
 		'--scale',
-		metavar='INT',
+		metavar='FLOAT',
 		nargs='+',
 		type=float,
 		default=None,
@@ -180,25 +180,28 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--convolutions', '-c',
+		'--convolutions', '-C',
 		metavar='INT',
 		type=int,
 		default=0,
 		help='Number of convolutions'
 		)
-
+	
 	main_args.add_argument(
-		'--unet', '-u',
-		action='store_true',
-		help="Whether build an UNet or (default) not"
+		'--branches',
+		metavar='STR',
+		nargs='+',
+		choices=('uids', 'pos', 'voxels', 'meta'),
+		default=('uids', 'pos', 'voxels', 'meta'),
+		help='Sort the bits according their probabilities (default=None)'
 		)
 	
 	main_args.add_argument(
-		'--transformers', '-t',
+		'--dense', '-D',
 		metavar='INT',
 		type=int,
 		default=0,
-		help='Number of transformers'
+		help='Number of dense layers'
 		)
 	
 	main_args.add_argument(
@@ -207,6 +210,14 @@ def init_main_args(parents=[]):
 		type=int,
 		default=16,
 		help='num of kernel units'
+		)
+	
+	main_args.add_argument(
+		'--floor',
+		metavar='FLOAT',
+		type=float,
+		default=0.0,
+		help='Probability floor, added to the estimated probabilities'
 		)
 	
 	main_args.add_argument(
@@ -228,14 +239,6 @@ def init_main_args(parents=[]):
 		'--cpu',
 		action='store_true',
 		help="Whether to allow cpu or (default) force gpu execution"
-		)
-	
-	main_args.add_argument(
-		'--floor',
-		metavar='FLOAT',
-		type=float,
-		default=0.0,
-		help='Probability floor, added to the estimated probabilities'
 		)
 	return main_args
 
@@ -261,13 +264,12 @@ def main(
 	scale=None,
 	kernels=16,
 	convolutions=2,
-	unet=False,
-	transformers=0,
-	heads=1,
+	branches=('uids', 'pos', 'voxels', 'meta'),
+	dense=0,
+	floor=0.0,
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
-	floor=0.0,
 	name=None,
 	log_params={},
 	**kwargs
@@ -283,6 +285,7 @@ def main(
 	log_dir = os.path.join(log_dir, timestamp)
 	log_model = os.path.join(log_dir, "ckpts", "nbittree_{}".format(timestamp))
 	log_output = os.path.join(log_dir, timestamp + '.log')
+	log_data = os.path.join(log_dir, 'test')
 	os.makedirs(log_dir, exist_ok=True)
 	train_index = train_index[0] if train_index and len(train_index) == 1 else train_index
 	val_index = val_index[0] if val_index and len(val_index) == 1 else val_index
@@ -300,8 +303,8 @@ def main(
 		dim=dim,
 		kernels=kernels,
 		convolutions=convolutions,
-		unet=unet,
-		transformers=transformers,
+		branches=branches,
+		dense=dense,
 		floor=floor,
 		name=name,
 		**kwargs
@@ -348,9 +351,9 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCrossentropy(msle_smoothing=0.1)
+	loss = RegularizedCosine(msle_smoothing=0.0625)
 	model.compile(
-		optimizer='adam', 
+		optimizer='adam',
 		loss=loss,
 		metrics=['accuracy'],
 		sample_weight_mode='temporal'
@@ -377,13 +380,24 @@ def main(
 			patience=stop_patience
 			))
 	
-	if tester is not None:
+	if test_encoder is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		when = ['on_test_end' if trainer is None else 'on_epoch_end']
-		test_callback = TestCallback(tester, test_encoder, test_meta, test_freq, test_steps, when, writer)
+		test_callback = NbitTreeCallback(
+			samples=tester,
+			info=test_encoder,
+			meta=test_meta,
+			freq=test_freq,
+			steps=test_steps,
+			when=when,
+			writer=writer,
+			range_encode=True,
+			output=log_data
+			)
 		callbacks.append(test_callback)
 	
-	callbacks.append(LogCallback(tflog))
+	log_callback = LogCallback(tflog)
+	callbacks.append(log_callback)
 
 	if trainer is not None:
 		history = model.fit(
@@ -406,7 +420,9 @@ def main(
 			)
 	elif tester is not None:
 		history = dict()
+		test_callback.model = model
 		test_callback(history)
+		log_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")
 	tflog.info('Done!')

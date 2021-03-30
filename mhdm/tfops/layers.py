@@ -226,8 +226,7 @@ class Euclidean(Layer):
 	
 	def call(self, inputs):
 		if self.matrix_mode:
-			a = tf.expand_dims(inputs, axis=-1)
-			a = a - self.w
+			a = inputs[...,None] - self.w
 			a *= a 
 			a = tf.math.reduce_sum(a, axis=-2)
 		else:
@@ -241,7 +240,7 @@ class Euclidean(Layer):
 				return a, i+1
 			
 			i = tf.constant(1)
-			a = inputs[...,0,None] - self.w[0] #b,n,k
+			a = inputs[...,0,None] - self.w[0]
 			a *= a
 			a, i = tf.while_loop(cond, body,
 				loop_vars=(a, i),

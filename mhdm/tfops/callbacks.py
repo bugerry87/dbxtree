@@ -1,78 +1,147 @@
 
+## Build In
+import os.path as path
+
 ## Installed
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
 ## Local
-from .. import range_coder
+from ..bitops import BitBuffer
+
+## Optional
+try:
+	import py7zr
+except:
+	py7zr = None
 
 
-class TestCallback(LambdaCallback):
+class NbitTreeCallback(LambdaCallback):
 	"""
 	"""
-	def __init__(self, samples, data, meta,
+	def __init__(self, samples, info, meta,
 		freq=1,
 		steps=0,
 		when=['on_epoch_end'],
 		writer=None,
-		encoder=None
+		range_encode=True,
+		output=None,
 		):
 		"""
 		"""
-		super(TestCallback, self).__init__(**{w:self for w in when})
+		super(NbitTreeCallback, self).__init__(**{w:self for w in when})
 		self.samples = samples
-		self.data = data
+		self.info = info
 		self.meta = meta
 		self.steps = steps or meta.num_of_samples
 		self.freq = freq
 		self.writer = writer
-		self.encoder = encoder
+		self.range_encode = range_encode
+		self.output = output
+		self.buffer = BitBuffer() if output else None
+
+		if self.meta.mode > 0:
+			self.mode = self.flag_mode
+		else:
+			self.mode = self.overflow_mode
 		pass
+
+	def flag_mode(self, step, sample, info, tree_start, tree_end):
+		feature = sample[0]
+		encode = tree_end and self.range_encode
+
+		if tree_start:
+			self.probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
+			self.flags = info[2]	
+		else:
+			self.flags = tf.concat([self.flags, info[2]], axis=-1)
+
+		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
+		code = code[0]
+		bits = [8] * len(code)
+		return self.probs, code, bits
+
+	def overflow_mode(self, step, sample, info, tree_start, tree_end):
+		feature = sample[0]
+		hist = info[3].numpy()
+		layer = info[4].numpy()
+		counts = hist.sum(axis=-1)
+		bits = np.maximum(np.floor(np.log2(counts+1)), 1).astype(hist.dtype)
+		mask = (1<<bits) - 1
+
+		probs = self.model.predict_on_batch(feature)
+		pred_minor = np.argmin(probs, axis=-1)[...,None]
+		code = np.take_along_axis(hist, pred_minor, axis=-1).flatten()
+		code = np.minimum(code, mask)
+
+		gt = np.argmin(hist, axis=-1)
+		gt_minor = np.take_along_axis(hist, gt[...,None], axis=-1).flatten()
+		more = counts > 1
+		sym_overflow = (hist[...,0] == hist[...,1]) & more
+		pred_overflow = (code == mask) & more
+		first_overflow = pred_overflow | sym_overflow
+		second_overflow = (gt_minor >= mask) & ~sym_overflow & more
+		gt_minor = np.minimum(gt_minor, mask)
+
+		code[first_overflow] = mask[first_overflow] << bits[first_overflow] + gt_minor[first_overflow]
+		code[second_overflow] <<= 1
+		code[second_overflow] |= gt[second_overflow]
+		bits[first_overflow] *= 2
+		bits[second_overflow] += 1
+		return probs, code, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
-		log, step = args[:2]
-		if step % self.freq != 0:
+		log, epoch = args[:2]
+		if epoch % self.freq != 0:
 			return
 		
 		bpp_sum = 0
 		bpp_min = (1<<32)-1
 		bpp_max = 0
 		self.model.reset_metrics()
-		
-		for i, sample, data in zip(range(self.steps), self.samples, self.data):
-			uids, labels = sample[:2]
-			layer = data[2].numpy()
-			num_points = len(data[3])
-			tree_end = layer == self.meta.tree_depth-1
-			encode = self.encoder is None and tree_end
-			if layer == 0:
-				self.encoder and self.encoder.reset()
-				probs = np.zeros((0, self.meta.bins), dtype=self.meta.dtype)
-				acc_labels = labels
-			else:
-				acc_labels = tf.concat([acc_labels, labels], axis=1)
-			metrics = self.model.test_on_batch(uids, labels, reset_metrics=False, return_dict=True)
-			probs, code = self.model.predict_on_batch((uids, probs, acc_labels, encode))
-			code = code[0]
-			
-			if self.encoder:
-				labels = labels.numpy().reshape(-1, self.meta.bins)
-				labels = np.nonzero()[-1]
-				cdfs = range_coder.cdf(probs, precision=16, floor=self.model.floor)
-				code = self.encoder.updates(labels, cdfs)
 
+		for step, sample, info in zip(range(self.steps), self.samples, self.info):
+			feature, labels = sample[:2]
+			filename = str(info[5].numpy())
+			tree_start = step % self.meta.tree_depth == 0
+			tree_end = (step+1) % self.meta.tree_depth == 0
+			metrics = self.model.test_on_batch(feature, labels, reset_metrics=False, return_dict=True)
+			probs, code, bits = self.mode(step, sample, info, tree_start, tree_end)
+
+			if tree_start:
+				bit_count = 0
+				if self.output:
+					if py7zr:
+						arcfile = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.7z')
+						arcname = path.splitext(path.basename(filename))[0] + '.nbit.bin'
+						buffer = path.join(self.output, '~nbit.tmp')
+					else:
+						buffer = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.bin')
+					self.buffer.open(buffer, 'wb')
+			
+			if self.output:
+				for c, b in zip(code, bits):
+					self.buffer.write(c, b, soft_flush=True)
+			bit_count += int(sum(bits))
+			
 			if tree_end:
-				bpp = float(len(code) * 8 / num_points)
+				points = int(info[3].numpy().sum())
+				self.buffer.close()
+				if self.output and py7zr:
+					with py7zr.SevenZipFile(arcfile, 'w') as z:
+						z.write(buffer, arcname)
+					bpp = path.getsize(arcfile) * 8 / points
+					bpp_min = min(bpp_min, bpp)
+				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
-		
-		if code:
-			metrics['bpp'] = bpp_sum / self.meta.num_of_files
-			metrics['bpp_min'] = bpp_min
-			metrics['bpp_max'] = bpp_max
+
+		metrics['bpp'] = bpp_sum / self.meta.num_of_files
+		metrics['bpp_min'] = bpp_min
+		metrics['bpp_max'] = bpp_max
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name
@@ -82,7 +151,7 @@ class TestCallback(LambdaCallback):
 			with self.writer.as_default():
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
-					tf.summary.scalar(name, metric, step)
+					tf.summary.scalar(name, metric, epoch)
 			self.writer.flush()
 		pass
 
@@ -95,6 +164,9 @@ class LogCallback(Callback):
 		self.logger = logger
 		self.msg = None
 		pass
+
+	def __call__(self, log):
+		self.logger.info("Test: " + ", ".join(['{} = {}'.format(k,v) for k,v in log.items()]))
 
 	def on_epoch_end(self, epoch, log):
 		self.msg = "Epoch {}: ".format(epoch+1) + ", ".join(['{} = {}'.format(k,v) for k,v in log.items()])
