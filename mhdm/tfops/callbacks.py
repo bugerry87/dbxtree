@@ -104,18 +104,18 @@ class NbitTreeCallback(LambdaCallback):
 			self.labels = labels
 			self.hist = hist
 		else:
-			self.labels = tf.concat([self.labels, labels, axis=0)
-			self.hist = np.hstack([self.hist, hist])
+			self.labels = tf.concat([self.labels, labels], axis=0)
+			self.hist = np.vstack([self.hist, hist])
 
-		self.probs, code = self.model.predict_on_batch(feature, self.probs, self.labels, encode)
+		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.labels, encode))
 		code = code[0]
-		if code:
+		if tree_end:
 			self.labels = self.labels.numpy()
 			counts = self.hist.sum(axis=-1)
 			bits = np.floor(np.log2(counts+1)).astype(self.hist.dtype)
 			mask = (1<<bits) - 1
 			pred_minor = np.argmin(self.probs[...,:2], axis=-1)[...,None]
-			gt = np.take_along_axis(self.hist, self.labels[...,0,None], axis=-1).flatten()
+			gt = self.hist.min(axis=-1)
 			payload = np.take_along_axis(self.hist, pred_minor, axis=-1).flatten()
 			payload = np.minimum(payload, mask)
 			overflow = payload == mask
@@ -131,7 +131,7 @@ class NbitTreeCallback(LambdaCallback):
 			payload = []
 			bits = []
 
-		return probs, code, payload, bits
+		return self.probs, code, payload, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
@@ -150,7 +150,7 @@ class NbitTreeCallback(LambdaCallback):
 			tree_start = step % self.meta.tree_depth == 0
 			tree_end = (step+1) % self.meta.tree_depth == 0
 			metrics = self.model.test_on_batch(feature, labels, reset_metrics=False, return_dict=True)
-			probs, code, bits = self.mode(step, sample, info, tree_start, tree_end)
+			probs, code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
 				bit_count = 0

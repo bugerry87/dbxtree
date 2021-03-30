@@ -253,8 +253,7 @@ class NbitTree(Model):
 			voxels = tf.math.divide_no_nan(2*voxels, tf.reduce_mean(tf.abs(voxels)))
 			voxels = tf.exp(-voxels*voxels)
 
-			counts = tf.cast(hist, self.dtype)
-			counts = tf.math.reduce_sum(counts, axis=-1, keepdims=True) / tf.math.reduce_sum(counts)
+			counts = tf.math.reduce_sum(hist, axis=-1)
 
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
@@ -264,7 +263,6 @@ class NbitTree(Model):
 			uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
 			pos = tf.concat([tf.math.minimum(pos, 0.0), tf.math.maximum(pos, 0.0)], axis=-1)
 
-			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 			if self.mode > 0:
 				labels = tf.one_hot(flags, self.bins, dtype=self.dtype)
 			elif self.mode == 0:
@@ -276,11 +274,15 @@ class NbitTree(Model):
 				right = hist[...,0] < hist[...,1]
 				labels = tf.concat((overflow[...,None], left[...,None], right[...,None]), axis=-1)
 				labels = tf.cast(labels, self.dtype)
+			
+			counts = tf.cast(counts, self.dtype)
+			counts /= tf.math.reduce_sum(counts)
+			feature = tf.concat((uids, pos, voxels, counts[...,None]), axis=-1)
 
 			if balance:
-				weights = tf.size(counts)
+				weights = tf.size(flags)
 				weights = tf.cast(weights, self.dtype)
-				weights = tf.zeros_like(counts, dtype=self.dtype) + tf.math.exp(-weights/balance)
+				weights = tf.zeros_like(flags, dtype=self.dtype) + tf.math.exp(-weights/balance)
 				return feature, labels, weights
 			else:
 				return feature, labels
