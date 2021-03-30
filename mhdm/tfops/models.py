@@ -393,7 +393,7 @@ class NbitTree(Model):
 			else:
 				cdf = probs[...,:2] * [[1., 0.5]] + probs[...,-2:] * [[0., 0.5]]
 				symbols = tf.argmax(labels[...,:2], axis=-1)
-				symbols = tf.clip_by_value(labels, 0, 1)
+				symbols = tf.clip_by_value(symbols, 0, 1)
 				symbols = tf.cast(symbols, tf.int16)
 			
 			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True)
