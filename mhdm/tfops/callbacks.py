@@ -43,8 +43,10 @@ class NbitTreeCallback(LambdaCallback):
 
 		if self.meta.mode > 0:
 			self.mode = self.flag_mode
-		else:
+		elif self.meta.mode == 0:
 			self.mode = self.overflow_mode
+		else:
+			self.mode = self.overflow_range_mode
 		pass
 
 	def flag_mode(self, step, sample, info, tree_start, tree_end):
@@ -59,8 +61,7 @@ class NbitTreeCallback(LambdaCallback):
 
 		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
 		code = code[0]
-		bits = [8] * len(code)
-		return self.probs, code, bits
+		return self.probs, code, [], []
 
 	def overflow_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
@@ -89,7 +90,48 @@ class NbitTreeCallback(LambdaCallback):
 		code[second_overflow] |= gt[second_overflow]
 		bits[first_overflow] *= 2
 		bits[second_overflow] += 1
-		return probs, code, bits
+		return probs, [], code, bits
+	
+	def overflow_range_mode(self, step, sample, info, tree_start, tree_end):
+		feature, labels = sample[:2]
+		labels = labels[0]
+		hist = info[3].numpy()
+		layer = info[4].numpy()
+		encode = tree_end and self.range_encode
+
+		if tree_start:
+			self.probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
+			self.labels = labels
+			self.hist = hist
+		else:
+			self.labels = tf.concat([self.labels, labels, axis=0)
+			self.hist = np.hstack([self.hist, hist])
+
+		self.probs, code = self.model.predict_on_batch(feature, self.probs, self.labels, encode)
+		code = code[0]
+		if code:
+			self.labels = self.labels.numpy()
+			counts = self.hist.sum(axis=-1)
+			bits = np.floor(np.log2(counts+1)).astype(self.hist.dtype)
+			mask = (1<<bits) - 1
+			pred_minor = np.argmin(self.probs[...,:2], axis=-1)[...,None]
+			gt = np.take_along_axis(self.hist, self.labels[...,0,None], axis=-1).flatten()
+			payload = np.take_along_axis(self.hist, pred_minor, axis=-1).flatten()
+			payload = np.minimum(payload, mask)
+			overflow = payload == mask
+			payload[overflow] = mask[overflow] << bits[overflow] + gt[overflow]
+			bits[overflow] *= 2
+			odd = (counts & 1) == 1
+			overflow = self.labels[:,-1] == 0
+			payload[overflow] = self.labels[overflow,0]
+			bits[overflow] = 0
+			bits[overflow & odd] = 1
+			bits[counts <= 1] = 0
+		else:
+			payload = []
+			bits = []
+
+		return probs, code, payload, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
@@ -122,9 +164,12 @@ class NbitTreeCallback(LambdaCallback):
 					self.buffer.open(buffer, 'wb')
 			
 			if self.output:
-				for c, b in zip(code, bits):
-					self.buffer.write(c, b, soft_flush=True)
-			bit_count += int(sum(bits))
+				for c in code:
+					self.buffer.write(c, 8, soft_flush=True)
+
+				for p, b in zip(payload, bits):
+					self.buffer.write(p, b, soft_flush=True)
+			bit_count += len(code)*8 + int(sum(bits))
 			
 			if tree_end:
 				points = int(info[3].numpy().sum())

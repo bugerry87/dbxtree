@@ -116,8 +116,10 @@ class NbitTree(Model):
 	def bins(self):
 		if self.mode > 0:
 			return 1<<self.flag_size
-		else:
+		elif self.mode == 0:
 			return 2
+		else:
+			return 3
 
 	@property
 	def output_size(self):
@@ -265,9 +267,15 @@ class NbitTree(Model):
 			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 			if self.mode > 0:
 				labels = tf.one_hot(flags, self.bins, dtype=self.dtype)
-			else:
+			elif self.mode == 0:
 				labels = tf.math.argmax(hist, axis=-1)
 				labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
+			else:
+				overflow = tf.math.reduce_any([hist[...,0] == counts//2, hist[...,0] == counts//2], axis=0)
+				left = hist[...,0] > hist[...,1]
+				right = hist[...,0] < hist[...,1]
+				labels = tf.concat((overflow[...,None], left[...,None], right[...,None]), axis=-1)
+				labels = tf.cast(labels, self.dtype)
 
 			if balance:
 				weights = tf.size(counts)
@@ -364,7 +372,7 @@ class NbitTree(Model):
 	def predict_step(self, data):
 		"""
 		"""
-		if self.mode <= 0:
+		if self.mode == 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 			probs = tf.reshape(self(X, training=False), (-1, self.bins))
 			return probs
@@ -376,24 +384,32 @@ class NbitTree(Model):
 					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
 					)
 				return tf.constant([''])
-
-			cdf = tf.math.reduce_max(probs, axis=-1, keepdims=True)
-			cdf = tf.math.divide_no_nan(probs, cdf)[:,1:]
+			
+			if self.mode > 0:
+				cdf = probs[...,1:]
+				symbols = tf.cast(labels-1, tf.int16)
+			else:
+				cdf = probs[...,:2] * [[1., 0.5]] + probs[...,-2:] * [[0., 0.5]]
+				symbols = tf.argmax(labels, axis=-1)
+				symbols = tf.clip_by_value(labels, 0, 1)
+				symbols = tf.cast(symbols, tf.int16)
+			
+			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True)
+			cdf = tf.math.divide_no_nan(cdf, pmax)
 			cdf = tf.clip_by_value(cdf, self.floor, 1.0)
 			cdf = tf.math.cumsum(cdf, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.math.round(cdf * float(1<<16))
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			code = tfc.range_encode(flags-1, cdf, precision=16)
+			code = tfc.range_encode(symbols, cdf, precision=16)
 			return tf.expand_dims(code, axis=0)
 		
 		def ignore():
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		feature, probs, flags, do_encode = X
-		flags = tf.cast(flags, tf.int16)
+		feature, probs, labels, do_encode = X
 		pred = tf.reshape(self(feature, training=False), (-1, self.bins))
 		probs = tf.concat([probs, pred], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
