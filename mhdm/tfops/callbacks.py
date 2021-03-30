@@ -114,7 +114,7 @@ class NbitTreeCallback(LambdaCallback):
 			counts = self.hist.sum(axis=-1)
 			bits = np.floor(np.log2(counts+1)).astype(self.hist.dtype)
 			mask = (1<<bits) - 1
-			pred_minor = np.argmin(self.probs[...,:2], axis=-1)[...,None]
+			pred_minor = np.argmin(self.probs[...,1:], axis=-1)[...,None]
 			gt = self.hist.min(axis=-1)
 			payload = np.take_along_axis(self.hist, pred_minor, axis=-1).flatten()
 			payload = np.minimum(payload, mask)
@@ -122,8 +122,8 @@ class NbitTreeCallback(LambdaCallback):
 			payload[overflow] = mask[overflow] << bits[overflow] + gt[overflow]
 			bits[overflow] *= 2
 			odd = (counts & 1) == 1
-			overflow = self.labels[:,-1] == 0
-			payload[overflow] = self.labels[overflow,0]
+			overflow = self.labels[:,0] == 0
+			payload[overflow] = self.labels[overflow,1]
 			bits[overflow] = 0
 			bits[overflow & odd] = 1
 			bits[counts <= 1] = 0
