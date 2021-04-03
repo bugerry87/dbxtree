@@ -74,7 +74,6 @@ def sort(X, bits=None, reverse=False, absp=False):
 def pattern(X, bits):
 	if bits is None:
 		bits = np.iinfo(X.dtype).bits
-	shape = X.shape
 	shifts = np.arange(bits, dtype=X.dtype)
 	X = X.flatten()
 	X = X[...,None]>>shifts & 1
