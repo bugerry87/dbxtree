@@ -46,7 +46,7 @@ class NbitTreeCallback(LambdaCallback):
 		elif self.meta.mode == 0:
 			self.mode = self.overflow_mode
 		else:
-			self.mode = self.overflow_range_mode
+			self.mode = self.overflow_regression
 		pass
 
 	def flag_mode(self, step, sample, info, tree_start, tree_end):
@@ -85,53 +85,32 @@ class NbitTreeCallback(LambdaCallback):
 		second_overflow = (gt_minor >= mask) & ~sym_overflow & more
 		gt_minor = np.minimum(gt_minor, mask)
 
-		code[first_overflow] = mask[first_overflow] << bits[first_overflow] + gt_minor[first_overflow]
+		code[first_overflow] = mask[first_overflow] << bits[first_overflow] | gt_minor[first_overflow]
 		code[second_overflow] <<= 1
 		code[second_overflow] |= gt[second_overflow]
 		bits[first_overflow] *= 2
 		bits[second_overflow] += 1
 		return probs, [], code, bits
 	
-	def overflow_range_mode(self, step, sample, info, tree_start, tree_end):
+	def overflow_regression(self, step, sample, info, tree_start, tree_end):
 		feature, labels = sample[:2]
 		labels = labels[0]
 		hist = info[3].numpy()
-		layer = info[4].numpy()
-		encode = tree_end and self.range_encode
+		counts = hist.sum(axis=-1)
+		probs = self.model.predict_on_batch(feature)
+		probs /= np.linalg.norm(probs, ord=1)
+		pred = np.argmin(probs, axis=-1)[...,None]
+		payload = np.take_along_axis(hist, pred, axis=-1).flatten()
+		pred = np.take_along_axis(probs, pred, axis=-1).flatten()
 
-		if tree_start:
-			self.probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
-			self.labels = labels
-			self.hist = hist
-		else:
-			self.labels = tf.concat([self.labels, labels], axis=0)
-			self.hist = np.vstack([self.hist, hist])
-
-		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.labels, encode))
-		code = code[0]
-		if tree_end:
-			self.labels = self.labels.numpy()
-			counts = self.hist.sum(axis=-1)
-			bits = np.floor(np.log2(counts+1)).astype(self.hist.dtype)
-			mask = (1<<bits) - 1
-			pred_minor = np.argmin(self.probs[...,1:], axis=-1)[...,None]
-			gt = self.hist.min(axis=-1)
-			payload = np.take_along_axis(self.hist, pred_minor, axis=-1).flatten()
-			payload = np.minimum(payload, mask)
-			overflow = payload == mask
-			payload[overflow] = mask[overflow] << bits[overflow] + gt[overflow]
-			bits[overflow] *= 2
-			odd = (counts & 1) == 1
-			overflow = self.labels[:,0] == 0
-			payload[overflow] = self.labels[overflow,1]
-			bits[overflow] = 0
-			bits[overflow & odd] = 1
-			bits[counts <= 1] = 0
-		else:
-			payload = []
-			bits = []
-
-		return self.probs, code, payload, bits
+		overflow_bits = np.ceil(np.log2(counts + 1.0)).astype(payload.dtype)
+		bits = np.floor(np.log2(pred*counts + 1.0)).astype(payload.dtype)
+		mask = (1<<bits) - 1
+		overflow = payload >= mask
+		payload[overflow] = mask[overflow] << overflow_bits[overflow] | payload[overflow]
+		bits[overflow] += overflow_bits[overflow]
+		code = []
+		return probs, code, payload, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)

@@ -116,10 +116,8 @@ class NbitTree(Model):
 	def bins(self):
 		if self.mode > 0:
 			return 1<<self.flag_size
-		elif self.mode == 0:
-			return 2
 		else:
-			return 3
+			return 2
 
 	@property
 	def output_size(self):
@@ -254,6 +252,7 @@ class NbitTree(Model):
 			voxels = tf.exp(-voxels*voxels)
 
 			counts = tf.math.reduce_sum(hist, axis=-1)
+			counts = tf.cast(counts[...,None], self.dtype)
 
 			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
@@ -269,15 +268,10 @@ class NbitTree(Model):
 				labels = tf.math.argmax(hist, axis=-1)
 				labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
 			else:
-				overflow = tf.math.reduce_any([hist[...,0] == counts//2, hist[...,0] == counts//2], axis=0)
-				left = hist[...,0] > hist[...,1]
-				right = hist[...,0] < hist[...,1]
-				labels = tf.concat((overflow[...,None], left[...,None], right[...,None]), axis=-1)
-				labels = tf.cast(labels, self.dtype)
+				labels = tf.cast(hist, self.dtype) / counts
 			
-			counts = tf.cast(counts, self.dtype)
 			counts /= tf.math.reduce_sum(counts)
-			feature = tf.concat((uids, pos, voxels, counts[...,None]), axis=-1)
+			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 
 			if balance:
 				weights = tf.size(flags)
@@ -358,7 +352,7 @@ class NbitTree(Model):
 				X = tf.concat((X, x), axis=-1)
 			stack.append(X)
 
-		if self.conv_meta:
+		if self.mode <= 0 and self.conv_meta:
 			X = meta
 			for conv in self.conv_meta:
 				x = conv(X)
@@ -374,7 +368,7 @@ class NbitTree(Model):
 	def predict_step(self, data):
 		"""
 		"""
-		if self.mode == 0:
+		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 			probs = tf.reshape(self(X, training=False), (-1, self.bins))
 			return probs
@@ -387,14 +381,8 @@ class NbitTree(Model):
 					)
 				return tf.constant([''])
 			
-			if self.mode > 0:
-				cdf = probs[...,1:]
-				symbols = tf.cast(labels-1, tf.int16)
-			else:
-				cdf = probs[...,:2] * [[1., 0.5]] + probs[...,-2:] * [[0., 0.5]]
-				symbols = tf.argmax(labels[...,:2], axis=-1)
-				symbols = tf.clip_by_value(symbols, 0, 1)
-				symbols = tf.cast(symbols, tf.int16)
+			cdf = probs[...,1:]
+			symbols = tf.cast(labels-1, tf.int16)
 			
 			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True)
 			cdf = tf.math.divide_no_nan(cdf, pmax)
