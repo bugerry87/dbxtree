@@ -101,12 +101,11 @@ class NbitTreeCallback(LambdaCallback):
 		probs /= np.linalg.norm(probs, ord=1)
 		pred = np.argmin(probs, axis=-1)[...,None]
 		payload = np.take_along_axis(hist, pred, axis=-1).flatten()
-		pred = np.take_along_axis(probs, pred, axis=-1).flatten()
-
+		pred = np.take_along_axis(probs, pred, axis=-1).flatten() * counts
 		overflow_bits = np.ceil(np.log2(counts + 1.0)).astype(payload.dtype)
-		bits = np.floor(np.log2(pred*counts + 1.0)).astype(payload.dtype)
+		bits = np.ceil(np.log2(pred + 1.0)).astype(payload.dtype)
 		mask = (1<<bits) - 1
-		overflow = payload >= mask
+		overflow = (counts > 1) & (payload >= mask)
 		payload[overflow] = mask[overflow] << overflow_bits[overflow] | payload[overflow]
 		bits[overflow] += overflow_bits[overflow]
 		code = []

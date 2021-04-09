@@ -61,14 +61,16 @@ def sort(X, bits=None, reverse=False, absp=False):
 	X = X.flatten()
 	X = X[...,None]>>shifts & 1
 	p = np.sum(X, axis=0)
+	mask = p >= len(X)-p
 	if absp:
 		p = np.max((p, len(X)-p), axis=0)
 	p = np.argsort(p)
 	if reverse:
 		p = p[::-1]
 	
+	mask = np.sum(mask[p] << shifts)
 	X = np.sum(X[:,p] << shifts, axis=-1)
-	return X.reshape(shape), p.astype(np.uint8)
+	return X.reshape(shape), p.astype(np.uint8), mask
 
 
 def pattern(X, bits):

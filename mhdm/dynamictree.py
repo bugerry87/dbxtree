@@ -35,13 +35,11 @@ def encode(X,
 	if payload is True:
 		payload = BitBuffer(output + '.pyl.bin', 'wb') if output else BitBuffer()
 
-	def expand(X, layer, tail):
+	def expand(X, layer, tail, dim=1):
 		assert(len(X))
 
 		if dims:
 			dim = dims[layer] if layer < len(dims) else dims[-1]
-		else:
-			dim = 0
 		
 		if dim > 0:
 			fbit = 1<<dim
@@ -111,14 +109,17 @@ def encode(X,
 			local.points += 1
 		else:
 			mask = (1<<dim)-1
-			for t in range(fbit):
-				m = (X & mask) == t
-				if np.any(m):
-					flag |= 1<<t
-					if tail > dim:
-						yield expand(X[m]>>dim, layer+1, max(tail - dim, 1))
-					else:
-						local.points += 1
+			m = (X[...,None] & mask) == range(fbit)
+			flag = m.any(axis=0)
+			d = np.clip(dim + int(sum(flag) > fbit/2) * 2 - 1, 1, 6)
+			for f, m in zip(flag, m.T):
+				if not f:
+					pass
+				elif tail > dim:
+					yield expand(X[m]>>dim, layer+1, max(tail - dim, 1), d)
+				else:
+					local.points += 1
+			flag = int(sum(flag << range(fbit)))
 		
 		if flags:
 			flags.write(flag, fbit, soft_flush=True)

@@ -311,7 +311,7 @@ def encode(files,
 	for X, processed in yield_merged_data(files, xtype, dim, limit):
 		X, _offset, _scale = bitops.serialize(X, bits_per_dim, qtype, offset, scale)
 		if sort_bits or absolute:
-			X, permute = bitops.sort(X, tree_depth, reverse, absolute)
+			X, permute, mask = bitops.sort(X, tree_depth, reverse, absolute)
 			permute = permute.tolist()
 		elif reverse:
 			X = bitops.reverse(X, tree_depth)
