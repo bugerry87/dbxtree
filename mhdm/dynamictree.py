@@ -26,8 +26,8 @@ def encode(X,
 	assert(X.ndim == 1)
 	tree_depth = tree_depth or np.iinfo(X.dtype).bits
 	stack_size = 0
-	local = Prototype(points=0, overflows=0)
-	msg = "\rLayer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}, Overflow Bits: {:>8}"
+	local = Prototype(points=0)
+	msg = "\rLayer: {:>2}, Flag: {:>16}, Stack: {:>8}, Points: {:>8}"
 	
 	if flags is True:
 		flags = BitBuffer(output + '.flg.bin', 'wb') if output else BitBuffer()
@@ -61,24 +61,20 @@ def encode(X,
 				minor = right
 				flag = mask<<fbit | minor
 				fbit *= 2
-				local.overflows += fbit
 			elif left < mask:
 				minor = left
 				m[:] = ~m
 				flag = mask<<fbit | minor
 				fbit *= 2
-				local.overflows += fbit
 			elif left < right:
 				minor = left
 				m[:] = ~m
 				flag = mask<<fbit+1 | mask<<1 | 0
 				fbit = fbit*2 + 1
-				local.overflows += fbit + 1
 			else:
 				minor = right
 				flag = mask<<fbit+1 | mask<<1 | 1
 				fbit = fbit*2 + 1
-				local.overflows += fbit + 1
 
 			if tail > 1:
 				if minor < len(X):
@@ -104,6 +100,11 @@ def encode(X,
 				payload.write(flag>>1, max(fbit-1, 1), soft_flush=True)
 				flag &= 1
 				fbit = 1
+		elif tail <= dim:
+			mask = (1<<dim)-1
+			m = (X[...,None] & mask) == range(fbit)
+			flag = int(sum(m.any(axis=0) << range(fbit)))
+			local.points += 1
 		elif payload and len(X) == 1:
 			payload.write(int(X), tail, soft_flush=True)
 			local.points += 1
@@ -111,14 +112,9 @@ def encode(X,
 			mask = (1<<dim)-1
 			m = (X[...,None] & mask) == range(fbit)
 			flag = m.any(axis=0)
-			d = np.clip(dim + int(sum(flag) > fbit/2) * 2 - 1, 1, 6)
 			for f, m in zip(flag, m.T):
-				if not f:
-					pass
-				elif tail > dim:
-					yield expand(X[m]>>dim, layer+1, max(tail - dim, 1), d)
-				else:
-					local.points += 1
+				if f:
+					yield expand(X[m]>>dim, layer+1, max(tail - dim, 1))
 			flag = int(sum(flag << range(fbit)))
 		
 		if flags:
@@ -127,7 +123,7 @@ def encode(X,
 			callback.update(flag, fbit)
 		if log.verbose:
 			flag = hex(flag)[2:] if dim else flag
-			log(msg.format(layer, flag, stack_size, local.points, local.overflows), end='', flush=True)
+			log(msg.format(layer, flag, stack_size, local.points), end='', flush=True)
 		pass
 	
 	nodes = deque(expand(X, 0, tree_depth))
