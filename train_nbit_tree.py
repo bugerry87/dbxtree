@@ -180,6 +180,12 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--spherical',
+		action='store_true',
+		help="Whether to transform the point-clouds to polar coordinates"
+		)
+	
+	main_args.add_argument(
 		'--convolutions', '-C',
 		metavar='INT',
 		type=int,
@@ -262,6 +268,7 @@ def main(
 	permute=None,
 	offset=None,
 	scale=None,
+	spherical=False,
 	kernels=16,
 	convolutions=2,
 	branches=('uids', 'pos', 'voxels', 'meta'),
@@ -310,7 +317,7 @@ def main(
 		**kwargs
 		)
 	
-	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale)
+	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale, spherical=spherical)
 	trainer, train_encoder, train_meta = model.trainer(train_index, **quant_args) if train_index else (None, None, None)
 	validator, val_encoder, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
 	tester, test_encoder, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)

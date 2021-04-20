@@ -9,6 +9,7 @@ from tensorflow.python.keras.engine import data_adapter
 ## Local
 from . import range_like
 from . import bitops
+from . import spatial
 from . import layers
 from .. import utils
 
@@ -128,6 +129,7 @@ class NbitTree(Model):
 		permute=None,
 		offset=None,
 		scale=None,
+		spherical=False,
 		xtype='float32',
 		qtype='int64',
 		ftype='int64',
@@ -150,6 +152,7 @@ class NbitTree(Model):
 			permute = permute,
 			offset=offset,
 			scale=scale,
+			spherical=spherical,
 			**kwargs
 			)
 		meta.input_dims = len(meta.bits_per_dim)
@@ -170,6 +173,7 @@ class NbitTree(Model):
 		permute=None,
 		offset=None,
 		scale=None,
+		spherical=spherical,
 		xtype='float32',
 		qtype='int64',
 		ftype='int64',
@@ -185,6 +189,8 @@ class NbitTree(Model):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
 			X = tf.reshape(X, (-1, meta.input_dims))
+			if meta.spherical:
+				X = spatial.xyz2uvd(X)
 			X0, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
 			if meta.permute is not None:
 				permute = tf.cast(meta.permute, dtype=X0.dtype)
@@ -442,4 +448,6 @@ class NbitTree(Model):
 		if permute is not None and permute.shape[0]:
 			X = bitops.permute(X, permute, meta.tree_depth)
 		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
+		if meta.spherical:
+			X = spatial.uvd2xyz(X)
 		return X
