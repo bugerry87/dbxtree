@@ -138,7 +138,8 @@ class NbitTree(Model):
 			**kwargs
 			)
 		meta.input_dims = len(meta.bits_per_dim)
-		meta.tree_depth = sum(meta.bits_per_dim)
+		meta.word_length = sum(meta.bits_per_dim)
+		meta.tree_depth = int(np.ceil(meta.word_length / self.dim))
 		if isinstance(index, str) and index.endswith('.txt'):
 			meta.index = index
 			with open(index, 'r') as fid:
@@ -177,7 +178,7 @@ class NbitTree(Model):
 			ftype=ftype,
 			**kwargs
 			)
-		n_layers = meta.tree_depth+1
+		n_layers = meta.word_length+1
 
 		def parse(filename):
 			X = tf.io.read_file(filename)
@@ -188,11 +189,11 @@ class NbitTree(Model):
 			X0, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
 			if meta.permute is not None:
 				permute = tf.cast(meta.permute, dtype=X0.dtype)
-				X0 = bitops.permute(X0, permute, meta.tree_depth)
+				X0 = bitops.permute(X0, permute, meta.word_length)
 			elif meta.sort_bits is not None:
 				absolute = 'absolute' in meta.sort_bits
 				reverse = 'reverse' in meta.sort_bits
-				X0, permute = bitops.sort(X0, bits=meta.tree_depth, absolute=absolute, reverse=reverse)
+				X0, permute = bitops.sort(X0, bits=meta.word_length, absolute=absolute, reverse=reverse)
 			else:
 				permute = tf.constant([], dtype=X0.dtype)
 			X0 = bitops.tokenize(X0, meta.dim, n_layers)
@@ -206,11 +207,12 @@ class NbitTree(Model):
 		
 		def encode(X0, X1, layer, filename, permute, offset, scale):
 			uids, idx, counts = tf.unique_with_counts(X0)
-			if meta.payload:
-				keep = tf.where(counts)[...,0]
-				X1 = tf.gather(X1, keep)
-				idx = tf.gather(idx, keep)
 			flags, hist = bitops.encode(X1, idx, meta.dim, ftype)
+			if meta.payload:
+				keep = tf.where(counts>1)[...,0]
+				uids = tf.gather(uids, keep)
+				flags = tf.gather(flags, keep)
+				hist = tf.gather(hist, keep)
 			pos = NbitTree.finalize(uids, meta, permute, offset, scale)
 			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
 			pos = tf.math.divide_no_nan(pos, pos_max)
@@ -242,12 +244,6 @@ class NbitTree(Model):
 		"""
 		def feature_label_filter(uids, pos, flags, hist, layer, *args):
 			counts = tf.math.reduce_sum(hist, axis=-1)
-			if payload:
-				keep = tf.where(counts>1)[...,0]
-				uids = tf.gather(uids, keep)
-				pos = tf.gather(pos, keep)
-				flags = tf.gather(flags, keep)
-				counts = tf.gather(counts, keep)
 			counts = tf.cast(counts[...,None], self.dtype)
 
 			half = self.kernels//2
@@ -264,7 +260,7 @@ class NbitTree(Model):
 			voxels = tf.math.divide_no_nan(2*voxels, tf.reduce_mean(tf.abs(voxels)))
 			voxels = tf.exp(-voxels*voxels)
 
-			uids = bitops.right_shift(uids[...,None], tf.range(meta.tree_depth, dtype=uids.dtype))
+			uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, self.dtype)
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
@@ -298,7 +294,7 @@ class NbitTree(Model):
 		if meta is None:
 			return trainer, encoder
 		else:
-			meta.feature_size = meta.tree_depth*2 + meta.input_dims*2 + self.kernels + 1
+			meta.feature_size = meta.word_length*2 + meta.input_dims*2 + self.kernels + 1
 			return trainer, encoder, meta
 	
 	def validator(self, *args,
@@ -336,7 +332,7 @@ class NbitTree(Model):
 
 		X = inputs
 		stack = [X]
-		uids = X[...,incr(0):incr(self.meta.tree_depth*2)]
+		uids = X[...,incr(0):incr(self.meta.word_length*2)]
 		pos = X[...,incr(0):incr(self.meta.input_dims*2)]
 		voxels = X[...,incr(0):incr(self.kernels)]
 		meta = X[..., incr(0):]
@@ -450,7 +446,7 @@ class NbitTree(Model):
 		"""
 		X = tf.reshape(X, (-1,1))
 		if permute is not None and permute.shape[0]:
-			X = bitops.permute(X, permute, meta.tree_depth)
+			X = bitops.permute(X, permute, meta.word_length)
 		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
 		if meta.spherical:
 			X = spatial.uvd2xyz(X)
