@@ -104,7 +104,7 @@ def encode(X,
 			mask = (1<<dim)-1
 			m = (X[...,None] & mask) == range(fbit)
 			flag = int(sum(m.any(axis=0) << range(fbit)))
-			local.points += 1
+			local.points += len(X)
 		elif payload and len(X) == 1:
 			payload.write(int(X), tail, soft_flush=True)
 			local.points += 1
