@@ -124,35 +124,17 @@ class NbitTree(Model):
 	def output_size(self):
 		return self.bins
 
-	def set_meta(self, index, bits_per_dim,
-		sort_bits=None,
-		permute=None,
-		offset=None,
-		scale=None,
-		spherical=False,
-		xtype='float32',
-		qtype='int64',
-		ftype='int64',
-		**kwargs
-		):
+	def set_meta(self, index, bits_per_dim,	**kwargs):
 		"""
 		"""
 		meta = utils.Prototype(
-			dim = self.dim,
-			mode = self.mode,
-			output_size = self.output_size,
-			flag_size = self.flag_size,
-			bins = self.bins,
-			bits_per_dim = bits_per_dim,
-			xtype = xtype,
-			qtype = qtype,
-			ftype = ftype,
+			bits_per_dim=bits_per_dim,
+			dim=self.dim,
+			mode=self.mode,
+			output_size=self.output_size,
+			flag_size=self.flag_size,
+			bins=self.bins,
 			dtype = self.dtype,
-			sort_bits = sort_bits,
-			permute = permute,
-			offset=offset,
-			scale=scale,
-			spherical=spherical,
 			**kwargs
 			)
 		meta.input_dims = len(meta.bits_per_dim)
@@ -173,7 +155,8 @@ class NbitTree(Model):
 		permute=None,
 		offset=None,
 		scale=None,
-		spherical=spherical,
+		payload=False,
+		spherical=False,
 		xtype='float32',
 		qtype='int64',
 		ftype='int64',
@@ -182,7 +165,18 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		meta = self.set_meta(index, bits_per_dim, sort_bits, permute, offset, scale, xtype, qtype, ftype, **kwargs)
+		meta = self.set_meta(index, bits_per_dim,
+			sort_bits=sort_bits,
+			permute=permute,
+			payload=payload,
+			spherical=spherical,
+			offset=offset,
+			scale=scale,
+			xtype=xtype,
+			qtype=qtype,
+			ftype=ftype,
+			**kwargs
+			)
 		n_layers = meta.tree_depth+1
 
 		def parse(filename):
@@ -211,8 +205,12 @@ class NbitTree(Model):
 			return X0, X1, layer, filename, permute, offset, scale
 		
 		def encode(X0, X1, layer, filename, permute, offset, scale):
-			uids, idx0 = tf.unique(X0)
-			flags, hist = bitops.encode(X1, idx0, meta.dim, ftype)
+			uids, idx, counts = tf.unique_with_counts(X0)
+			if meta.payload:
+				keep = tf.where(counts)[...,0]
+				X1 = tf.gather(X1, keep)
+				idx = tf.gather(idx, keep)
+			flags, hist = bitops.encode(X1, idx, meta.dim, ftype)
 			pos = NbitTree.finalize(uids, meta, permute, offset, scale)
 			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
 			pos = tf.math.divide_no_nan(pos, pos_max)
@@ -243,6 +241,15 @@ class NbitTree(Model):
 		"""
 		"""
 		def feature_label_filter(uids, pos, flags, hist, layer, *args):
+			counts = tf.math.reduce_sum(hist, axis=-1)
+			if payload:
+				keep = tf.where(counts>1)[...,0]
+				uids = tf.gather(uids, keep)
+				pos = tf.gather(pos, keep)
+				flags = tf.gather(flags, keep)
+				counts = tf.gather(counts, keep)
+			counts = tf.cast(counts[...,None], self.dtype)
+
 			half = self.kernels//2
 			kernel = tf.concat([
 				tf.eye(self.kernels, dtype=tf.float64)[:half],
@@ -252,15 +259,12 @@ class NbitTree(Model):
 			
 			voxels = tf.concat([tf.roll(uids, half-i, 0)[...,None] for i in range(self.kernels+1)], axis=-1)
 			voxels = tf.cast(voxels, kernel.dtype)
-			voxels = voxels@kernel - tf.cast(tf.roll(tf.range(self.kernels), half, 0), kernel.dtype)
+			voxels = voxels @ kernel - tf.cast(tf.roll(tf.range(self.kernels), half, 0), kernel.dtype)
 			voxels = tf.cast(voxels, self.dtype)
 			voxels = tf.math.divide_no_nan(2*voxels, tf.reduce_mean(tf.abs(voxels)))
 			voxels = tf.exp(-voxels*voxels)
 
-			counts = tf.math.reduce_sum(hist, axis=-1)
-			counts = tf.cast(counts[...,None], self.dtype)
-
-			uids = bitops.right_shift(uids[:,None], tf.range(meta.tree_depth, dtype=uids.dtype))
+			uids = bitops.right_shift(uids[...,None], tf.range(meta.tree_depth, dtype=uids.dtype))
 			uids = bitops.bitwise_and(uids, 1)
 			uids = tf.cast(uids, self.dtype)
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer

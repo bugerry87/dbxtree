@@ -104,13 +104,13 @@ def tokenize(X, dim, depth, axis=0):
 
 
 @tf.function
-def encode(nodes, idx, dim, ftype=tf.int64, Ltype=tf.int64):
+def encode(nodes, idx, dim, ftype=tf.int64, htype=tf.int64):
 	with tf.name_scope("encode"):
 		bits = 1<<dim
 		shifts = tf.range(bits)
 		shifts = tf.cast(shifts, ftype)
 		flags = bitwise_and(nodes, bits-1)
-		hist = tf.one_hot(flags, bits, dtype=Ltype)
+		hist = tf.one_hot(flags, bits, dtype=htype)
 		hist = tf.math.unsorted_segment_sum(hist, idx, idx[-1]+1)
 		flags = tf.cast(hist>0, ftype)
 		flags = left_shift(flags, shifts)

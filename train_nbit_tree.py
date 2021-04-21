@@ -180,9 +180,15 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--payload',
+		action='store_true',
+		help="Whether to prune the tree and separate point details as payload (default=False)"
+		)
+	
+	main_args.add_argument(
 		'--spherical',
 		action='store_true',
-		help="Whether to transform the point-clouds to polar coordinates"
+		help="Whether to transform the point-clouds to polar coordinates (default=False)"
 		)
 	
 	main_args.add_argument(
@@ -266,9 +272,10 @@ def main(
 	bits_per_dim=[16,16,16,0],
 	sort_bits=None,
 	permute=None,
+	payload=False,
+	spherical=False,
 	offset=None,
 	scale=None,
-	spherical=False,
 	kernels=16,
 	convolutions=2,
 	branches=('uids', 'pos', 'voxels', 'meta'),
@@ -317,10 +324,18 @@ def main(
 		**kwargs
 		)
 	
-	quant_args = dict(bits_per_dim=bits_per_dim, sort_bits=sort_bits, permute=permute, offset=offset, scale=scale, spherical=spherical)
-	trainer, train_encoder, train_meta = model.trainer(train_index, **quant_args) if train_index else (None, None, None)
-	validator, val_encoder, val_meta = model.validator(val_index, **quant_args) if val_index else (None, None, None)
-	tester, test_encoder, test_meta = model.tester(test_index, **quant_args) if test_index else (None, None, None)
+	meta_args = dict(
+		bits_per_dim=bits_per_dim,
+		sort_bits=sort_bits,
+		permute=permute,
+		payload=payload,
+		spherical=spherical,
+		offset=offset,
+		scale=scale
+		)
+	trainer, train_encoder, train_meta = model.trainer(train_index, **meta_args) if train_index else (None, None, None)
+	validator, val_encoder, val_meta = model.validator(val_index, **meta_args) if val_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index, **meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:
