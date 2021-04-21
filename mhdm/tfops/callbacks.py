@@ -54,29 +54,27 @@ class NbitTreeCallback(LambdaCallback):
 		encode = tree_end and self.range_encode
 		flags = info[2]
 		if self.meta.payload:
-			hist = info[3]
-			layer = info[4]
+			mask = info[3].numpy().flatten() > 1
+			layer = info[4].numpy()
+			payload = info[0].numpy()[mask]
+			bits = np.full(payload.shape, self.meta.word_length - layer)
+		else:
+			payload = []
+			bits = []
 
 		if tree_start:
 			self.probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
 			self.flags = flags
 			if self.meta.payload:
-				self.singles = tf.where(tf.reshape(hist>1, -1))
+				self.keep = np.where(mask)
 		else:
 			if self.meta.payload:
-				flags = tf.scatter_nd(self.singles, flags, self.singles.shape)
-				self.bits = self.meta.word_length - layer
-				self.singles = tf.where(tf.reshape(hist>1, -1))
+				flags = tf.scatter_nd(self.keep, flags, self.keep.shape)
+				self.keep = np.where(mask)
 			self.flags = tf.concat([self.flags, flags], axis=-1)
 
 		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
 		code = code[0]
-		if self.meta.payload and tree_end:
-			payload = info[0].numpy()
-			bits = self.bits
-		else:
-			payload = []
-			bits = []
 		return self.probs, code, payload, bits
 
 	def overflow_mode(self, step, sample, info, tree_start, tree_end):
