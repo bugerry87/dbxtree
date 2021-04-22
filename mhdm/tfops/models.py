@@ -178,7 +178,7 @@ class NbitTree(Model):
 			ftype=ftype,
 			**kwargs
 			)
-		n_layers = meta.word_length+1
+		n_layers = meta.tree_depth+1
 
 		def parse(filename):
 			X = tf.io.read_file(filename)

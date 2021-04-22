@@ -118,6 +118,26 @@ def transpose(X, bits=None, dtype=object):
 	return Xt
 
 
+def tokenize(X, dim, depth, axis=0):
+	X = X.copy()
+	X.sort(axis=axis)
+	shifts = np.arange(depth).astype(X.dtype) * dim
+	tokens = X[...,None] >> shifts[::-1]
+	return tokens.T
+
+
+def encode(nodes, idx, dim, ftype=None, htype=None):
+	bits = 1<<dim
+	shifts = np.arange(bits).astype(ftype or nodes.dtype)
+	flags = nodes & (bits-1)
+	hist = np.zeros((idx[-1]+1, bits), dtype=htype)
+	hist[idx, flags] += 1
+	flags = (hist>0).astype(htype or nodes.dtype)
+	flags = flags << shifts
+	flags = flags.sum(axis=-1)
+	return flags, hist
+
+
 class BitBuffer():
 	"""
 	Buffers bitwise to a file or memory.
