@@ -61,10 +61,16 @@ def sort(X, bits=None, reverse=False, absp=False):
 	X = X.flatten()
 	X = X[...,None]>>shifts & 1
 	p = np.sum(X, axis=0)
-	mask = p >= len(X)-p
+
+	if reverse:
+		mask = p >= len(X)/2
+	else:
+		mask = p <= len(X)/2
+
 	if absp:
 		p = np.max((p, len(X)-p), axis=0)
 	p = np.argsort(p)
+
 	if reverse:
 		p = p[::-1]
 	
@@ -130,8 +136,10 @@ def encode(nodes, idx, dim, ftype=None, htype=None):
 	bits = 1<<dim
 	shifts = np.arange(bits).astype(ftype or nodes.dtype)
 	flags = nodes & (bits-1)
-	hist = np.zeros((idx[-1]+1, bits), dtype=htype)
-	hist[idx, flags] += 1
+	hist = np.zeros((idx[-1]+1) * bits, dtype=htype or nodes.dtype)
+	idx = np.ravel_multi_index(np.vstack([idx, flags]).astype(int), (idx[-1]+1, bits))
+	np.add.at(hist, idx, 1)
+	hist = hist.reshape(-1, bits)
 	flags = (hist>0).astype(htype or nodes.dtype)
 	flags = flags << shifts
 	flags = flags.sum(axis=-1)
