@@ -15,8 +15,8 @@ reverse = 0
 tree = bitops.BitBuffer('data/NbitTree_range.flg.bin', 'wb')
 X = np.fromfile('data/0000000000.bin', dtype=np.float32).reshape(-1,4)[:,:3]
 X, offset, scale = bitops.serialize(X, bits_per_dim, scale=[196,196,196], qtype=np.uint64)
-X, p, m = bitops.sort(X, word_length, reverse)
-split = 24
+X, p, m = bitops.sort(X, word_length, reverse, True)
+split = 48
 tail = word_length-split
 for x in X[::len(X)//10]:
 	print("{:0>16}".format(hex(x)[2:]))
@@ -33,8 +33,11 @@ for i, (X0, X1) in enumerate(zip(layers[:-1], layers[1:])):
 		tree.write(val, bits)
 
 print('finalize')
-payload = X[...,None] >> np.arange(0, (tail)*dim, 8).astype(X.dtype) & ((1<<8)-1)
-payload.T.astype(np.uint8).tofile('data/NbitTree_range.pyl.bin')
+payload = (X[...,None] >> np.arange(0, tail).astype(X.dtype)) & 1
+payload = payload.T.reshape(-1, 8)
+payload <<= np.arange(8).astype(payload.dtype)
+payload = payload.sum(axis=-1).astype(np.uint8)
+payload.tofile('data/NbitTree_range.pyl.bin')
 
 print('decode')
 tree.open('data/NbitTree_range.flg.bin', 'rb')
