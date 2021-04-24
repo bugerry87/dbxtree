@@ -178,48 +178,48 @@ class NbitTree(Model):
 			ftype=ftype,
 			**kwargs
 			)
-		n_layers = meta.word_length+1
 
+		@tf.function
 		def parse(filename):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
 			X = tf.reshape(X, (-1, meta.input_dims))
 			if meta.spherical:
 				X = spatial.xyz2uvd(X)
-			X0, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
+			X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
 			if meta.permute is not None:
-				permute = tf.cast(meta.permute, dtype=X0.dtype)
-				X0 = bitops.permute(X0, permute, meta.word_length)
+				permute = tf.cast(meta.permute, dtype=X.dtype)
+				X = bitops.permute(X, permute, meta.word_length)
 			elif meta.sort_bits is not None:
 				absolute = 'absolute' in meta.sort_bits
 				reverse = 'reverse' in meta.sort_bits
-				X0, permute = bitops.sort(X0, bits=meta.word_length, absolute=absolute, reverse=reverse)
+				X, permute = bitops.sort(X, bits=meta.word_length, absolute=absolute, reverse=reverse)
 			else:
-				permute = tf.constant([], dtype=X0.dtype)
-			X0 = bitops.tokenize(X0, meta.dim, n_layers)
-			X1 = tf.roll(X0, -1, 0)
-			layer = tf.range(n_layers, dtype=X0.dtype)
-			filename = [filename] * n_layers
-			permute = [permute] * n_layers
-			offset = [offset] * n_layers
-			scale = [scale] * n_layers
-			return X0, X1, layer, filename, permute, offset, scale
+				permute = tf.constant([], dtype=X.dtype)
+			X = bitops.tokenize(X, meta.dim, meta.tree_depth+1)
+			X0 = X[:-1]
+			X1 = X[1:]
+			layer = tf.range(meta.tree_depth, dtype=X.dtype)
+			filename = [filename] * meta.tree_depth
+			permute = [permute] * meta.tree_depth
+			offset = [offset] * meta.tree_depth
+			scale = [scale] * meta.tree_depth
+			if payload:
+				mask = [tf.ones_like(X0[0], dtype=bool)] + [tf.gather(*tf.unique_with_counts(X0[i])[-1:0:-1]) > 1 for i in range(meta.tree_depth-1)]
+			else:
+				mask = [tf.ones_like(X0[0], dtype=bool)] * meta.tree_depth
+			return X0, X1, layer, filename, permute, offset, scale, mask
 		
-		def encode(X0, X1, layer, filename, permute, offset, scale):
-			uids, idx, counts = tf.unique_with_counts(X0)
-			flags, hist = bitops.encode(X1, idx, meta.dim, ftype)
+		@tf.function
+		def encode(X0, X1, layer, filename, permute, offset, scale, mask):
+			uids, idx, counts = tf.unique_with_counts(X0[mask])
+			flags, hist = bitops.encode(X1[mask], idx, meta.dim, ftype)
 			if meta.payload:
-				keep = tf.where(counts>1)[...,0]
-				uids = tf.gather(uids, keep)
-				flags = tf.gather(flags, keep)
-				hist = tf.gather(hist, keep)
+				flags *= tf.cast(counts > 1, flags.dtype)
 			pos = NbitTree.finalize(uids, meta, permute, offset, scale)
 			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
 			pos = tf.math.divide_no_nan(pos, pos_max)
-			return (uids, pos, flags, hist, layer, filename, permute, offset, scale)
-		
-		def filter(uids, pos, flags, hist, layer, *args):
-			return layer < meta.tree_depth
+			return (uids, pos, flags, counts, hist, layer, filename, permute, offset, scale, X0, mask)
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
@@ -231,7 +231,6 @@ class NbitTree(Model):
 		encoder = encoder.map(parse)
 		encoder = encoder.unbatch()
 		encoder = encoder.map(encode)
-		encoder = encoder.filter(filter)
 		return encoder, meta
 	
 	def trainer(self, *args,
@@ -242,8 +241,7 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def feature_label_filter(uids, pos, flags, hist, layer, *args):
-			counts = tf.math.reduce_sum(hist, axis=-1)
+		def feature_label_filter(uids, pos, flags, counts, hist, layer, *args):
 			counts = tf.cast(counts[...,None], self.dtype)
 
 			half = self.kernels//2
