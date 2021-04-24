@@ -125,7 +125,6 @@ def transpose(X, bits=None, dtype=object):
 
 
 def tokenize(X, dim, depth, axis=0):
-	X = X.copy()
 	X.sort(axis=axis)
 	shifts = np.arange(depth).astype(X.dtype) * dim
 	tokens = X[...,None] >> shifts[::-1]
