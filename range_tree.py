@@ -15,8 +15,8 @@ reverse = 0
 tree = bitops.BitBuffer('data/NbitTree_range.flg.bin', 'wb')
 X = np.fromfile('data/0000000000.bin', dtype=np.float32).reshape(-1,4)[:,:3]
 X, offset, scale = bitops.serialize(X, bits_per_dim, scale=[196,196,196], qtype=np.uint64)
-X, p, m = bitops.sort(X, word_length, reverse, True)
-split = 48
+X, p, m = bitops.sort(X, word_length, reverse)
+split = 24
 tail = word_length-split
 for x in X[::len(X)//10]:
 	print("{:0>16}".format(hex(x)[2:]))
@@ -30,13 +30,14 @@ for i, (X0, X1) in enumerate(zip(layers[:-1], layers[1:])):
 	flags, hist = bitops.encode(X1, idx, dim, ftype=np.uint8, htype=int)
 	for val, count in zip(hist.T[reverse], counts):
 		bits = max(int(count).bit_length(), 1)
-		tree.write(val, bits)
+		tree.write(val, bits, soft_flush=True)
+tree.close()
 
 print('finalize')
 payload = (X[...,None] >> np.arange(0, tail).astype(X.dtype)) & 1
 payload = payload.T.reshape(-1, 8)
 payload <<= np.arange(8).astype(payload.dtype)
-payload = payload.sum(axis=-1).astype(np.uint8)
+payload = payload.sum(axis=-1).astype(np.uint8)[::-1]
 payload.tofile('data/NbitTree_range.pyl.bin')
 
 print('decode')
@@ -56,6 +57,7 @@ for layer in range(split):
 	i, y = np.where(hist)
 	Y <<= dim
 	Y = y.astype(Y.dtype) + Y[i]
+tree.close()
 
 print('finalize')
 Y <<= tail
