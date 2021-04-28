@@ -491,6 +491,7 @@ def decode(header_file, output=None, formats=None, payload=True, **kwargs):
 def evaluate(header_files, **kwargs):
 	import matplotlib.pyplot as plt
 
+	samples = dict()
 	bpp_avg = dict()
 	bpp_min = dict()
 	bpp_max = dict()
@@ -503,11 +504,15 @@ def evaluate(header_files, **kwargs):
 		label = ",".join(header.dims) + "bitTree"
 		flags = path.getsize(path.join(path.dirname(header_file), header.flags))
 		payload = header.payload and path.getsize(path.join(path.dirname(header_file), header.payload))
-		
+
 		bpp = (flags + payload) * 8 / header.inp_points
+		samples[label] = samples[label] + 1 if label in samples else 1
 		bpp_avg[label] = bpp_avg[label] + bpp if label in bpp_avg else bpp
 		bpp_min[label] = min(bpp_min[label], bpp) if label in bpp_min else bpp
 		bpp_max[label] = min(bpp_max[label], bpp) if label in bpp_max else bpp
+	
+	for key in bpp_avg.keys():
+		bpp_avg[key] /= samples[key]
 	pass
 
 
