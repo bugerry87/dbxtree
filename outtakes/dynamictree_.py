@@ -2,7 +2,6 @@
 
 ## Build in
 from argparse import ArgumentParser
-from collections import deque
 import os.path as path
 import pickle
 

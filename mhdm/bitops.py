@@ -124,10 +124,12 @@ def transpose(X, bits=None, dtype=object):
 	return Xt
 
 
-def tokenize(X, dim, depth, axis=0):
+def tokenize(X, dims, axis=0):
 	X.sort(axis=axis)
-	shifts = np.arange(depth).astype(X.dtype) * dim
-	tokens = X[...,None] >> shifts[::-1]
+	dims = np.maximum(dims, 1)
+	dims = np.pad(dims, [1,0])
+	shifts = np.cumsum(dims, dtype=X.dtype)[::-1]
+	tokens = X[...,None] >> shifts
 	return tokens.T
 
 
@@ -143,6 +145,24 @@ def encode(nodes, idx, dim, ftype=None, htype=None):
 	flags = flags << shifts
 	flags = flags.sum(axis=-1)
 	return flags, hist
+
+
+def decode(nodes, dim, X=None, tails=None, dtype=object):
+	if dim:
+		nodes = nodes[...,None] >> range(1<<max(dim, 1)) & 1
+		counts = len(nodes)
+	else:
+		counts = nodes.flatten()
+		counts = counts[counts>0]
+
+	if X is None:
+		X = np.zeros([1], dtype=dtype)
+	i, x = np.where(nodes)
+	X <<= nodes.shape[-1]
+	X = x.astype(X.dtype) + X[i]
+	if tails is not None:
+		tails = tails[i] - max(dim, 1)
+	return X, counts, tails
 
 
 class BitBuffer():
