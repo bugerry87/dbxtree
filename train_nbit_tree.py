@@ -304,6 +304,7 @@ def main(
 	train_index = train_index[0] if train_index and len(train_index) == 1 else train_index
 	val_index = val_index[0] if val_index and len(val_index) == 1 else val_index
 	test_index = test_index[0] if test_index and len(test_index) == 1 else test_index
+	heads = int(np.ceil(sum(bits_per_dim) / dim))
 
 	tflog = tf.get_logger()
 	tflog.setLevel(logging.DEBUG)
@@ -315,6 +316,7 @@ def main(
 	
 	model = NbitTree(
 		dim=dim,
+		heads=heads,
 		kernels=kernels,
 		convolutions=convolutions,
 		branches=branches,

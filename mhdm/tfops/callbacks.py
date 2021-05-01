@@ -54,7 +54,7 @@ class NbitTreeCallback(LambdaCallback):
 		encode = tree_end and self.range_encode
 		flags = info[2]
 		if self.meta.payload:
-			layer = info[5].numpy()
+			layer = info[5]
 			mask = info[-1].numpy()
 
 		if tree_start:
@@ -65,10 +65,10 @@ class NbitTreeCallback(LambdaCallback):
 				self.bits = np.zeros(counts, int)
 		else:
 			if self.meta.payload:
-				self.bits[mask] = self.meta.word_length - (layer+1) * self.meta.dim
+				self.bits[mask] = self.meta.word_length - (layer.numpy()+1) * self.meta.dim
 			self.flags = tf.concat([self.flags, flags], axis=-1)
 
-		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
+		self.probs, code = self.model.predict_on_batch((feature, layer, self.probs, self.flags, encode))
 		code = code[0]
 		if self.meta.payload and tree_end:
 			payload = info[-2].numpy()
@@ -81,12 +81,12 @@ class NbitTreeCallback(LambdaCallback):
 	def overflow_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
 		hist = info[4].numpy()
-		layer = info[5].numpy()
+		layer = info[5]
 		counts = hist.sum(axis=-1)
 		bits = np.maximum(np.floor(np.log2(counts+1)), 1).astype(hist.dtype)
 		mask = (1<<bits) - 1
 
-		probs = self.model.predict_on_batch(feature)
+		probs = self.model.predict_on_batch(feature, layer)
 		pred_minor = np.argmin(probs, axis=-1)[...,None]
 		code = np.take_along_axis(hist, pred_minor, axis=-1).flatten()
 		code = np.minimum(code, mask)
@@ -112,7 +112,8 @@ class NbitTreeCallback(LambdaCallback):
 		labels = labels[0]
 		counts = info[3].numpy()
 		hist = info[4].numpy()
-		probs = self.model.predict_on_batch(feature)
+		layer = info[5]
+		probs = self.model.predict_on_batch(feature, layer)
 		probs /= np.linalg.norm(probs, ord=1)
 		pred = np.argmin(probs, axis=-1)[...,None]
 		payload = np.take_along_axis(hist, pred, axis=-1).flatten()

@@ -10,7 +10,6 @@ from tensorflow.python.keras.engine import data_adapter
 from . import range_like
 from . import bitops
 from . import spatial
-from . import layers
 from .. import utils
 
 ## Optional
@@ -23,9 +22,9 @@ except ModuleNotFoundError:
 class NbitTree(Model):
 	"""
 	"""
-	def __init__(self,
-		dim=2,
-		kernels=None,
+	def __init__(self, dim,
+		heads=1,
+		kernels=16,
 		kernel_size=3,
 		convolutions=4,
 		branches=('uids', 'pos', 'voxels', 'meta'),
@@ -40,7 +39,7 @@ class NbitTree(Model):
 		super(NbitTree, self).__init__(name=name, **kwargs)
 		self.mode = dim
 		self.dim = max(dim, 1)
-		self.kernels = kernels or self.output_size
+		self.kernels = kernels
 		self.kernel_size = kernel_size
 		self.floor = floor
 
@@ -100,13 +99,14 @@ class NbitTree(Model):
 			**kwargs
 			) for i in range(dense)]
 
-		self.head = Dense(
-			self.output_size,
+
+		self.heads = [Dense(
+			self.bins,
 			activation='softplus',
 			dtype=self.dtype,
 			name='head',
 			**kwargs
-			)
+			) for i in range(heads)]
 		pass
 	
 	@property
@@ -121,8 +121,8 @@ class NbitTree(Model):
 			return 2
 
 	@property
-	def output_size(self):
-		return self.bins
+	def output_shape(self):
+		return (len(self.heads), self.bins)
 
 	def set_meta(self, index, bits_per_dim,	**kwargs):
 		"""
@@ -131,7 +131,7 @@ class NbitTree(Model):
 			bits_per_dim=bits_per_dim,
 			dim=self.dim,
 			mode=self.mode,
-			output_size=self.output_size,
+			output_shape=self.output_shape,
 			flag_size=self.flag_size,
 			bins=self.bins,
 			dtype = self.dtype,
@@ -236,7 +236,6 @@ class NbitTree(Model):
 	def trainer(self, *args,
 		encoder=None,
 		meta=None,
-		balance=0,
 		**kwargs
 		):
 		"""
@@ -274,16 +273,13 @@ class NbitTree(Model):
 			else:
 				labels = tf.cast(hist, self.dtype) / counts
 			
+			labels = tf.repeat(labels[...,None,:], len(self.heads), axis=-2)
 			counts /= tf.math.reduce_sum(counts)
 			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 
-			if balance:
-				weights = tf.size(flags)
-				weights = tf.cast(weights, self.dtype)
-				weights = tf.zeros_like(flags, dtype=self.dtype) + tf.math.exp(-weights/balance)
-				return feature, labels, weights
-			else:
-				return feature, labels
+			weights = tf.one_hot(layer, len(self.heads), dtype=self.dtype)
+			weights = tf.repeat(weights[...,None], self.bin, axis=-1)
+			return feature, labels, weights
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
@@ -366,15 +362,17 @@ class NbitTree(Model):
 		X = tf.concat(stack, axis=-1)
 		for dense in self.dense:
 			X = dense(X)
-		X = self.head(X)
-		return X
+		
+		X = [head(X)[...,None,:] for head in self.heads]
+		return tf.concat(X, axis=-2)
 	
 	def predict_step(self, data):
 		"""
 		"""
 		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			probs = tf.reshape(self(X, training=False), (-1, self.bins))
+			feature, layer = X[:2]
+			probs = tf.reshape(self(feature, training=False)[...,layer,:], (-1, self.bins))
 			return probs
 
 		def encode():
@@ -403,8 +401,8 @@ class NbitTree(Model):
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		feature, probs, labels, do_encode = X
-		pred = tf.reshape(self(feature, training=False), (-1, self.bins))
+		feature, layer, probs, labels, do_encode = X
+		pred = tf.reshape(self(feature, training=False)[...,layer,:], (-1, self.bins))
 		probs = tf.concat([probs, pred], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
