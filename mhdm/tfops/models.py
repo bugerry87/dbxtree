@@ -279,7 +279,6 @@ class NbitTree(Model):
 
 			weights = tf.one_hot(layer, self.heads, dtype=self.dtype)
 			weights = tf.ones_like(labels[...,0]) * weights
-			print(weights.shape)
 			return feature, labels, weights[...,None]
 	
 		if encoder is None:
