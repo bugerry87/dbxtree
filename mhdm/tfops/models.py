@@ -279,6 +279,7 @@ class NbitTree(Model):
 
 			weights = tf.one_hot(layer, self.heads, dtype=self.dtype)
 			weights = tf.ones_like(labels[...,0]) * weights
+			print(weights.shape)
 			return feature, labels, weights[...,None]
 	
 		if encoder is None:
@@ -364,7 +365,7 @@ class NbitTree(Model):
 			X = dense(X)
 		
 		X = self.head(X) #b,n,heads*bins
-		X = [X[...,i::self.heads,None] for i in range(self.heads)] #[b,n,heads,1]*bins
+		X = [X[...,i::self.bins,None] for i in range(self.bins)] #[b,n,heads,1]*bins
 		return tf.concat(X, axis=-1) #b,n,heads,bins
 	
 	def predict_step(self, data):
