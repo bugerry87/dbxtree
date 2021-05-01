@@ -278,8 +278,8 @@ class NbitTree(Model):
 			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 
 			weights = tf.one_hot(layer, len(self.heads), dtype=self.dtype)
-			weights = tf.ones_like(labels) * weights[None,...,None]
-			return feature, labels, weights
+			weights = tf.ones_like(labels[...,0]) * weights[...,None]
+			return feature, labels, weights[...,None]
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
