@@ -39,6 +39,7 @@ class NbitTree(Model):
 		super(NbitTree, self).__init__(name=name, **kwargs)
 		self.mode = dim
 		self.dim = max(dim, 1)
+		self.heads = heads
 		self.kernels = kernels
 		self.kernel_size = kernel_size
 		self.floor = floor
@@ -99,14 +100,13 @@ class NbitTree(Model):
 			**kwargs
 			) for i in range(dense)]
 
-
-		self.heads = [Dense(
-			self.bins,
+		self.head = Dense(
+			self.heads * self.bins,
 			activation='softplus',
 			dtype=self.dtype,
 			name='head',
 			**kwargs
-			) for i in range(heads)]
+			)
 		pass
 	
 	@property
@@ -122,7 +122,7 @@ class NbitTree(Model):
 
 	@property
 	def output_shape(self):
-		return (len(self.heads), self.bins)
+		return (self.heads, self.bins)
 
 	def set_meta(self, index, bits_per_dim,	**kwargs):
 		"""
@@ -273,11 +273,11 @@ class NbitTree(Model):
 			else:
 				labels = tf.cast(hist, self.dtype) / counts
 			
-			labels = tf.repeat(labels[...,None,:], len(self.heads), axis=-2)
+			labels = tf.repeat(labels[...,None,:], self.heads, axis=-2)
 			counts /= tf.math.reduce_sum(counts)
 			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 
-			weights = tf.one_hot(layer, len(self.heads), dtype=self.dtype)
+			weights = tf.one_hot(layer, self.heads, dtype=self.dtype)
 			weights = tf.ones_like(labels[...,0]) * weights
 			return feature, labels, weights[...,None]
 	
@@ -363,8 +363,9 @@ class NbitTree(Model):
 		for dense in self.dense:
 			X = dense(X)
 		
-		X = [head(X)[...,None,:] for head in self.heads]
-		return tf.concat(X, axis=-2)
+		X = self.head(X) #b,n,heads*bins
+		X = [X[...,i::self.heads,None] for i in range(self.heads)] #[b,n,heads,1]*bins
+		return tf.concat(X, axis=-1) #b,n,heads,bins
 	
 	def predict_step(self, data):
 		"""
