@@ -53,8 +53,8 @@ class NbitTreeCallback(LambdaCallback):
 		feature = sample[0]
 		encode = tree_end and self.range_encode
 		flags = info[2]
+		layer = info[5]
 		if self.meta.payload:
-			layer = info[5]
 			mask = info[-1].numpy()
 
 		if tree_start:
