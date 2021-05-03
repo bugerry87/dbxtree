@@ -77,7 +77,7 @@ def init_encode_args(parents=[], subparser=None):
 		nargs='*',
 		default=None,
 		metavar='FLOAT',
-		help='Scaling factors for the kitti data'
+		help='Scaling factors for the input data or (default) automatic scaling'
 		)
 	
 	encode_args.add_argument(
@@ -86,7 +86,7 @@ def init_encode_args(parents=[], subparser=None):
 		nargs='*',
 		default=None,
 		metavar='FLOAT',
-		help='Offsets for the kitti data'
+		help='Offset for the input data or (default) automatic offset'
 		)
 	
 	encode_args.add_argument(
@@ -102,9 +102,9 @@ def init_encode_args(parents=[], subparser=None):
 		nargs='*',
 		metavar='INT',
 		default=[],
-		help='Dimension per tree layer in a range from 0 to 6 (default=0)'
-			+ '\nNote: Counter-Trees can be implied by --dims 0'
-			+ '\nWarning: dim=0 cannot be folloed after higher dimensions'
+		help='Dimension per tree layer in a range from 0 to 6 (default=0).'
+			+ 'Note: Counter-Trees can be implied by --dims 0.'
+			+ 'Warning: dim=0 cannot be followed after higher dimensions.'
 		)
 	
 	encode_args.add_argument(
@@ -144,23 +144,32 @@ def init_encode_args(parents=[], subparser=None):
 		action='store_true',
 		help='Flag whether to separate a payload file or (default) not'
 		)
-	
+
 	encode_args.add_argument(
-		'--sort_bits', '-P',
-		action='store_true',
-		help="Flag whether the bits of the datapoints get either sorted by the probability to be '1' or (default) not"
+		'--permute',
+		metavar='INT',
+		nargs='*',
+		type=int,
+		default=None,
+		help='Fixed bit permutation'
 		)
 	
 	encode_args.add_argument(
-		'--absolute', '-A',
-		action='store_true',
-		help='Flag whether the bits of the datapoints get either sorted by absolute probability or (default) not'
+		'--sort_bits',
+		metavar='STR',
+		nargs='*',
+		choices=['absolute', 'reverse'],
+		default=None,
+		help='Flag whether to sort the bits according their probabilities (see choices) or (default) not (overrides permute!)'
 		)
 	
 	encode_args.add_argument(
-		'--reverse', '-r',
-		action='store_true',
-		help='Flag whether to start from either heigher or (default) lower bit'
+		'--archive', '-Z',
+		metavar='STR',
+		nargs='*',
+		choices=['excl_header', 'excl_flags', 'excl_payload'],
+		default=None,
+		help='Flag whether to archive via 7zip (see choices) or (default) not'
 		)
 	
 	encode_args.set_defaults(
@@ -229,8 +238,51 @@ def init_evaluation_args(parents=[], subparser=None):
 	evaluation_args.add_argument(
 		'--header_files', '-Y',
 		required=True,
+		nargs='+',
 		metavar='WILDCARD',
 		help='A wildcard to header files as .hdr.pkl'
+		)
+	
+	evaluation_args.add_argument(
+		'--visualize', '-V',
+		action='store_true',
+		help='Visualizes the output via matplotlib or (default) prints a table.'
+		)
+	
+	evaluation_args.add_argument(
+		'--groupby', '-G',
+		metavar='STR',
+		help='An attribute that gets the data grouped by',
+		default='dims'
+		)
+	
+	evaluation_args.add_argument(
+		'--title', '-T',
+		metavar='STR',
+		help='A title for the plot',
+		default='Bits per input Points (bpp)'
+		)
+	
+	evaluation_args.add_argument(
+		'--ylabel', '-y',
+		metavar='STR',
+		help='A title for y-axis',
+		default='bpp'
+		)
+	
+	evaluation_args.add_argument(
+		'--labels', '-L',
+		nargs='*',
+		metavar='STR',
+		help='A list of label titles for each group'
+		)
+	
+	evaluation_args.add_argument(
+		'--order', '-O',
+		type=int,
+		nargs='*',
+		metavar='INT',
+		help='An index to rearange the groups'
 		)
 	
 	evaluation_args.set_defaults(
@@ -316,16 +368,21 @@ def encode(files,
 	bits_for_chunk_id=8,
 	output='',
 	payload=False,
-	sort_bits=False,
+	sort_bits=None,
+	permute=None,
 	absolute=False,
 	reverse=False,
 	xtype=np.float32,
 	qtype=object,
 	limit=1,
+	archive=None,
 	**kwargs
 	):
 	"""
 	"""
+	if archive is not None:
+		import py7zr
+
 	files = [f for f in ifile(files)]
 	output = path.splitext(output)[0]
 	tree = BitBuffer()
@@ -345,14 +402,14 @@ def encode(files,
 			output_file = "{}_{}".format(output, processed[0])
 		else:
 			output_file = "{}_{}-{}".format(output, processed[0], processed[-1])
+		arcfile = archive is not None and output_file + '.7z'
 		
 		X, _offset, _scale = bitops.serialize(PC, bits_per_dim, qtype, offset, scale)
-		if sort_bits or absolute:
-			X, permute, mask = bitops.sort(X, word_length, reverse, absolute)
+		if sort_bits is not None:
+			X, permute, mask = bitops.sort(X, word_length, 'reverse' in sort_bits, 'absolute' in sort_bits)
 			permute = permute.tolist()
-		elif reverse:
-			X = bitops.reverse(X, word_length)
-			permute = True
+		elif permute:
+			X = bitops.permute(X, permute)
 		else:
 			permute = False
 		X = np.unique(X)
@@ -370,7 +427,6 @@ def encode(files,
 		mask = np.ones(len(X), bool)
 		tail = np.full(len(X), word_length)
 		tree.open(output_file + '.flg.bin', 'wb')
-		payload and payload.open(output_file + '.flg.bin', 'wb')
 		for i, (X0, X1, dim) in enumerate(zip(layers[:-1], layers[1:], dim_seq)):
 			uids, idx, counts = np.unique(X0[mask], return_inverse=True, return_counts=True)
 			flags, hist = bitops.encode(X1[mask], idx, max(dim,1))
@@ -384,17 +440,21 @@ def encode(files,
 					bits = max(int(count).bit_length(), 1)
 					tree.write(val, bits, soft_flush=True)
 			log(".", end='', flush=True)
+		tree.close(reset=False)
 		
 		if payload:
+			payload.open(output_file + '.flg.bin', 'wb')
 			for x, bits in zip(X, tail):
 				payload.write(x, bits, soft_flush=True)
+			payload.close(reset=False)
 		
 		log("\r\n")
 		header_file, header = save_header(
 			output_file + '.hdr.pkl',
 			dims=dims,
 			flags = path.basename(tree.name),
-			payload = path.basename(payload.name) if payload else False,
+			payload = payload and path.basename(payload.name),
+			archive = arcfile and path.basename(arcfile),
 			inp_points = len(PC),
 			out_points = len(X),
 			offset = _offset.tolist(),
@@ -407,21 +467,32 @@ def encode(files,
 		log("---Header---")
 		log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))		
 		log("\n")
-		log("Header saved to:", header_file)
+		log("Header stored to:", header_file)
 		
-		log("Flags saved to:", tree.name)
+		log("Flags stored to:", tree.name)
 		if payload:
-			log("Payload saved to:", payload.name)
+			log("Payload stored to:", payload.name)
+		
+		if arcfile:
+			with py7zr.SevenZipFile(arcfile, 'w') as z:
+				if 'excl_header' not in archive:
+					z.write(header_file, path.basename(header_file))
+				if 'excl_flags' not in archive:
+					z.write(tree.name, header.flags)
+				if payload and 'excl_payload' not in archive:
+					z.write(payload.name, header.payload)
+			log("Archive stored to:", arcfile)
 		
 		if log.verbose:
-			bpp = ((payload and len(payload)) + len(tree)) / len(X)
+			if arcfile:
+				bpp = path.getsize(arcfile) * 8 / header.inp_points
+			else:
+				bpp = ((payload and len(payload)) + len(tree)) / len(X)
 			log("Bit per Points (bpp):", bpp)
 			bpp_min = min(bpp_min, bpp)
 			bpp_max = max(bpp_max, bpp)
 			bpp_avg += bpp
 	
-	tree.close()
-	payload and payload.close()
 	if log.verbose:
 		log("\nSummary:")
 		log("bpp avg:", bpp_avg/len(files))
@@ -488,9 +559,15 @@ def decode(header_file, output=None, formats=None, payload=True, **kwargs):
 	return X
 
 
-def evaluate(header_files, **kwargs):
-	import matplotlib.pyplot as plt
-
+def evaluate(header_files,
+	visualize=False,
+	groupby='dims',
+	title='Bits per input Points (bpp)',
+	ylabel='bpp',
+	labels=[],
+	order=[],
+	**kwargs
+	):
 	bpp_all = dict()
 	bpp_avg = dict()
 	bpp_min = dict()
@@ -500,29 +577,44 @@ def evaluate(header_files, **kwargs):
 		header = load_header(f)
 		log("\n---Header---")
 		log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
+		gid = str(header.__dict__[groupby])
+		if header.archive:
+			bpp = path.getsize(path.join(path.dirname(f), header.archive)) * 8 / header.inp_points
+		else:
+			flags = path.getsize(path.join(path.dirname(f), header.flags))
+			payload = header.payload and path.getsize(path.join(path.dirname(f), header.payload))
+			bpp = (flags + payload) * 8 / header.inp_points
 
-		label = ",".join([str(1<<d) for d in header.dims]) + "bitTree"
-		flags = path.getsize(path.join(path.dirname(f), header.flags))
-		payload = header.payload and path.getsize(path.join(path.dirname(f), header.payload))
-
-		bpp = (flags + payload) * 8 / header.inp_points
-		bpp_all[label] = bpp_all[label] + [bpp] if label in bpp_all else [bpp]
+		bpp_all[gid] = bpp_all[gid] + [bpp] if gid in bpp_all else [bpp]
 	
 	for key in bpp_all.keys():
 		bpp_avg[key] = np.mean(bpp_all[key])
 		bpp_min[key] = min(bpp_all[key])
 		bpp_max[key] = max(bpp_all[key])
 	
-	colLabels = ['16bitTree', '8bitTree', '4bitTree', '2bitTree']
-	cell_text = [['{:2.2f}'.format(d[k]) for k in colLabels] for d in [bpp_max, bpp_avg, bpp_min]]
-	rowLabels = ['bpp max', 'bpp avg', 'bpp min']
+	order = order or range(len(bpp_all))
+	groupid = [k for k in bpp_all.keys()]
+	groupid = [groupid[i] for i in order]
+	colLabels = labels or groupid.copy()
+	cell_text = [groupid] + [['{:2.2f}'.format(d[k]) for k in groupid] for d in [bpp_max, bpp_avg, bpp_min]]
+	rowLabels = [groupby, 'bpp max', 'bpp avg', 'bpp min']
 	
-	plt.boxplot([bpp_all[k] for k in colLabels])
-	plt.xticks([])
-	plt.subplots_adjust(left=0.2, bottom=0.2)
-	plt.table(cellText=cell_text, cellLoc='center', rowLabels=rowLabels, colLabels=colLabels, loc='bottom')
-	plt.title('Bits per input Points (bpp)')
-	plt.show()
+	if visualize:
+		import matplotlib.pyplot as plt
+		plt.boxplot([bpp_all[k] for k in groupid])
+		plt.xticks([])
+		plt.ylabel(ylabel)
+		plt.subplots_adjust(left=0.2, bottom=0.2)
+		plt.table(cellText=cell_text, cellLoc='center', rowLabels=rowLabels, colLabels=colLabels, loc='bottom')
+		plt.title(title)
+		plt.show()
+	else:
+		colLabels.insert(0,'')
+		grid = '\n' + '-----------+' * len(colLabels) + '\n'
+		table = [''.join(['{:<11}|'.format(label) for label in colLabels])]
+		table += [''.join(['{:<11}|'.format(rowLabels[i])] + ['{:>11}|'.format(cell) for cell in cell_text[i]]) for i in range(len(rowLabels))]
+		table = title + '\n' + grid.join(table)
+		print(table)
 	pass
 
 
