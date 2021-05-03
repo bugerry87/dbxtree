@@ -517,7 +517,6 @@ def evaluate(header_files, **kwargs):
 	cell_text = [['{:2.2f}'.format(d[k]) for k in colLabels] for d in [bpp_max, bpp_avg, bpp_min]]
 	rowLabels = ['bpp max', 'bpp avg', 'bpp min']
 	
-
 	plt.boxplot([bpp_all[k] for k in colLabels])
 	plt.xticks([])
 	plt.subplots_adjust(left=0.2, bottom=0.2)
