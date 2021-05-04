@@ -252,8 +252,9 @@ def init_evaluation_args(parents=[], subparser=None):
 	evaluation_args.add_argument(
 		'--groupby', '-G',
 		metavar='STR',
+		nargs='+',
 		help='An attribute that gets the data grouped by',
-		default='dims'
+		default=['dims']
 		)
 	
 	evaluation_args.add_argument(
@@ -287,6 +288,12 @@ def init_evaluation_args(parents=[], subparser=None):
 	
 	evaluation_args.set_defaults(
 		run=evaluate
+		)
+	
+	evaluation_args.add_argument(
+		'--archive', '-Z',
+		action='store_true',
+		help='Flag whether to evaluate the archives instead.'
 		)
 	
 	return evaluation_args
@@ -370,8 +377,6 @@ def encode(files,
 	payload=False,
 	sort_bits=None,
 	permute=None,
-	absolute=False,
-	reverse=False,
 	xtype=np.float32,
 	qtype=object,
 	limit=1,
@@ -394,6 +399,8 @@ def encode(files,
 	bpp_avg = 0
 	bpp_min = 1<<31
 	bpp_max = 0
+	reverse = bool(sort_bits and 'reverse' in sort_bits)
+	absolute = bool(sort_bits and 'absolute' in sort_bits)
 	
 	for PC, processed in yield_merged_data(files, xtype, inp_dim, limit):
 		if len(files) == 1:
@@ -406,7 +413,7 @@ def encode(files,
 		
 		X, _offset, _scale = bitops.serialize(PC, bits_per_dim, qtype, offset, scale)
 		if sort_bits is not None:
-			X, permute, mask = bitops.sort(X, word_length, 'reverse' in sort_bits, 'absolute' in sort_bits)
+			X, permute, mask = bitops.sort(X, word_length, reverse, absolute)
 			permute = permute.tolist()
 		elif permute:
 			X = bitops.permute(X, permute)
@@ -433,7 +440,7 @@ def encode(files,
 			if payload:
 				mask[mask] = counts > 1
 				tail[mask] -= dim
-			for flag, val, count in zip(flags, hist[:,reverse], counts):
+			for flag, val, count in zip(flags, hist[:,int(reverse)], counts):
 				if dim:
 					tree.write(flag, 1<<dim, soft_flush=True)
 				else:
@@ -561,11 +568,12 @@ def decode(header_file, output=None, formats=None, payload=True, **kwargs):
 
 def evaluate(header_files,
 	visualize=False,
-	groupby='dims',
+	groupby=['dims'],
 	title='Bits per input Points (bpp)',
 	ylabel='bpp',
 	labels=[],
 	order=[],
+	archives=False,
 	**kwargs
 	):
 	bpp_all = dict()
@@ -574,11 +582,11 @@ def evaluate(header_files,
 	bpp_max = dict()
 	files = [f for f in ifile(header_files)]
 	for f in files:
-		header = load_header(f)
 		log("\n---Header---")
 		log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
-		gid = str(header.__dict__[groupby])
-		if header.archive:
+		gid = ','.join([str(header.__dict__[g]) for g in groupby])
+
+		if archives and header.archive:
 			bpp = path.getsize(path.join(path.dirname(f), header.archive)) * 8 / header.inp_points
 		else:
 			flags = path.getsize(path.join(path.dirname(f), header.flags))

@@ -136,6 +136,7 @@ class NbitTreeCallback(LambdaCallback):
 		bpp_sum = 0
 		bpp_min = (1<<32)-1
 		bpp_max = 0
+		bpp_zip = 0
 		self.model.reset_metrics()
 
 		for step, sample, info in zip(range(self.steps), self.samples, self.info):
@@ -171,8 +172,7 @@ class NbitTreeCallback(LambdaCallback):
 				if self.output and py7zr:
 					with py7zr.SevenZipFile(arcfile, 'w') as z:
 						z.write(buffer, arcname)
-					bpp = path.getsize(arcfile) * 8 / points
-					bpp_min = min(bpp_min, bpp)
+					bpp_zip += path.getsize(arcfile) * 8 / points
 				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
@@ -181,6 +181,8 @@ class NbitTreeCallback(LambdaCallback):
 		metrics['bpp'] = bpp_sum / self.meta.num_of_files
 		metrics['bpp_min'] = bpp_min
 		metrics['bpp_max'] = bpp_max
+		if bpp_zip:
+			metrics['bpp_zip'] = bpp_zip / self.meta.num_of_files
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name
