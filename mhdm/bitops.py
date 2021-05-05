@@ -61,11 +61,7 @@ def sort(X, bits=None, reverse=False, absp=False):
 	X = X.flatten()
 	X = X[...,None]>>shifts & 1
 	p = np.sum(X, axis=0)
-
-	if reverse:
-		mask = p >= len(X)/2
-	else:
-		mask = p <= len(X)/2
+	pattern = p > len(X)/2
 
 	if absp:
 		p = np.max((p, len(X)-p), axis=0)
@@ -74,9 +70,9 @@ def sort(X, bits=None, reverse=False, absp=False):
 	if reverse:
 		p = p[::-1]
 	
-	mask = np.sum(mask[p] << shifts)
+	pattern = np.sum(pattern[p] << shifts)
 	X = np.sum(X[:,p] << shifts, axis=-1)
-	return X.reshape(shape), p.astype(np.uint8), mask
+	return X.reshape(shape), p.astype(np.uint8), pattern
 
 
 def pattern(X, bits):
@@ -85,7 +81,8 @@ def pattern(X, bits):
 	shifts = np.arange(bits, dtype=X.dtype)
 	X = X.flatten()
 	X = X[...,None]>>shifts & 1
-	return np.sum(X, axis=0) < len(X)//2
+	pattern = np.sum(X, axis=0) > len(X)/2
+	return np.sum(pattern[p] << shifts)
 
 
 def permute(X, p):

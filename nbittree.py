@@ -286,14 +286,14 @@ def init_evaluation_args(parents=[], subparser=None):
 		help='An index to rearange the groups'
 		)
 	
-	evaluation_args.set_defaults(
-		run=evaluate
-		)
-	
 	evaluation_args.add_argument(
-		'--archive', '-Z',
+		'--archives', '-Z',
 		action='store_true',
 		help='Flag whether to evaluate the archives instead.'
+		)
+	
+	evaluation_args.set_defaults(
+		run=evaluate
 		)
 	
 	return evaluation_args
@@ -413,12 +413,15 @@ def encode(files,
 		
 		X, _offset, _scale = bitops.serialize(PC, bits_per_dim, qtype, offset, scale)
 		if sort_bits is not None:
-			X, permute, mask = bitops.sort(X, word_length, reverse, absolute)
+			X, permute, pattern = bitops.sort(X, word_length, reverse, absolute)
 			permute = permute.tolist()
+			pattern = int(pattern)
 		elif permute:
 			X = bitops.permute(X, permute)
+			pattern = int(bitops.pattern(X, word_length))
 		else:
 			permute = False
+			pattern = 0
 		X = np.unique(X)
 
 		if log.verbose:
@@ -440,7 +443,7 @@ def encode(files,
 			if payload:
 				mask[mask] = counts > 1
 				tail[mask] -= dim
-			for flag, val, count in zip(flags, hist[:,int(reverse)], counts):
+			for flag, val, count in zip(flags, hist[:,1], counts):
 				if dim:
 					tree.write(flag, 1<<dim, soft_flush=True)
 				else:
@@ -467,6 +470,7 @@ def encode(files,
 			offset = _offset.tolist(),
 			scale = _scale.tolist(),
 			permute = permute,
+			pattern = pattern,
 			bits_per_dim=bits_per_dim,
 			xtype = xtype,
 			qtype = qtype
@@ -582,6 +586,7 @@ def evaluate(header_files,
 	bpp_max = dict()
 	files = [f for f in ifile(header_files)]
 	for f in files:
+		header = load_header(f)
 		log("\n---Header---")
 		log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
 		gid = ','.join([str(header.__dict__[g]) for g in groupby])
