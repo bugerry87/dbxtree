@@ -82,7 +82,7 @@ def pattern(X, bits):
 	X = X.flatten()
 	X = X[...,None]>>shifts & 1
 	pattern = np.sum(X, axis=0) > len(X)/2
-	return np.sum(pattern[p] << shifts)
+	return np.sum(pattern << shifts)
 
 
 def permute(X, p):

@@ -144,6 +144,12 @@ def init_encode_args(parents=[], subparser=None):
 		action='store_true',
 		help='Flag whether to separate a payload file or (default) not'
 		)
+	
+	encode_args.add_argument(
+		'--differential',
+		action='store_true',
+		help='Flag whether to create differential trees (default) not'
+		)
 
 	encode_args.add_argument(
 		'--permute',
@@ -375,6 +381,7 @@ def encode(files,
 	bits_for_chunk_id=8,
 	output='',
 	payload=False,
+	differential=False,
 	sort_bits=None,
 	permute=None,
 	xtype=np.float32,
@@ -432,6 +439,7 @@ def encode(files,
 			log("...")
 			log("\n---Encoding---\n")
 
+		differential = differential and dict()
 		dim_seq = [dim for dim in yield_dims(dims, word_length)]
 		layers = bitops.tokenize(X, dim_seq)
 		mask = np.ones(len(X), bool)
@@ -440,20 +448,31 @@ def encode(files,
 		for i, (X0, X1, dim) in enumerate(zip(layers[:-1], layers[1:], dim_seq)):
 			uids, idx, counts = np.unique(X0[mask], return_inverse=True, return_counts=True)
 			flags, hist = bitops.encode(X1[mask], idx, max(dim,1))
-			if payload:
-				mask[mask] = counts > 1
-				tail[mask] -= dim
+
+			if differential is not False:
+				diff = differential.get(i)
+				if diff:
+					flags = [flag ^ diff.get(uid, 0) for uid, flag in zip(uids, flags)]
+					del diff
+				differential[i] = {uid:flag for uid, flag in zip(uids, flags)}
+
 			for flag, val, count in zip(flags, hist[:,1], counts):
 				if dim:
 					tree.write(flag, 1<<dim, soft_flush=True)
 				else:
 					bits = max(int(count).bit_length(), 1)
 					tree.write(val, bits, soft_flush=True)
+			
+			if payload:
+				mask[mask] = (counts > 1)[idx]
+				tail[mask] -= dim
+				if not np.any(mask):
+					break
 			log(".", end='', flush=True)
 		tree.close(reset=False)
 		
 		if payload:
-			payload.open(output_file + '.flg.bin', 'wb')
+			payload.open(output_file + '.ply.bin', 'wb')
 			for x, bits in zip(X, tail):
 				payload.write(x, bits, soft_flush=True)
 			payload.close(reset=False)
@@ -479,7 +498,6 @@ def encode(files,
 		log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))		
 		log("\n")
 		log("Header stored to:", header_file)
-		
 		log("Flags stored to:", tree.name)
 		if payload:
 			log("Payload stored to:", payload.name)
