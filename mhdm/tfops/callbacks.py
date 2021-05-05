@@ -52,16 +52,16 @@ class NbitTreeCallback(LambdaCallback):
 	def flag_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
 		encode = tree_end and self.range_encode
-		flags = info[2]
-		layer = info[5]
+		flags = info[1]
+		layer = info[4]
 		if self.meta.payload:
-			mask = info[-1].numpy()
+			mask = info[-2].numpy()
 
 		if tree_start:
 			self.probs = tf.zeros((0, self.meta.bins), dtype=self.meta.dtype)
 			self.flags = flags
 			if self.meta.payload:
-				counts = info[3].numpy().sum()
+				counts = info[2].numpy().sum()
 				self.bits = np.zeros(counts, int)
 		else:
 			if self.meta.payload:
@@ -71,7 +71,7 @@ class NbitTreeCallback(LambdaCallback):
 		self.probs, code = self.model.predict_on_batch((feature, layer, self.probs, self.flags, encode))
 		code = code[0]
 		if self.meta.payload and tree_end:
-			payload = info[-2].numpy()
+			payload = info[-3].numpy()
 			bits = self.bits
 		else:
 			payload = []
@@ -80,8 +80,8 @@ class NbitTreeCallback(LambdaCallback):
 
 	def overflow_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
-		hist = info[4].numpy()
-		layer = info[5]
+		hist = info[3].numpy()
+		layer = info[4]
 		counts = hist.sum(axis=-1)
 		bits = np.maximum(np.floor(np.log2(counts+1)), 1).astype(hist.dtype)
 		mask = (1<<bits) - 1
@@ -110,9 +110,9 @@ class NbitTreeCallback(LambdaCallback):
 	def overflow_regression(self, step, sample, info, tree_start, tree_end):
 		feature, labels = sample[:2]
 		labels = labels[0]
-		counts = info[3].numpy()
-		hist = info[4].numpy()
-		layer = info[5]
+		counts = info[2].numpy()
+		hist = info[3].numpy()
+		layer = info[4]
 		probs = self.model.predict_on_batch(feature, layer)
 		probs /= np.linalg.norm(probs, ord=1)
 		pred = np.argmin(probs, axis=-1)[...,None]
@@ -141,14 +141,14 @@ class NbitTreeCallback(LambdaCallback):
 
 		for step, sample, info in zip(range(self.steps), self.samples, self.info):
 			feature, labels = sample[:2]
-			filename = str(info[6].numpy())
+			filename = str(info[-1].numpy())
 			tree_start = step % self.meta.tree_depth == 0
 			tree_end = (step+1) % self.meta.tree_depth == 0
 			metrics = self.model.test_on_batch(feature, labels, reset_metrics=False, return_dict=True)
 			probs, code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
-				points = int(info[3].numpy().sum())
+				points = int(info[2].numpy().sum())
 				bit_count = 0
 				if self.output:
 					if py7zr:
