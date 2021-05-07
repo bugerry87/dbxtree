@@ -134,7 +134,7 @@ class NbitTree(Model):
 			output_shape=self.output_shape,
 			flag_size=self.flag_size,
 			bins=self.bins,
-			dtype = self.dtype,
+			dtype=self.dtype,
 			**kwargs
 			)
 		meta.input_dims = len(meta.bits_per_dim)
@@ -213,13 +213,11 @@ class NbitTree(Model):
 		@tf.function
 		def encode(X0, X1, layer, filename, permute, offset, scale, mask):
 			uids, idx, counts = tf.unique_with_counts(X0[mask])
+			uids = bitops.left_shift(uids, layer*meta.dim) 
 			flags, hist = bitops.encode(X1[mask], idx, meta.dim, ftype)
 			if meta.payload:
 				flags *= tf.cast(counts > 1, flags.dtype)
-			pos = NbitTree.finalize(uids, meta, permute, offset, scale)
-			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
-			pos = tf.math.divide_no_nan(pos, pos_max)
-			return (uids, pos, flags, counts, hist, layer, filename, permute, offset, scale, X0, mask)
+			return (uids, flags, counts, hist, layer, permute, offset, scale, X0, mask, filename)
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
@@ -240,8 +238,15 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def feature_label_filter(uids, pos, flags, counts, hist, layer, *args):
-			counts = tf.cast(counts[...,None], self.dtype)
+		def feature_label_filter(uids, flags, counts, hist, layer, permute, offset, scale, *args):
+			token = bitops.left_shift(tf.range(1<<meta.dim, dtype=uids.dtype), (meta.tree_depth - layer - 1) * meta.dim)
+			pos = bitops.bitwise_or(uids[...,None], token)
+			pos = tf.reshape(pos, [-1])
+			pos = NbitTree.finalize(pos, meta, permute, offset, scale)
+			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
+			pos = tf.math.divide_no_nan(pos, pos_max)
+			pos = tf.reshape(pos, [-1, pos.shape[-1] * (1<<meta.dim)])
+			pos = tf.concat([tf.math.minimum(pos, 0.0), tf.math.maximum(pos, 0.0)], axis=-1) #Abs pos
 
 			half = self.kernels//2
 			kernel = tf.concat([
@@ -253,7 +258,7 @@ class NbitTree(Model):
 			voxels = tf.concat([tf.roll(uids, half-i, 0)[...,None] for i in range(self.kernels+1)], axis=-1)
 			voxels = tf.cast(voxels, kernel.dtype)
 			voxels = voxels @ kernel - tf.cast(tf.roll(tf.range(self.kernels), half, 0), kernel.dtype)
-			voxels = tf.cast(voxels, self.dtype)
+			voxels = tf.cast(voxels, meta.dtype)
 			voxels = tf.math.divide_no_nan(2*voxels, tf.reduce_mean(tf.abs(voxels)))
 			voxels = tf.exp(-voxels*voxels)
 
@@ -263,13 +268,13 @@ class NbitTree(Model):
 			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
 			uids = uids * 2 - tf.cast(m, self.dtype)
 			uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
-			pos = tf.concat([tf.math.minimum(pos, 0.0), tf.math.maximum(pos, 0.0)], axis=-1)
 
+			counts = tf.cast(counts[...,None], meta.dtype)
 			if self.mode > 0:
-				labels = tf.one_hot(flags, self.bins, dtype=self.dtype)
+				labels = tf.one_hot(flags, meta.bins, dtype=meta.dtype)
 			elif self.mode == 0:
 				labels = tf.math.argmax(hist, axis=-1)
-				labels = tf.one_hot(labels, self.bins, dtype=self.dtype)
+				labels = tf.one_hot(labels, meta.bins, dtype=meta.dtype)
 			else:
 				labels = tf.cast(hist, self.dtype) / counts
 			
@@ -277,7 +282,7 @@ class NbitTree(Model):
 			counts /= tf.math.reduce_sum(counts)
 			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
 
-			weights = tf.one_hot(layer, self.heads, dtype=self.dtype)
+			weights = tf.one_hot(layer, self.heads, dtype=meta.dtype)
 			weights = tf.ones_like(labels[...,0]) * weights
 			return feature, labels, weights[...,None]
 	
@@ -285,11 +290,8 @@ class NbitTree(Model):
 			encoder, meta = self.encoder(*args, **kwargs)
 		trainer = encoder.map(feature_label_filter)
 		trainer = trainer.batch(1)
-		if meta is None:
-			return trainer, encoder
-		else:
-			meta.feature_size = meta.word_length*2 + meta.input_dims*2 + self.kernels + 1
-			return trainer, encoder, meta
+		meta.feature_size = meta.word_length*2 + meta.input_dims*(1<<meta.dim)*2 + self.kernels + 1
+		return trainer, encoder, meta
 	
 	def validator(self, *args,
 		encoder=None,
@@ -327,7 +329,7 @@ class NbitTree(Model):
 		X = inputs
 		stack = [X]
 		uids = X[...,incr(0):incr(self.meta.word_length*2)]
-		pos = X[...,incr(0):incr(self.meta.input_dims*2)]
+		pos = X[...,incr(0):incr(self.meta.input_dims*self.flag_size*2)]
 		voxels = X[...,incr(0):incr(self.kernels)]
 		meta = X[..., incr(0):]
 		
