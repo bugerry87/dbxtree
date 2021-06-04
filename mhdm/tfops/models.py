@@ -348,6 +348,7 @@ class NbitTree(Model):
 			X = dense(X)
 		
 		x = tf.concat(flags, axis=-1)
+		x = tf.stop_gradient(x)
 		x = self.merge_flags(x)
 		X = tf.concat([x, X], axis=-1)	
 		X = self.head(X)
