@@ -7,34 +7,42 @@ import os.path as path
 import numpy as np
 
 
-def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None):
+def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None, axis=-2):
 	if bits_per_dim is None:
 		if qtype is object:
 			raise ValueError("bits_per_dim cannot be estimated from type object!")
 		else:
 			bits_per_dim = np.iinfo(qtype).bits
 	X = X.astype(float)
-	
+	lim = ((1<<np.array(bits_per_dim)) - 1).astype(X.dtype) * 0.5
+
 	if offset is None:
-		offset = -X.min(axis=0)
-	X += offset
+		offset = -X.min(axis=axis)
+	else:
+		offset = np.array(offset)
+	
 	if scale is None:
-		scale = X.max(axis=0)
+		scale = np.abs(X).max(axis=axis)
 	else:
 		scale = np.array(scale)
-	m = scale != 0
-	scale[m] = ((1<<np.array(bits_per_dim)) - 1)[m] / scale[m]
-	X *= scale
-	X = np.round(X).astype(qtype)
+	scale[scale == 0] = 1.0
+	
+	X += offset
+	X *= lim / scale
+	X = X.astype(qtype)
 	return X, offset, scale 
 
 
-def realization(X, offset, scale, xtype=float):
-	scale = np.array(scale)
-	m = scale != 0
+def realize(X, bits_per_dim, offset=0, scale=1, xtype=float):
+	bits_per_dim = np.asarray(bits_per_dim, X.dtype)
+	cells = (1 << bits_per_dim) - 1
+	m = cells == 0.0
+	cells[m] = 1.0
+	cells = np.asarray(scale, xtype) / (cells * 0.5)
+	cells[m] = 0.0
 	X = X.astype(xtype)
-	X[:,m] /= scale[m]
-	X -= offset
+	X *= cells
+	X -= offset - cells * 0.5
 	return X
 
 
@@ -144,18 +152,19 @@ def encode(nodes, idx, dim, ftype=None, htype=None):
 	return flags, hist
 
 
-def decode(nodes, dim, X=None, tails=None, dtype=object):
+def decode(nodes, dim, X=None, tails=None, dtype=None):
+	if X is None:
+		X = np.zeros([1], dtype=dtype or nodes.dtype)
+
 	if dim:
-		nodes = nodes[...,None] >> range(1<<max(dim, 1)) & 1
+		nodes = nodes[...,None] >> np.arange(1<<max(dim, 1), dtype=X.dtype) & 1
 		counts = len(nodes)
 	else:
 		counts = nodes.flatten()
 		counts = counts[counts>0]
-
-	if X is None:
-		X = np.zeros([1], dtype=dtype)
+	
 	i, x = np.where(nodes)
-	X <<= nodes.shape[-1]
+	X <<= max(dim, 1)
 	X = x.astype(X.dtype) + X[i]
 	if tails is not None:
 		tails = tails[i] - max(dim, 1)

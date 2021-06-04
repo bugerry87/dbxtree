@@ -21,15 +21,13 @@ except:
 	pass
 
 
-def psnr(A, B=None, peak=100):
+def psnr(A, B=None, peak=1.0):
 	if B is None:
 		MSE = A
 	else:
 		MSE = np.mean((A - B) ** 2)
-	if MSE == 0:
-		return 100
-	else:
-		return 10 * np.log10(peak**2 / MSE)
+	
+	return 10 * np.log10(float(peak) / MSE)
 
 
 def xyz2uvd(X, norm=False, z_off=0.0, d_off=0.0, mode='sphere'):
@@ -119,16 +117,35 @@ def save(X, output, format=None):
 		X.tofile(output)
 	elif 'npy' in format:
 		np.save(output, X)
-	elif 'ply' in format or 'pcd' in format and pcl:
-		if X.n_dim == 3:
+	elif pcl and 'ply' in format or 'pcd' in format:
+		if X.shape[-1] == 3:
 			P = pcl.PointCloud(X)
-		elif X.n_dim == 4:
+		elif X.shape[-1] == 4:
 			P = pcl.PointCloud_PointXYZI(X)
 		else:
-			raise Warning("Unsupported dimension: {} (skipped)".format(X.n_dim))
-			return
+			raise Warning("Unsupported dimension: {}".format(X.shape[-1]))
 		pcl.save(P, output, binary=True)
 	else:
-		raise Warning("Unsupported format: {} (skipped)".format(format))
-		return
+		raise Warning("Unsupported format: {}".format(format))
 	return output
+
+
+def load(filename, shape=None, dtype=None):
+	format = path.splitext(filename)[-1]
+	if '.bin' in format:
+		assert shape
+		assert dtype
+		return np.fromfile(filename, dtype=dtype).reshape(*shape)
+	elif '.npy' in format:
+		X = np.load(filename)
+	elif pcl and '.ply' in format or '.pcd' in format:
+		X = pcl.load(filename)
+		X = np.asarray(X)
+	else:
+		raise Warning("Unsupported format: {}".format(format))
+	
+	if shape is not None:
+		X = X.reshape(*shape)
+	if dtype is not None:
+		X = X.astype(dtype)
+	return X

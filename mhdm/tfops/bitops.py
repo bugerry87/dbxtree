@@ -16,24 +16,20 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 	with tf.name_scope("serialize"):
 		one = tf.constant(1, dtype=dtype, name='one')
 		bits_per_dim = tf.cast(bits_per_dim, dtype)
-		lim = left_shift(one, bits_per_dim) - one
+		lim = tf.cast(left_shift(one, bits_per_dim) - one, X.dtype) * 0.5
+		
 		if offset is None:
 			offset = -tf.math.reduce_min(X, axis, keepdims=True)
 		else:
 			offset = tf.cast(offset, X.dtype)
-		X = X + offset
-		
+
 		if scale is None:
-			X_max = tf.math.reduce_max(X, axis, keepdims=True)
-			lim = tf.cast(lim, X.dtype)
-			scale = tf.math.divide_no_nan(scale, X_max)
+			scale = tf.math.reduce_max(tf.abs(X), axis, keepdims=True)
 		else:
-			lim = tf.cast(lim, X.dtype)
 			scale = tf.cast(scale, X.dtype)
-			scale = tf.math.divide_no_nan(lim, scale)
-		X = X * scale
 		
-		X = tf.math.round(X)
+		X = X + offset
+		X = tf.math.divide_no_nan(X * lim, scale)
 		X = tf.cast(X, dtype)
 		shifts = tf.math.cumsum(bits_per_dim, exclusive=True)
 		X = left_shift(X, shifts)
@@ -42,17 +38,19 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 
 
 @tf.function
-def realize(X, bits_per_dim, offset, scale, xtype=tf.float32, qtype=tf.int64):
+def realize(X, bits_per_dim, offset=0.0, scale=1.0, xtype=tf.float32):
 	with tf.name_scope("realize"):
-		one = tf.constant(1, dtype=qtype, name='one')
-		bits_per_dim = tf.constant(bits_per_dim, dtype=qtype)
-		masks = left_shift(one, bits_per_dim) - one
+		one = tf.constant(1, dtype=X.dtype, name='one')
+		bits_per_dim = tf.cast(bits_per_dim, X.dtype)
+		mask = left_shift(one, bits_per_dim) - one
+		cells = tf.math.divide_no_nan(tf.cast(scale, xtype), tf.cast(mask, xtype) * 0.5)
 		shifts = tf.math.cumsum(bits_per_dim, exclusive=True)
 		X = right_shift(X, shifts)
-		X = bitwise_and(X, masks)
+		X = bitwise_and(X, mask)
 		X = tf.cast(X, xtype)
-		X = tf.math.divide_no_nan(X, scale)
-		X -= offset
+		X *= cells
+		X += cells * 0.5
+		X -= tf.cast(offset, xtype)
 	return X
 
 

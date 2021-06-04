@@ -9,12 +9,11 @@ import logging
 ## Installed
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.metrics import CategoricalAccuracy
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, TerminateOnNaN
 
 ## Local
 from mhdm.tfops.models import NbitTree
-from mhdm.tfops.metrics import RegularizedCosine
+from mhdm.tfops.metrics import CombinedLoss, regularized_cosine, regularized_crossentropy
 from mhdm.tfops.callbacks import NbitTreeCallback, LogCallback
 
 
@@ -203,8 +202,8 @@ def init_main_args(parents=[]):
 		'--branches',
 		metavar='STR',
 		nargs='+',
-		choices=('uids', 'pos', 'voxels', 'meta'),
-		default=('uids', 'pos', 'voxels', 'meta'),
+		choices=('uids', 'pos', 'pivots', 'meta'),
+		default=('uids', 'pos', 'pivots', 'meta'),
 		help='Sort the bits according their probabilities (default=None)'
 		)
 	
@@ -222,6 +221,14 @@ def init_main_args(parents=[]):
 		type=int,
 		default=16,
 		help='num of kernel units'
+		)
+	
+	main_args.add_argument(
+		'--activation',
+		metavar='STR',
+		type=str,
+		default='softmax',
+		help="The final activation function"
 		)
 	
 	main_args.add_argument(
@@ -278,8 +285,10 @@ def main(
 	scale=None,
 	kernels=16,
 	convolutions=2,
-	branches=('uids', 'pos', 'voxels', 'meta'),
+	branches=('uids', 'pos', 'pivots', 'meta'),
 	dense=0,
+	loss='regularized_crossentropy',
+	activation='softmax',
 	floor=0.0,
 	log_dir='logs',
 	verbose=2,
@@ -316,11 +325,12 @@ def main(
 	
 	model = NbitTree(
 		dim=dim,
-		heads=heads,
 		kernels=kernels,
+		heads=heads,
 		convolutions=convolutions,
 		branches=branches,
 		dense=dense,
+		activation=activation,
 		floor=floor,
 		name=name,
 		**kwargs
@@ -335,6 +345,7 @@ def main(
 		offset=offset,
 		scale=scale
 		)
+	
 	trainer, train_encoder, train_meta = model.trainer(train_index, **meta_args) if train_index else (None, None, None)
 	validator, val_encoder, val_meta = model.validator(val_index, **meta_args) if val_index else (None, None, None)
 	tester, test_encoder, test_meta = model.tester(test_index, **meta_args) if test_index else (None, None, None)
@@ -375,7 +386,22 @@ def main(
 	else:
 		test_steps = 0
 	
-	loss = RegularizedCosine(msle_smoothing=0.0625)
+
+	loss = CombinedLoss(
+		loss_funcs=(regularized_crossentropy, regularized_cosine),
+		loss_kwargs=(
+			dict(
+				slices=(0, model.flag_size*2),
+				reshape=(model.flag_size, 2),
+				msle_smoothing=0.0625
+			),
+			dict(
+				slices=(model.flag_size*2, model.flag_size*2 + model.bins),
+				msle_smoothing=0.0625
+			)),
+		loss_weights = (0.3, 0.7)
+		)
+	
 	model.compile(
 		optimizer='adam',
 		loss=loss,

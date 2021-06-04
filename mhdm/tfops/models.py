@@ -7,7 +7,6 @@ from tensorflow.keras.layers import Dense, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 ## Local
-from . import range_like
 from . import bitops
 from . import spatial
 from .. import utils
@@ -23,12 +22,13 @@ class NbitTree(Model):
 	"""
 	"""
 	def __init__(self, dim,
-		heads=1,
+		heads = 1,
 		kernels=16,
 		kernel_size=3,
 		convolutions=4,
-		branches=('uids', 'pos', 'voxels', 'meta'),
+		branches=('uids', 'pos', 'pivots', 'meta'),
 		dense=0,
+		activation='softmax',
 		floor=0.0,
 		dtype=tf.float32,
 		name=None,
@@ -36,61 +36,55 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		super(NbitTree, self).__init__(name=name, **kwargs)
+		super(NbitTree, self).__init__(name=name, dtype=dtype, **kwargs)
 		self.mode = dim
 		self.dim = max(dim, 1)
-		self.heads = heads
+		self.heads = max(heads, 1)
 		self.kernels = kernels
 		self.kernel_size = kernel_size
 		self.floor = floor
+		self.branches = dict()
+		self.layer_register = []
+		branches = set(branches)
 
-		if 'uids' in branches:
-			self.conv_uids = [Conv1D(
-				self.kernels, self.kernel_size, 1,
-				activation='relu',
-				padding='same',
-				dtype=self.dtype,
-				name='conv_uids_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
-		else:
-			self.conv_uids = []
-		
-		if 'pos' in branches:
-			self.conv_pos = [Conv1D(
-				self.kernels, self.kernel_size, 1,
-				activation='relu',
-				padding='same',
-				dtype=self.dtype,
-				name='conv_pos_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
-		else:
-			self.conv_pos = []
-		
-		if 'voxels' in branches:
-			self.conv_voxels = [Conv1D(
-				self.kernels, self.kernel_size, 1,
-				activation='relu',
-				padding='same',
-				dtype=self.dtype,
-				name='conv_voxels_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
-		else:
-			self.conv_voxels = []
-		
-		if 'meta' in branches:
-			self.conv_meta = [Conv1D(
-				self.kernels, self.kernel_size, 1,
-				activation='relu',
-				padding='same',
-				dtype=self.dtype,
-				name='conv_meta_{}'.format(i),
-				**kwargs
-				) for i in range(convolutions)]
-		else:
-			self.conv_meta = []
+		for branch in branches:
+			if branch in ('uids', 'pos', 'pivots', 'meta'):
+				self.branches[branch] = utils.Prototype(
+					dense = Dense(
+						self.kernels,
+						activation='relu',
+						dtype=self.dtype,
+						name='dense_{}'.format(branch),
+						**kwargs
+						),
+					merge = Conv1D(
+						self.kernels, self.flag_size, self.flag_size,
+						activation='relu',
+						padding='valid',
+						dtype=self.dtype,
+						name='merge_{}'.format(branch),
+						**kwargs
+						),
+					conv = [Conv1D(
+						self.kernels, self.kernel_size, 1,
+						activation='relu',
+						padding='same',
+						dtype=self.dtype,
+						name='conv_{}_{}'.format(branch, i),
+						**kwargs
+						) for i in range(convolutions)]
+					)
+				self.layer_register += list(self.branches[branch].__dict__.values())
+			pass
+
+		self.merge_flags = Conv1D(
+			self.flag_size*2, self.flag_size, self.flag_size,
+			activation='softmax',
+			padding='valid',
+			dtype=self.dtype,
+			name='merge_flags',
+			**kwargs
+			)
 		
 		self.dense = [Dense(
 			self.kernels,
@@ -101,8 +95,8 @@ class NbitTree(Model):
 			) for i in range(dense)]
 
 		self.head = Dense(
-			self.heads * self.bins,
-			activation='softplus',
+			self.flag_size * 2 + self.bins,
+			activation=activation,
 			dtype=self.dtype,
 			name='head',
 			**kwargs
@@ -115,14 +109,11 @@ class NbitTree(Model):
 	
 	@property
 	def bins(self):
-		if self.mode > 0:
-			return 1<<self.flag_size
-		else:
-			return 2
+		return 1<<self.flag_size
 
 	@property
 	def output_shape(self):
-		return (self.heads, self.bins)
+		return self.flag_size*2 + self.bins
 
 	def set_meta(self, index, bits_per_dim,	**kwargs):
 		"""
@@ -184,6 +175,8 @@ class NbitTree(Model):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
 			X = tf.reshape(X, (-1, meta.input_dims))
+			i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
+			X = X[i]
 			if meta.spherical:
 				X = spatial.xyz2uvd(X)
 			X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
@@ -214,10 +207,10 @@ class NbitTree(Model):
 		def encode(X0, X1, layer, filename, permute, offset, scale, mask):
 			uids, idx, counts = tf.unique_with_counts(X0[mask])
 			uids = bitops.left_shift(uids, layer*meta.dim) 
-			flags, hist = bitops.encode(X1[mask], idx, meta.dim, ftype)
+			flags = bitops.encode(X1[mask], idx, meta.dim, ftype)[0]
 			if meta.payload:
 				flags *= tf.cast(counts > 1, flags.dtype)
-			return (uids, flags, counts, hist, layer, permute, offset, scale, X0, mask, filename)
+			return (uids, flags, layer, permute, offset, scale, X0, mask, filename)
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
@@ -238,59 +231,67 @@ class NbitTree(Model):
 		):
 		"""
 		"""
-		def feature_label_filter(uids, flags, counts, hist, layer, permute, offset, scale, *args):
-			token = bitops.left_shift(tf.range(1<<meta.dim, dtype=uids.dtype), (meta.tree_depth - layer - 1) * meta.dim)
-			pos = bitops.bitwise_or(uids[...,None], token)
-			pos = tf.reshape(pos, [-1])
-			pos = NbitTree.finalize(pos, meta, permute, offset, scale)
-			pos_max = tf.math.reduce_max(tf.math.abs(pos), axis=0, keepdims=True)
-			pos = tf.math.divide_no_nan(pos, pos_max)
-			pos = tf.reshape(pos, [-1, pos.shape[-1] * (1<<meta.dim)])
-			pos = tf.concat([tf.math.minimum(pos, 0.0), tf.math.maximum(pos, 0.0)], axis=-1) #Abs pos
+		@tf.function
+		def features(uids, flags, layer, permute, *args):
+			pivots = uids[...,None]
+			token = bitops.left_shift(tf.range(meta.flag_size, dtype=pivots.dtype), (meta.tree_depth - layer - 1) * meta.dim)
+			uids = bitops.bitwise_or(pivots, token)
+			uids = tf.reshape(uids, [-1])
 
-			half = self.kernels//2
-			kernel = tf.concat([
-				tf.eye(self.kernels, dtype=tf.float64)[:half],
-				-tf.ones([1, self.kernels], dtype=tf.float64),
-				tf.eye(self.kernels, dtype=tf.float64)[half:]
-				], axis=0)
+			if 'ordinal' in self.branches:
+				ordinal = tf.cast(uids, tf.float64) / tf.cast((1<<meta.word_length)-1, tf.float64)
+				ordinal = tf.cast(ordinal, meta.dtype)
+
+			if 'pos' in self.branches:
+				pos = NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
+				meta.features['pos'] = pos
 			
-			voxels = tf.concat([tf.roll(uids, half-i, 0)[...,None] for i in range(self.kernels+1)], axis=-1)
-			voxels = tf.cast(voxels, kernel.dtype)
-			voxels = voxels @ kernel - tf.cast(tf.roll(tf.range(self.kernels), half, 0), kernel.dtype)
-			voxels = tf.cast(voxels, meta.dtype)
-			voxels = tf.math.divide_no_nan(2*voxels, tf.reduce_mean(tf.abs(voxels)))
-			voxels = tf.exp(-voxels*voxels)
-
-			uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
-			uids = bitops.bitwise_and(uids, 1)
-			uids = tf.cast(uids, self.dtype)
-			m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
-			uids = uids * 2 - tf.cast(m, self.dtype)
-			uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
-
-			counts = tf.cast(counts[...,None], meta.dtype)
-			if self.mode > 0:
-				labels = tf.one_hot(flags, meta.bins, dtype=meta.dtype)
-			elif self.mode == 0:
-				labels = tf.math.argmax(hist, axis=-1)
-				labels = tf.one_hot(labels, meta.bins, dtype=meta.dtype)
-			else:
-				labels = tf.cast(hist, self.dtype) / counts
+			if 'pivots' in self.branches:
+				kernel = [*range(-self.kernels//4, 0), *range(1, self.kernels//4+1)]
+				pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
+				pivots = NbitTree.finalize(pivots, meta, permute, word_length=layer*meta.dim)[...,None,:]
+				pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2)
+				pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
+				pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
+				pivots = 1.0-pivots
+				meta.features['pivots'] = pivots
 			
-			labels = tf.repeat(labels[...,None,:], self.heads, axis=-2)
-			counts /= tf.math.reduce_sum(counts)
-			feature = tf.concat((uids, pos, voxels, counts), axis=-1)
+			if 'meta' in self.branches:
+				indices = tf.ones_like(uids, dtype=layer.dtype)[...,None] * layer * meta.dim
+				indices = tf.concat([indices + i for i in range(meta.dim)], axis=-1)
+				permute = tf.gather(permute, indices)
+				permute = tf.one_hot(permute, meta.word_length, dtype=meta.dtype)
+				permute = tf.reshape(permute, [-1, meta.word_length * meta.dim])
+				meta.features['meta'] = permute
 
-			weights = tf.one_hot(layer, self.heads, dtype=meta.dtype)
-			weights = tf.ones_like(labels[...,0]) * weights
-			return feature, labels, weights[...,None]
+			if 'uids' in self.branches:
+				uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
+				uids = bitops.bitwise_and(uids, 1)
+				uids = tf.cast(uids, meta.dtype)
+				m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
+				uids = uids * 2 - tf.cast(m, meta.dtype)
+				uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
+				meta.features['uids'] = uids
+			
+			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
+			return feature, flags, layer
+		
+		@tf.function
+		def labels(feature, flags, layer):
+			labels = tf.one_hot(flags, meta.bins, dtype=meta.dtype)
+			flags = bitops.right_shift(flags[...,None], tf.range(meta.flag_size, dtype=flags.dtype))
+			flags =  bitops.bitwise_and(flags, tf.cast(1, dtype=flags.dtype))
+			flags = tf.concat([tf.cast(flags>0, labels.dtype)[...,None], tf.cast(flags<0, labels.dtype)[...,None]], axis=-1)
+			flags = tf.reshape(flags, [-1, meta.flag_size*2])
+			labels = tf.concat([tf.cast(flags, labels.dtype), labels], axis=-1)
+			return feature, labels
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
-		trainer = encoder.map(feature_label_filter)
+		meta.features = dict()
+		trainer = encoder.map(features)
+		trainer = trainer.map(labels)
 		trainer = trainer.batch(1)
-		meta.feature_size = meta.word_length*2 + meta.input_dims*(1<<meta.dim)*2 + self.kernels + 1
 		return trainer, encoder, meta
 	
 	def validator(self, *args,
@@ -312,70 +313,53 @@ class NbitTree(Model):
 	def build(self, input_shape=None, meta=None):
 		"""
 		"""
-		if input_shape:
-			super(NbitTree, self).build(input_shape)
-		else:
-			self.meta = meta or self.meta
-			super(NbitTree, self).build(tf.TensorShape((None, None, self.meta.feature_size)))
-	
-	def call(self, inputs, training=False):
-		"""
-		"""
 		def incr(j):
 			incr.i += j
 			return incr.i
 		incr.i = 0
 
-		X = inputs
-		stack = [X]
-		uids = X[...,incr(0):incr(self.meta.word_length*2)]
-		pos = X[...,incr(0):incr(self.meta.input_dims*self.flag_size*2)]
-		voxels = X[...,incr(0):incr(self.kernels)]
-		meta = X[..., incr(0):]
-		
-		if self.conv_uids:
-			X = uids
-			for conv in self.conv_uids:
-				x = conv(X)
-				X = tf.concat((X, x), axis=-1)
-			stack.append(X)
-
-		if self.conv_pos:
-			X = pos
-			for conv in self.conv_pos:
-				x = conv(X)
-				X = tf.concat((X, x), axis=-1)
-			stack.append(X)
-
-		if self.conv_voxels:
-			X = voxels
-			for conv in self.conv_voxels:
-				x = conv(X)
-				X = tf.concat((X, x), axis=-1)
-			stack.append(X)
-
-		if self.mode <= 0 and self.conv_meta:
-			X = meta
-			for conv in self.conv_meta:
-				x = conv(X)
-				X = tf.concat((X, x), axis=-1)
-			stack.append(X)
+		if input_shape:
+			super(NbitTree, self).build(input_shape)
+		else:
+			self.meta = meta or self.meta
+			for k in self.branches:
+				size = self.meta.features[k].shape[-1]
+				self.branches[k].size = size
+				self.branches[k].offsets = (incr(0), incr(size))
+			feature_size = sum([b.size for b in self.branches.values()])
+			super(NbitTree, self).build(tf.TensorShape((None, None, feature_size)))
+	
+	def call(self, inputs, *args):
+		"""
+		"""
+		stack = []
+		flags = []
+		for branch in self.branches.values():
+			x = inputs[...,branch.offsets[0]:branch.offsets[1]]
+			x = branch.dense(x)
+			flags.append(x)
+			x = branch.merge(x)
+			for conv in branch.conv:
+				x = conv(x)
+			stack.append(x)
 
 		X = tf.concat(stack, axis=-1)
 		for dense in self.dense:
 			X = dense(X)
 		
-		X = self.head(X) #b,n,heads*bins
-		X = [X[...,i::self.bins,None] for i in range(self.bins)] #[b,n,heads,1]*bins
-		return tf.concat(X, axis=-1) #b,n,heads,bins
+		x = tf.concat(flags, axis=-1)
+		x = self.merge_flags(x)
+		X = tf.concat([x, X], axis=-1)	
+		X = self.head(X)
+		return X
 	
 	def predict_step(self, data):
 		"""
 		"""
 		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-			feature, layer = X[:2]
-			probs = tf.reshape(self(feature, training=False)[...,layer,:], (-1, self.bins))
+			feature = X[0]
+			probs = tf.reshape(self(feature, training=False)[...,1-self.bins:], (-1, self.bins-1))
 			return probs
 
 		def encode():
@@ -386,7 +370,7 @@ class NbitTree(Model):
 					)
 				return tf.constant([''])
 			
-			cdf = probs[...,1:]
+			cdf = probs
 			symbols = tf.cast(labels-1, tf.int16)
 			
 			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True)
@@ -404,14 +388,14 @@ class NbitTree(Model):
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		feature, layer, probs, labels, do_encode = X
-		pred = tf.reshape(self(feature, training=False)[...,layer,:], (-1, self.bins))
+		feature, probs, labels, do_encode = X
+		pred = tf.reshape(self(feature, training=False)[...,1-self.bins:], (-1, self.bins-1))
 		probs = tf.concat([probs, pred], axis=0)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
 
 	@staticmethod
-	def parse(self, filename):
+	def parse(filename):
 		from ..bitops import BitBuffer
 		buffer = BitBuffer(filename)
 		remains = np.array([buffer.read(5)])
@@ -440,13 +424,23 @@ class NbitTree(Model):
 		return X
 	
 	@staticmethod
-	def finalize(X, meta, permute=None, offset=None, scale=None):
+	def finalize(X, meta, permute=None, offset=0.0, scale=1.0, word_length=None):
 		"""
 		"""
 		X = tf.reshape(X, (-1,1))
+		bits_per_dim = meta.bits_per_dim
 		if permute is not None and permute.shape[0]:
 			X = bitops.permute(X, permute, meta.word_length)
-		X = bitops.realize(X, meta.bits_per_dim, offset, scale, meta.xtype)
+		else:
+			permute = tf.range(meta.word_length)[::-1]
+
+		if word_length is not None:
+			low = tf.math.cumsum(bits_per_dim, exclusive=True)
+			high = tf.math.cumsum(bits_per_dim, exclusive=False)
+			permute = tf.cast(permute[:word_length, None], low.dtype)
+			bits_per_dim = tf.math.reduce_sum(tf.cast(permute >= low, meta.qtype) * tf.cast(permute < high, meta.qtype), axis=0)
+
+		X = bitops.realize(X, bits_per_dim, offset, scale, meta.xtype)
 		if meta.spherical:
 			X = spatial.uvd2xyz(X)
 		return X

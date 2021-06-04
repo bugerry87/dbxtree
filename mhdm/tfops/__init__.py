@@ -16,3 +16,9 @@ def range_like(input, start=0, stop=None, dtype=None):
 		r *= stop - start
 	r += start
 	return r
+
+
+def count(input, dtype=None):
+	c = tf.ones_like(input, dtype=dtype)
+	c = tf.math.reduce_sum(c)
+	return c

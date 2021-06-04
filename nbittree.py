@@ -3,14 +3,14 @@
 ## Build in
 from argparse import ArgumentParser
 import os.path as path
-import pickle
 
 ## Installed
 import numpy as np
 
 ## Local
 import mhdm.bitops as bitops
-from mhdm.utils import Prototype, log, ifile
+import mhdm.nbittree as nbittree
+from mhdm.utils import log, ifile
 from mhdm.bitops import BitBuffer
 from mhdm.lidar import save
 
@@ -305,18 +305,6 @@ def init_evaluation_args(parents=[], subparser=None):
 	return evaluation_args
 
 
-def save_header(header_file, **kwargs):
-	with open(header_file, 'wb') as fid:
-		pickle.dump(kwargs, fid)
-	return header_file, Prototype(**kwargs)
-
-
-def load_header(header_file, **kwargs):
-	with open(header_file, 'rb') as fid:
-		header = pickle.load(fid)
-	return Prototype(**header)
-
-
 def yield_merged_data(files, xtype=np.float32, dim=3, limit=1, **kwargs):
 	"""
 	"""
@@ -350,27 +338,6 @@ def yield_merged_data(files, xtype=np.float32, dim=3, limit=1, **kwargs):
 				yield np.vstack(A), processed
 			else:
 				break
-
-
-def yield_dims(dims, word_length):
-	if len(dims):
-		prev = 0
-		for dim in dims:
-			if dim > 6:
-				raise ValueError("Tree dimension greater than 6 is not allowed!")
-			if prev > 0 and dim <= 0:
-				raise ValueError("Tree dimension of '0' cannot be followed after higher dimensions!")
-			prev = dim
-			if word_length > 0:
-				word_length -= max(dim, 1)
-				yield dim
-		while word_length > 0:
-			word_length -= max(dim, 1)
-			yield dim
-	else:
-		while word_length > 0:
-			word_length -= 1
-			yield 0
 
 
 def encode(files,
@@ -440,7 +407,7 @@ def encode(files,
 			log("\n---Encoding---\n")
 
 		differential = differential and dict()
-		dim_seq = [dim for dim in yield_dims(dims, word_length)]
+		dim_seq = [dim for dim in nbittree.yield_dims(dims, word_length)]
 		layers = bitops.tokenize(X, dim_seq)
 		mask = np.ones(len(X), bool)
 		tail = np.full(len(X), word_length)
@@ -478,7 +445,7 @@ def encode(files,
 			payload.close(reset=False)
 		
 		log("\r\n")
-		header_file, header = save_header(
+		header_file, header = nbittree.save_header(
 			output_file + '.hdr.pkl',
 			dims=dims,
 			flags = path.basename(tree.name),
@@ -490,6 +457,7 @@ def encode(files,
 			scale = _scale.tolist(),
 			permute = permute,
 			pattern = pattern,
+			differential = differential is not False,
 			bits_per_dim=bits_per_dim,
 			xtype = xtype,
 			qtype = qtype
@@ -547,39 +515,10 @@ def decode(header_file, output=None, formats=None, payload=True, **kwargs):
 		if not formats:
 			formats.add('bin')
 	
-	header = load_header(header_file)
+	X, header = nbittree.decode(header_file, payload)	
 	log("\n---Header---")
 	log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
-	
-	flags = BitBuffer(path.join(path.dirname(header_file), header.flags), 'rb')
-	payload = header.payload and BitBuffer(path.join(path.dirname(header_file), header.payload), 'rb')
-	word_length = sum(header.bits_per_dim)
-	dim_seq = yield_dims(header.dims, word_length)
-	counts = [header.num_points]
-	
-	log("\n---Decoding---\n")
-
-	X = np.zeros([1], dtype=header.qtype)
-	tails = np.full(1, word_length) if payload else None
-	for dim in dim_seq:
-		if dim:
-			nodes = np.array([flags.read(dim) for i in range(len(X))])
-		else:
-			nodes = np.array([flags.read(int(c).bit_length()) for c in counts])
-		X, counts, tails = bitops.decode(nodes, dim, X, tails)
-	
-	if payload:
-		payload = [payload.read(bits) for bits in tails]
-		X = X << tails | payload
-	
-	if header.permute is True:
-		X = bitops.reverse(X, word_length)
-	elif header.permute:
-		X = bitops.permute(X, header.permute)
-	
-	X = bitops.deserialize(X, header.bits_per_dim, header.qtype)
-	X = bitops.realization(X, header.offset, header.scale, header.xtype)
-	log("\nData:", X.shape)
+	log("\n---Data---\n", X.shape)
 	log(np.round(X,2))
 	
 	for format in formats:
@@ -604,10 +543,10 @@ def evaluate(header_files,
 	bpp_max = dict()
 	files = [f for f in ifile(header_files)]
 	for f in files:
-		header = load_header(f)
+		header = nbittree.load_header(f)
 		log("\n---Header---")
 		log("\n".join(["{}: {}".format(k,v) for k,v in header.__dict__.items()]))
-		gid = ','.join([str(header.__dict__[g]) for g in groupby])
+		gid = ','.join([str(header.__dict__.get(g, False)) for g in groupby])
 
 		if archives and header.archive:
 			bpp = path.getsize(path.join(path.dirname(f), header.archive)) * 8 / header.inp_points
@@ -627,8 +566,8 @@ def evaluate(header_files,
 	groupid = [k for k in bpp_all.keys()]
 	groupid = [groupid[i] for i in order]
 	colLabels = labels or groupid.copy()
-	cell_text = [groupid] + [['{:2.2f}'.format(d[k]) for k in groupid] for d in [bpp_max, bpp_avg, bpp_min]]
-	rowLabels = [groupby, 'bpp max', 'bpp avg', 'bpp min']
+	cell_text = [['{:2.2f}'.format(d[k]) for k in groupid] for d in [bpp_max, bpp_avg, bpp_min]]
+	rowLabels = ['bpp max', 'bpp avg', 'bpp min']
 	
 	if visualize:
 		import matplotlib.pyplot as plt
