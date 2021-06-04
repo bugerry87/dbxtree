@@ -95,7 +95,7 @@ class NbitTree(Model):
 			) for i in range(dense)]
 
 		self.head = Dense(
-			self.flag_size * 2 + self.bins,
+			self.bins,
 			activation=activation,
 			dtype=self.dtype,
 			name='head',
@@ -113,7 +113,7 @@ class NbitTree(Model):
 
 	@property
 	def output_shape(self):
-		return self.flag_size*2 + self.bins
+		return self.bins
 
 	def set_meta(self, index, bits_per_dim,	**kwargs):
 		"""
@@ -274,16 +274,11 @@ class NbitTree(Model):
 				meta.features['uids'] = uids
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
-			return feature, flags, layer
+			return feature, flags
 		
 		@tf.function
-		def labels(feature, flags, layer):
+		def labels(feature, flags):
 			labels = tf.one_hot(flags, meta.bins, dtype=meta.dtype)
-			flags = bitops.right_shift(flags[...,None], tf.range(meta.flag_size, dtype=flags.dtype))
-			flags =  bitops.bitwise_and(flags, tf.cast(1, dtype=flags.dtype))
-			flags = tf.concat([tf.cast(flags>0, labels.dtype)[...,None], tf.cast(flags<0, labels.dtype)[...,None]], axis=-1)
-			flags = tf.reshape(flags, [-1, meta.flag_size*2])
-			labels = tf.concat([tf.cast(flags, labels.dtype), labels], axis=-1)
 			return feature, labels
 	
 		if encoder is None:

@@ -388,18 +388,12 @@ def main(
 	
 
 	loss = CombinedLoss(
-		loss_funcs=(regularized_crossentropy, regularized_cosine),
-		loss_kwargs=(
+		loss_funcs=[regularized_cosine],
+		loss_kwargs=[
 			dict(
-				slices=(0, model.flag_size*2),
-				reshape=(model.flag_size, 2),
 				msle_smoothing=0.0625
-			),
-			dict(
-				slices=(model.flag_size*2, model.flag_size*2 + model.bins),
-				msle_smoothing=0.0625
-			)),
-		loss_weights = (0.3, 0.7)
+			)],
+		loss_weights = [1.0]
 		)
 	
 	model.compile(
