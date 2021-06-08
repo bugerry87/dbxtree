@@ -31,7 +31,7 @@ def yield_dims(dims, word_length):
 			if dim > 6:
 				raise ValueError("Tree dimension greater than 6 is not allowed!")
 			if prev > 0 and dim <= 0:
-				raise ValueError("Tree dimension of '0' cannot be followed after higher dimensions!")
+				raise ValueError("Tree dimension of '0' or lower cannot be followed after higher dimensions!")
 			prev = dim
 			if word_length > 0:
 				word_length -= max(dim, 1)
@@ -45,6 +45,98 @@ def yield_dims(dims, word_length):
 			yield 0
 
 
+def minor_major(flags, total):
+	minor = flags.read(total.bit_length())
+	return minor, total - minor
+
+
+def overflow(flags, total):
+	bits = max(total.bit_length() - 1, 0)
+	overflow = (1 << bits) - 1
+	minor = flags.read(bits)
+	if minor < overflow:
+		return minor, total - minor
+	
+	major = flags.read(bits)
+	if major < overflow:
+		return total - major, major
+	elif total & 1:
+		odd = flags.read(1)
+		return overflow + odd, overflow + (odd^1)
+	else:
+		return overflow, overflow
+
+
+def encode(X, dims, word_length,
+	differential=False,
+	tree=None,
+	payload=False,
+	pattern=0,
+	yielding=False,
+	):
+	"""
+	"""
+	tree = tree if isinstance(tree, BitBuffer) else BitBuffer(tree, 'wb')
+	payload = payload and (payload if isinstance(payload, BitBuffer) else BitBuffer(payload, 'wb'))
+	differential = differential and dict()
+	dim_seq = [dim for dim in yield_dims(dims, word_length)]
+	layers = bitops.tokenize(X, dim_seq)
+	mask = np.ones(len(X), bool)
+	tail = np.full(len(X), word_length)
+
+	for i, (X0, X1, dim) in enumerate(zip(layers[:-1], layers[1:], dim_seq)):
+		uids, idx, counts = np.unique(X0[mask], return_inverse=True, return_counts=True)
+		flags, hist = bitops.encode(X1[mask], idx, max(dim,1))
+
+		if differential is not False:
+			diff = differential.get(i, None)
+			if diff:
+				flags = [flag ^ diff.get(uid, 0) for uid, flag in zip(uids, flags)]
+				del diff
+			differential[i] = {uid:flag for uid, flag in zip(uids, flags)}
+
+		major = pattern >> (word_length - i - 1) & 1
+		minor = major ^ 1
+		for flag, minor, major, count in zip(flags, hist[:,minor], hist[:,major], counts):
+			if dim < 0:
+				bits = int(count).bit_length() - 1
+				overflow = (1 << bits) - 1
+				if minor < overflow:
+					val = minor
+				elif major < overflow:
+					val = overflow << bits | int(major)
+					bits *= 2
+				elif minor == major:
+					val = overflow << bits | overflow
+					bits *= 2
+				else:
+					val = (overflow << bits | overflow) << 1 | int(minor > major)
+					bits = bits + bits + 1
+
+				tree.write(val, bits, soft_flush=True)
+			elif dim:
+				tree.write(flag, 1<<dim, soft_flush=True)
+			else:
+				bits = int(count).bit_length()
+				tree.write(minor, bits, soft_flush=True)
+		
+		if payload:
+			mask[mask] = (counts > 1)[idx]
+			tail[mask] -= dim
+			if not np.any(mask):
+				break
+
+		if yielding:
+			yield tree, payload
+	
+	if payload:
+		for x, bits in zip(X, tail):
+			payload.write(x, bits, soft_flush=True)
+
+	if not yielding:
+		return tree, payload
+
+
 def decode(header_file, payload=True):
 	"""
 	"""
@@ -56,12 +148,18 @@ def decode(header_file, payload=True):
 
 	X = np.zeros([1], dtype=header.qtype)
 	tails = np.full(1, word_length) if payload else None
-	for dim in dim_seq:
-		if dim:
+	counts = [header.inp_points]
+	for i, dim in enumerate(dim_seq):
+		if dim < 0:
+			nodes = np.array([overflow(flags, int(c)) for c in counts], dtype=header.qtype)
+			if not header.pattern >> (word_length - i - 1) & 1:
+				nodes = nodes[:,::-1]
+		elif dim:
 			nodes = np.array([flags.read(1<<dim) for i in range(len(X))], dtype=header.qtype)
 		else:
-			counts = [header.inp_points]
-			nodes = np.array([flags.read(int(c).bit_length()) for c in counts], dtype=header.qtype)
+			nodes = np.array([minor_major(flags, int(c)) for c in counts], dtype=header.qtype)
+			if not header.pattern >> (word_length - i - 1) & 1:
+				nodes = nodes[:,::-1]
 		X, counts, tails = bitops.decode(nodes, dim, X, tails)
 	
 	if payload:

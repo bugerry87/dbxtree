@@ -384,8 +384,7 @@ def main(
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
 	else:
-		test_steps = 0
-	
+		test_steps = 0	
 
 	loss = CombinedLoss(
 		loss_funcs=[regularized_cosine],

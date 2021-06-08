@@ -156,7 +156,7 @@ def decode(nodes, dim, X=None, tails=None, dtype=None):
 	if X is None:
 		X = np.zeros([1], dtype=dtype or nodes.dtype)
 
-	if dim:
+	if dim > 0:
 		nodes = nodes[...,None] >> np.arange(1<<max(dim, 1), dtype=X.dtype) & 1
 		counts = len(nodes)
 	else:

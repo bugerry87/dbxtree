@@ -43,12 +43,12 @@ def init_main_args(parents=[]):
 	return main_args
 
 
-def fnc(x, a, b):
-	return a * np.exp(b * x)
+def fnc(x, a, b, c):
+	return -a * np.exp((x - b) * c)
 
 
-def dx_fnc(x, a, b):
-	return a * b * np.exp(b * x)
+def dx_fnc(x, a, b, c):
+	return -a * c * np.exp((x - b) * c)
 
 
 def slop2prob(slop):
@@ -71,7 +71,6 @@ def cumsum_bits(bits, normalize=False):
 	y = bits.astype(float)
 	y[y==0] = -1
 	y = np.cumsum(y, dtype=float) / (not normalize or len(y))
-	y -= y.min()
 	x = np.arange(len(y), dtype=float) / (not normalize or len(y))
 	return x, y
 

@@ -406,43 +406,17 @@ def encode(files,
 			log("...")
 			log("\n---Encoding---\n")
 
-		differential = differential and dict()
-		dim_seq = [dim for dim in nbittree.yield_dims(dims, word_length)]
-		layers = bitops.tokenize(X, dim_seq)
-		mask = np.ones(len(X), bool)
-		tail = np.full(len(X), word_length)
 		tree.open(output_file + '.flg.bin', 'wb')
-		for i, (X0, X1, dim) in enumerate(zip(layers[:-1], layers[1:], dim_seq)):
-			uids, idx, counts = np.unique(X0[mask], return_inverse=True, return_counts=True)
-			flags, hist = bitops.encode(X1[mask], idx, max(dim,1))
-
-			if differential is not False:
-				diff = differential.get(i)
-				if diff:
-					flags = [flag ^ diff.get(uid, 0) for uid, flag in zip(uids, flags)]
-					del diff
-				differential[i] = {uid:flag for uid, flag in zip(uids, flags)}
-
-			for flag, val, count in zip(flags, hist[:,1], counts):
-				if dim:
-					tree.write(flag, 1<<dim, soft_flush=True)
-				else:
-					bits = max(int(count).bit_length(), 1)
-					tree.write(val, bits, soft_flush=True)
-			
-			if payload:
-				mask[mask] = (counts > 1)[idx]
-				tail[mask] -= dim
-				if not np.any(mask):
-					break
-			log(".", end='', flush=True)
-		tree.close(reset=False)
-		
 		if payload:
 			payload.open(output_file + '.ply.bin', 'wb')
-			for x, bits in zip(X, tail):
-				payload.write(x, bits, soft_flush=True)
+		
+		diff = differential and dict()
+		for tree, payload in nbittree.encode(X, dims, word_length, diff, tree, payload, pattern, yielding=True):
+			log(".", end='', flush=True)
+		
+		if payload:
 			payload.close(reset=False)
+		tree.close(reset=False)
 		
 		log("\r\n")
 		header_file, header = nbittree.save_header(
@@ -457,7 +431,7 @@ def encode(files,
 			scale = _scale.tolist(),
 			permute = permute,
 			pattern = pattern,
-			differential = differential is not False,
+			differential = diff is not False,
 			bits_per_dim=bits_per_dim,
 			xtype = xtype,
 			qtype = qtype
