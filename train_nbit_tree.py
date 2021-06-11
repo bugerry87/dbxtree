@@ -302,7 +302,8 @@ def main(
 	if not cpu:
 		assert len(tf.config.list_physical_devices('GPU')) > 0
 		assert tf.test.is_built_with_cuda()
-
+	
+	strategy = tf.distribute.MirroredStrategy()
 	tf.summary.trace_on(graph=True, profiler=False)
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	log_dir = os.path.join(log_dir, timestamp)
@@ -323,18 +324,21 @@ def main(
 	if kwargs:
 		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
-	model = NbitTree(
-		dim=dim,
-		kernels=kernels,
-		heads=heads,
-		convolutions=convolutions,
-		branches=branches,
-		dense=dense,
-		activation=activation,
-		floor=floor,
-		name=name,
-		**kwargs
-		)
+	tflog.info('Number of devices: {}'.format(strategy.num_replicas_in_sync))
+	
+	with strategy.scope():
+		model = NbitTree(
+			dim=dim,
+			kernels=kernels,
+			heads=heads,
+			convolutions=convolutions,
+			branches=branches,
+			dense=dense,
+			activation=activation,
+			floor=floor,
+			name=name,
+			**kwargs
+			)
 	
 	meta_args = dict(
 		bits_per_dim=bits_per_dim,
@@ -390,18 +394,19 @@ def main(
 		loss_funcs=[regularized_cosine],
 		loss_kwargs=[
 			dict(
-				msle_smoothing=0.0625
+				msle_smoothing=0
 			)],
 		loss_weights = [1.0]
 		)
 	
-	model.compile(
-		optimizer='adam',
-		loss=loss,
-		metrics=['accuracy'],
-		sample_weight_mode='temporal'
-		)
-	model.build(meta=master_meta)
+	with strategy.scope():
+		model.compile(
+			optimizer='adam',
+			loss=loss,
+			metrics=['accuracy'],
+			sample_weight_mode='temporal'
+			)
+		model.build(meta=master_meta)
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	

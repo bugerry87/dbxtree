@@ -113,8 +113,16 @@ def reverse(X, bits=None):
 	return Y
 
 
-def transpose(X, bits=None, dtype=object):
-	if X.ndim > 1 and X.shape[-1] == 8:
+def transpose(X, bits=None, dtype=object, buffer=None):
+	if buffer is not None:
+		curr = 0
+		while np.any(bits > curr):
+			x = X[bits > curr] >> curr & 1
+			curr += 1
+			for b in x:
+				buffer.write(b, 1, soft_flush=True)
+		return buffer
+	elif X.ndim > 1 and X.shape[-1] == 8:
 		if bits is None:
 			bits = np.iinfo(X.dtype).bits
 		Xt = np.hstack([np.packbits(X>>i & 1) for i in range(bits)])
