@@ -387,7 +387,7 @@ def encode(files,
 		
 		X, _offset, _scale = bitops.serialize(PC, bits_per_dim, qtype, offset, scale)
 		if sort_bits is not None:
-			X, permute, pattern = bitops.sort(X, word_length, reverse, absolute)
+			X, permute, pattern = bitops.sort(X, None, word_length, reverse, absolute)
 			permute = permute.tolist()
 			pattern = int(pattern)
 		elif permute:

@@ -79,60 +79,68 @@ def encode(X, dims, word_length,
 	tree = tree if isinstance(tree, BitBuffer) else BitBuffer(tree, 'wb')
 	payload = payload and (payload if isinstance(payload, BitBuffer) else BitBuffer(payload, 'wb'))
 	differential = differential and dict()
-	dim_seq = [dim for dim in yield_dims(dims, word_length)]
-	layers = bitops.tokenize(X, dim_seq)
-	mask = np.ones(len(X), bool)
-	tail = np.full(len(X), word_length)
 
-	for i, (X0, X1, dim) in enumerate(zip(layers[:-1], layers[1:], dim_seq)):
-		uids, idx, counts = np.unique(X0[mask], return_inverse=True, return_counts=True)
-		flags, hist = bitops.encode(X1[mask], idx, max(dim,1))
-
-		if differential is not False:
-			diff = differential.get(i, None)
-			if diff:
-				flags = [flag ^ diff.get(uid, 0) for uid, flag in zip(uids, flags)]
-				del diff
-			differential[i] = {uid:flag for uid, flag in zip(uids, flags)}
-		
-		if dim < 0:
-			major = pattern >> (word_length - i - 1) & 1
-			minor = major ^ 1
-			#bits = np.ceil(np.log2(counts + 1)).astype(np.uint64) - 1
-			bits = np.array([int(c).bit_length() - 1 for c in counts], np.uint64)
-			overflow = (1 << bits) - 1
-			minor, major = hist[:,minor].astype(bits.dtype), hist[:,major].astype(bits.dtype)
-			minor_overflow = minor >= overflow
-			odd_overflow = minor_overflow & (major >= overflow) & (counts & 1 > 0)
-
-			symbols = minor.copy()
-			symbols[minor_overflow] = overflow[minor_overflow] << bits[minor_overflow] | np.minimum(major[minor_overflow], overflow[minor_overflow])
-			symbols[odd_overflow] <<= 1
-			symbols[odd_overflow] |= minor[odd_overflow] > major[odd_overflow]
-
-			bits[minor_overflow] *= 2
-			bits[odd_overflow] += 1
-			for s, b in zip(symbols, bits):
-				tree.write(s, b, soft_flush=True)
-		elif dim:
+	if -2 in dims:
+		for flags, bits in bitops.permutation(X, word_length):
+			print(flags)
 			for flag in flags:
-				tree.write(flag, 1<<dim, soft_flush=True)
-		else:
-			minor = pattern >> (word_length - i - 1) & 1 ^ 1
-			minor = hist[:,minor]	
-			bits = np.array([int(c).bit_length() for c in counts])
-			for minor, bits in zip(minor, bits):
-				#bitops.transpose(minor, bits, buffer=tree)
-				tree.write(minor, bits, soft_flush=True)
-		
-		if payload:
-			mask[mask] = (counts > 1)[idx]
-			tail[mask] -= dim
-			if not np.any(mask):
-				break
+				tree.write(flag, bits, soft_flush=True)
+			if yielding:
+				yield tree, payload
+		pass
+	else:
+		dim_seq = [dim for dim in yield_dims(dims, word_length)]
+		layers = bitops.tokenize(X, dim_seq)
+		mask = np.ones(len(X), bool)
+		tail = np.full(len(X), word_length)
 
-		if yielding:
-			yield tree, payload
+		for i, (X0, X1, dim) in enumerate(zip(layers[:-1], layers[1:], dim_seq)):
+			uids, idx, counts = np.unique(X0[mask], return_inverse=True, return_counts=True)
+			flags, hist = bitops.encode(X1[mask], idx, max(dim,1))
+
+			if differential is not False:
+				diff = differential.get(i, None)
+				if diff:
+					flags = [flag ^ diff.get(uid, 0) for uid, flag in zip(uids, flags)]
+					del diff
+				differential[i] = {uid:flag for uid, flag in zip(uids, flags)}
+			
+			if dim < 0:
+				major = pattern >> (word_length - i - 1) & 1
+				minor = major ^ 1
+				bits = np.array([int(c).bit_length() - 1 for c in counts], np.uint64)
+				overflow = (1 << bits) - 1
+				minor, major = hist[:,minor].astype(bits.dtype), hist[:,major].astype(bits.dtype)
+				minor_overflow = minor >= overflow
+				odd_overflow = minor_overflow & (major >= overflow) & (counts & 1 > 0)
+
+				symbols = minor.copy()
+				symbols[minor_overflow] = overflow[minor_overflow] << bits[minor_overflow] | np.minimum(major[minor_overflow], overflow[minor_overflow])
+				symbols[odd_overflow] <<= 1
+				symbols[odd_overflow] |= minor[odd_overflow] > major[odd_overflow]
+
+				bits[minor_overflow] *= 2
+				bits[odd_overflow] += 1
+				for s, b in zip(symbols, bits):
+					tree.write(s, b, soft_flush=True)
+			elif dim:
+				for flag in flags:
+					tree.write(flag, 1<<dim, soft_flush=True)
+			else:
+				minor = pattern >> (word_length - i - 1) & 1 ^ 1
+				minor = hist[:,minor]	
+				bits = np.array([int(c).bit_length() for c in counts])
+				for minor, bits in zip(minor, bits):
+					tree.write(minor, bits, soft_flush=True)
+			
+			if payload:
+				mask[mask] = (counts > 1)[idx]
+				tail[mask] -= dim
+				if not np.any(mask):
+					break
+
+			if yielding:
+				yield tree, payload
 
 	if payload:
 		for x, bits in zip(X, tail):
