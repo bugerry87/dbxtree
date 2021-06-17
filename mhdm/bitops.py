@@ -62,7 +62,7 @@ def deserialize(X, bits_per_dim, qtype=object):
 	return X
 
 
-def sort(X, idx=None, bits=None, reverse=False, absolute=False):
+def sort(X, bits=None, reverse=False, absolute=False, idx=None):
 	if bits is None:
 		bits = np.iinfo(X.dtype).bits
 	shape = X.shape
@@ -173,20 +173,6 @@ def tokenize(X, dims, axis=0):
 	shifts = np.cumsum(dims, dtype=X.dtype)[::-1]
 	tokens = X[...,None] >> shifts
 	return tokens.T
-
-
-def permutation(X, bits):
-	if bits is None:
-		bits = np.iinfo(X.dtype).bits
-	idx = np.zeros_like(X)
-	for high, low in zip(range(1, bits+1), range(bits, 0, -1)):
-		X, p = sort(X, idx, low, False, True)[:2]
-		uids, idx = np.unique(idx << high | X >> (low-1), return_inverse=True)
-		idx = idx.astype(X.dtype)
-		flags = np.zeros(len(uids), dtype=uids.dtype)
-		flags[idx] |= 1
-		flags[flags==1] += p[:,-1]
-		yield flags, bits.bit_length()
 
 
 def encode(uids, idx, dim, ftype=None, htype=None):

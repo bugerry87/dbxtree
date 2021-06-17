@@ -67,6 +67,29 @@ def overflow(flags, total):
 		return overflow, overflow
 
 
+def permutation(X, bits):
+	if bits is None:
+		bits = np.iinfo(X.dtype).bits
+	X, p = bitops.sort(X, bits, False, True)[:2]
+	idx = np.zeros_like(X)
+	yield p[None,...,0]+1, bits.bit_length()
+	bits -= 1
+
+	for up, down in zip(range(1, bits), range(bits, 0, -1)):
+		mask = (1 << up) - 1
+		X, p = bitops.sort(X, down, False, True, idx)[:2]
+		uids, idx = np.unique(np.vstack((idx, X & mask)).T, return_inverse=True, axis=0)
+		print(uids.shape)
+		idx = idx.astype(X.dtype)
+		flags = X >> up & 1
+		hist = np.zeros(len(uids) * 2, dtype=X.dtype)
+		idx = np.ravel_multi_index(np.vstack([idx, flags]).astype(int), (len(uids), 2))
+		np.add.at(hist, idx, 1)
+		flags = (hist>0).astype(dtype=X.dtype)
+		flags[...,-1] += p[...,-1]
+		yield flags, down.bit_length()
+
+
 def encode(X, dims, word_length,
 	differential=False,
 	tree=None,
@@ -81,8 +104,9 @@ def encode(X, dims, word_length,
 	differential = differential and dict()
 
 	if -2 in dims:
-		for flags, bits in bitops.permutation(X, word_length):
+		for flags, bits in permutation(X, word_length):
 			print(flags)
+			input()
 			for flag in flags:
 				tree.write(flag, bits, soft_flush=True)
 			if yielding:
