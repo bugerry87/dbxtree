@@ -7,16 +7,15 @@ from tensorflow.keras.layers import Dense, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 ## Local
-from . import bitops
-from . import spatial
-from .. import utils
+from .. import bitops
+from .. import spatial
+from ... import utils
 
 ## Optional
 try:
 	import tensorflow_compression as tfc
 except ModuleNotFoundError:
 	tfc = None
-
 
 class NbitTree(Model):
 	"""
@@ -89,6 +88,7 @@ class NbitTree(Model):
 		self.dense = [Dense(
 			self.kernels,
 			activation='relu',
+			kernel_initializer='random_uniform',
 			dtype=self.dtype,
 			name='dense_{}'.format(i),
 			**kwargs
@@ -97,6 +97,7 @@ class NbitTree(Model):
 		self.head = Dense(
 			self.bins,
 			activation=activation,
+			kernel_initializer='random_uniform',
 			dtype=self.dtype,
 			name='head',
 			**kwargs
@@ -332,19 +333,24 @@ class NbitTree(Model):
 		for branch in self.branches.values():
 			x = inputs[...,branch.offsets[0]:branch.offsets[1]]
 			x = branch.dense(x)
+			x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x)))
 			flags.append(x)
 			x = branch.merge(x)
+			x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x)))
 			for conv in branch.conv:
 				x = conv(x)
+				x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x)))
 			stack.append(x)
 
 		X = tf.concat(stack, axis=-1)
 		for dense in self.dense:
 			X = dense(X)
+			X = tf.math.divide_no_nan(X, tf.stop_gradient(tf.math.reduce_max(X)))
 		
 		x = tf.concat(flags, axis=-1)
 		x = tf.stop_gradient(x)
 		x = self.merge_flags(x)
+		x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x)))
 		X = tf.concat([x, X], axis=-1)	
 		X = self.head(X)
 		return X
@@ -440,3 +446,5 @@ class NbitTree(Model):
 		if meta.spherical:
 			X = spatial.uvd2xyz(X)
 		return X
+
+__all__ = [NbitTree]

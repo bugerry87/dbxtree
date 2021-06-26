@@ -154,7 +154,6 @@ data/
 doc/
 junk/
 media/
-models/
 
 #VC
 *.vs/

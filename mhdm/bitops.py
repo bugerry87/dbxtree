@@ -5,7 +5,6 @@ import os.path as path
 
 ## Installed
 import numpy as np
-from numpy.core.numeric import zeros_like
 
 
 def quantization(X, bits_per_dim=None, qtype=object, offset=None, scale=None, axis=-2):
@@ -73,17 +72,16 @@ def sort(X, bits=None, reverse=False, absolute=False, idx=None):
 	if idx is None:
 		p = np.sum(X, axis=0)
 	else:
-		u = np.unique(idx)
-		p = np.zeros((len(u), bits), X.dtype)
+		p = np.zeros((idx.max()+1, bits), X.dtype)
 		np.add.at(p, idx, X)
 	pattern = p > len(X)/2
 
 	if absolute:
 		p = np.max((p, len(X)-p), axis=0)
-	p = np.argsort(p)
+	p = np.argsort(p, axis=-1)
 
 	if reverse:
-		p = p[::-1]
+		p = p[...,::-1]
 	
 	if idx is None:
 		pattern = np.sum(pattern[p] << shifts)
@@ -95,20 +93,21 @@ def sort(X, bits=None, reverse=False, absolute=False, idx=None):
 		return X.reshape(shape), p.astype(np.uint8)
 
 
-def argmax(X, idx=None, bits=None, absolute=False):
+def argmax(X, bits=None, absolute=False, idx=None, counts=None):
 	if bits is None:
 		bits = np.iinfo(X.dtype).bits
 	if idx is None:
-		idx = np.zeros_like(X)
-	u = np.unique(idx)
+		idx = np.zeros_like(X, int)
+	if counts is None:
+		counts = np.unique(idx, return_counts=True)[-1]
 	shifts = np.arange(bits, dtype=X.dtype)
 	X = X[...,None]>>shifts & 1
-	p = np.zeros((len(u), bits), X.dtype)
-	np.add.at(p, X, idx)
+	p = np.zeros((idx.max()+1, bits), X.dtype)
+	np.add.at(p, idx, X)
 
 	if absolute:
-		p = np.max((p, len(X)-p), axis=0)
-	p = np.argmax(p, axis=0)
+		p = np.max((p, counts-p), axis=0)
+	p = np.argmax(p, axis=-1).astype(X.dtype)
 	return p
 
 
@@ -145,6 +144,7 @@ def reverse(X, bits=None):
 def transpose(X, bits=None, dtype=object, buffer=None):
 	if buffer is not None:
 		curr = 0
+		bits = X * 0 + bits
 		while np.any(bits > curr):
 			x = X[bits > curr] >> curr & 1
 			curr += 1
@@ -175,32 +175,33 @@ def tokenize(X, dims, axis=0):
 	return tokens.T
 
 
-def encode(uids, idx, dim, ftype=None, htype=None):
+def encode(nodes, idx, dim, ftype=None, htype=None):
 	bits = 1<<dim
-	shifts = np.arange(bits).astype(ftype or uids.dtype)
-	flags = uids & (bits-1)
-	hist = np.zeros(len(uids) * bits, dtype=htype or uids.dtype)
-	idx = np.ravel_multi_index(np.vstack([idx, flags]).astype(int), (len(uids), bits))
+	num_p = idx[-1]+1
+	shifts = np.arange(bits).astype(ftype or nodes.dtype)
+	flags = nodes & (bits-1)
+	hist = np.zeros(num_p * bits, dtype=htype or nodes.dtype)
+	idx = np.ravel_multi_index(np.vstack([idx, flags]).astype(int), (num_p, bits))
 	np.add.at(hist, idx, 1)
 	hist = hist.reshape(-1, bits)
-	flags = (hist>0).astype(htype or uids.dtype)
+	flags = (hist>0).astype(htype or nodes.dtype)
 	flags = flags << shifts
 	flags = flags.sum(axis=-1)
 	return flags, hist
 
 
-def decode(uids, dim, X=None, tails=None, dtype=None):
+def decode(nodes, dim, X=None, tails=None, dtype=None):
 	if X is None:
-		X = np.zeros([1], dtype=dtype or uids.dtype)
+		X = np.zeros([1], dtype=dtype or nodes.dtype)
 
 	if dim > 0:
-		uids = uids[...,None] >> np.arange(1<<max(dim, 1), dtype=X.dtype) & 1
-		counts = len(uids)
+		nodes = nodes[...,None] >> np.arange(1<<max(dim, 1), dtype=X.dtype) & 1
+		counts = len(nodes)
 	else:
-		counts = uids.flatten()
+		counts = nodes.flatten()
 		counts = counts[counts>0]
 	
-	i, x = np.where(uids)
+	i, x = np.where(nodes)
 	X <<= max(dim, 1)
 	X = x.astype(X.dtype) + X[i]
 	if tails is not None:

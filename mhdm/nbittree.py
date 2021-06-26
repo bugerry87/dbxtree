@@ -70,24 +70,52 @@ def overflow(flags, total):
 def permutation(X, bits):
 	if bits is None:
 		bits = np.iinfo(X.dtype).bits
-	X, p = bitops.sort(X, bits, False, True)[:2]
-	idx = np.zeros_like(X)
-	yield p[None,...,0]+1, bits.bit_length()
+	idx = np.zeros_like(X, int)
+	p = bitops.argmax(X, bits, True, idx, [len(X)])
+	yield p + 1, 1
 	bits -= 1
 
-	for up, down in zip(range(1, bits), range(bits, 0, -1)):
-		mask = (1 << up) - 1
-		X, p = bitops.sort(X, down, False, True, idx)[:2]
-		uids, idx = np.unique(np.vstack((idx, X & mask)).T, return_inverse=True, axis=0)
-		print(uids.shape)
-		idx = idx.astype(X.dtype)
-		flags = X >> up & 1
-		hist = np.zeros(len(uids) * 2, dtype=X.dtype)
-		idx = np.ravel_multi_index(np.vstack([idx, flags]).astype(int), (len(uids), 2))
-		np.add.at(hist, idx, 1)
-		flags = (hist>0).astype(dtype=X.dtype)
-		flags[...,-1] += p[...,-1]
-		yield flags, down.bit_length()
+	for bits in range(bits, 0, -1):
+		flags = X >> p[idx] & 1
+		mask = (1<<p[idx]) - 1
+		X = (X>>1 & ~mask) | (X & mask)
+		nodes = np.vstack((idx, flags.astype(idx.dtype))).T
+		args = np.argsort(nodes, axis=0)
+		nodes[args]
+		X[args]
+		ravel = np.ravel_multi_index(nodes.T, (len(p), 2))
+		flags = np.zeros(len(p) * 2, X.dtype)
+		idx, counts = np.unique(nodes, return_inverse=True, return_counts=True, axis=0)[1:]
+		p = bitops.argmax(X, bits, True, idx, counts[...,None])
+		np.add.at(flags, ravel, 1)
+		flags = flags > 0
+		nodes = flags.astype(X.dtype)
+		nodes[flags] *= p + 1
+		yield nodes.flatten(), 1
+
+
+def depermutation(bitstream, word_length, perm, dtype=np.uint64):
+	bits = word_length.bit_length()
+	X = np.zeros([1], dtype)
+	perm = np.array(perm, dtype)[None,...]
+	p = np.array([bitstream.read(bits) for i in range(len(X))], dtype)
+	for word_length in range(word_length-1, 0, -1):
+		bits = word_length.bit_length()
+		nodes = np.array([bitstream.read(bits) for i in range(len(X)*2)], dtype)
+		flags = nodes > 0
+
+		p = np.repeat(p, 2)[flags] - 1
+		perm = np.repeat(perm, 2, axis=0)[flags]
+
+		i, x = np.where(nodes.reshape(-1,2))
+		x = x.astype(X.dtype)
+		x <<= perm[range(len(perm)),p]
+		X = x + X[i]
+
+		mask = p[...,None] != range(word_length+1)
+		perm = perm[mask].reshape(-1, word_length)
+		p = nodes[flags]
+	return X
 
 
 def encode(X, dims, word_length,
@@ -105,13 +133,11 @@ def encode(X, dims, word_length,
 
 	if -2 in dims:
 		for flags, bits in permutation(X, word_length):
-			print(flags)
-			input()
 			for flag in flags:
 				tree.write(flag, bits, soft_flush=True)
+				#bitops.transpose(flags, bits, buffer=tree)
 			if yielding:
 				yield tree, payload
-		pass
 	else:
 		dim_seq = [dim for dim in yield_dims(dims, word_length)]
 		layers = bitops.tokenize(X, dim_seq)
@@ -169,7 +195,6 @@ def encode(X, dims, word_length,
 	if payload:
 		for x, bits in zip(X, tail):
 			payload.write(x, bits, soft_flush=True)
-
 	if not yielding:
 		return tree, payload
 
@@ -181,23 +206,26 @@ def decode(header_file, payload=True):
 	flags = BitBuffer(path.join(path.dirname(header_file), header.flags), 'rb')
 	payload = header.payload and BitBuffer(path.join(path.dirname(header_file), header.payload), 'rb')
 	word_length = sum(header.bits_per_dim)
-	dim_seq = yield_dims(header.dims, word_length)
 
-	X = np.zeros([1], dtype=header.qtype)
-	tails = np.full(1, word_length) if payload else None
-	counts = [header.inp_points]
-	for i, dim in enumerate(dim_seq):
-		if dim < 0:
-			nodes = np.array([overflow(flags, int(c)) for c in counts], dtype=header.qtype)
-			if not header.pattern >> (word_length - i - 1) & 1:
-				nodes = nodes[:,::-1]
-		elif dim:
-			nodes = np.array([flags.read(1<<dim) for i in range(len(X))], dtype=header.qtype)
-		else:
-			nodes = np.array([minor_major(flags, int(c)) for c in counts], dtype=header.qtype)
-			if not header.pattern >> (word_length - i - 1) & 1:
-				nodes = nodes[:,::-1]
-		X, counts, tails = bitops.decode(nodes, dim, X, tails)
+	if -2 in header.dims:
+		X = depermutation(flags, word_length, np.arange(word_length), header.qtype)
+	else:
+		dim_seq = yield_dims(header.dims, word_length)
+		X = np.zeros([1], dtype=header.qtype)
+		tails = np.full(1, word_length) if payload else None
+		counts = [header.inp_points]
+		for i, dim in enumerate(dim_seq):
+			if dim < 0:
+				nodes = np.array([overflow(flags, int(c)) for c in counts], dtype=header.qtype)
+				if not header.pattern >> (word_length - i - 1) & 1:
+					nodes = nodes[:,::-1]
+			elif dim:
+				nodes = np.array([flags.read(1<<dim) for i in range(len(X))], dtype=header.qtype)
+			else:
+				nodes = np.array([minor_major(flags, int(c)) for c in counts], dtype=header.qtype)
+				if not header.pattern >> (word_length - i - 1) & 1:
+					nodes = nodes[:,::-1]
+			X, counts, tails = bitops.decode(nodes, dim, X, tails)
 	
 	if payload:
 		payload = [payload.read(bits) for bits in tails]

@@ -43,12 +43,14 @@ def init_main_args(parents=[]):
 	return main_args
 
 
-def fnc(x, a, b, c):
-	return -a * np.exp((x - b) * c)
+def fnc(x, a, b):
+	#return -a * np.exp((x - b) * c)
+	return -a * x + b
 
 
-def dx_fnc(x, a, b, c):
-	return -a * c * np.exp((x - b) * c)
+def dx_fnc(x, a, b):
+	#return -a * c * np.exp((x - b) * c)
+	return -a + x*0
 
 
 def slop2prob(slop):
@@ -84,7 +86,7 @@ def main(filenames,
 	rc = RangeEncoder()
 
 	for fname in ifile(filenames):
-		bits = binarize(fname)
+		bits = binarize(fname)[::-1]
 		x, y = cumsum_bits(bits)
 		
 		plt.plot(x[::skip], y[::skip], label=fname)
@@ -93,7 +95,7 @@ def main(filenames,
 	plt.show()
 
 	for fname in ifile(filenames):
-		bits = binarize(fname)
+		bits = binarize(fname)[::-1]
 		x, y = cumsum_bits(bits, normalize=True)
 		args, covars = curve_fit(fnc, x[::skip], y[::skip])
 		
@@ -105,6 +107,7 @@ def main(filenames,
 	
 		grad = dx_fnc(x, *args)
 		cdfs = grad2cdf(grad)
+
 		try:
 			rc.open('{}.rc.bin'.format(fname.replace('.bin', '')))
 			for i, (grad, symb, cdf) in enumerate(zip(grad, bits, cdfs)):

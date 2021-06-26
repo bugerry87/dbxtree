@@ -109,9 +109,9 @@ class RangeEncoder(RangeCoder):
 	
 	def _shift(self):
 		bit = self.low & self.half_range > 0
-		self.output.write(bit, 1)
+		self.output.write(bit, 1, soft_flush=True)
 		while self.underflow:
-			self.output.write(bit^1, 1)
+			self.output.write(bit^1, 1, soft_flush=True)
 			self.underflow -= 1
 
 	def _underflow(self):
@@ -135,16 +135,16 @@ class RangeEncoder(RangeCoder):
 		pass
 
 	def update(self, symbol, cdf=None):
-		symbol = int(symbol)
 		if cdf is None:
 			start, end, total = symbol
 		elif isinstance(cdf, dict):
 			start, end, total = cdf[symbol]
 		else:
+			symbol = int(symbol)
 			start = cdf[symbol]
 			end = cdf[symbol+1]
 			total = cdf[-1]
-		super(RangeEncoder, self).update(start, end, total)
+		super(RangeEncoder, self).update(int(start), int(end), int(total))
 	
 	def updates(self, symbols, cdfs=None):
 		if cdfs is None:
@@ -158,6 +158,25 @@ class RangeEncoder(RangeCoder):
 	def finalize(self):
 		self.output.write(1, 1)
 		self.output.flush(hard=True)
+
+
+class AdaptiveRangeEncoder(RangeEncoder):
+	"""
+	"""
+	def __init__(self, vocab_size, filename=None, precision=64, gate=1.0):
+		super(AdaptiveRangeEncoder, self).__init__(filename, precision)
+		self.probs = np.ones(vocab_size)
+		self.gate = gate
+	
+	def update(self, symbol):
+		cdf = prob2cdf(self.probs)
+		super(AdaptiveRangeEncoder, self).update(symbol, cdf)
+		self.probs[symbol] += 1
+		self.probs *= self.gate
+	
+	def updates(self, symbols):
+		for symbol in symbols:
+			self.update(symbol)
 
 
 class RangeDecoder(RangeCoder):
