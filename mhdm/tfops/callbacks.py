@@ -45,14 +45,14 @@ class NbitTreeCallback(LambdaCallback):
 
 	def flag_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
-		encode = tree_end and self.range_encode
-		flags = info[1]
+		encode = tf.constant(tree_end and self.range_encode, shape=(1,1))
+		flags = info[1][None,...]
 		layer = info[2].numpy()
 		if self.meta.payload:
 			mask = info[-2].numpy()
 
 		if tree_start:
-			self.probs = tf.zeros((0, self.meta.bins-1), dtype=self.meta.dtype)
+			self.probs = tf.zeros((1, 0, self.meta.bins-1), dtype=self.meta.dtype)
 			self.flags = flags
 			if self.meta.payload:
 				counts = len(mask)
@@ -60,17 +60,16 @@ class NbitTreeCallback(LambdaCallback):
 		else:
 			if self.meta.payload:
 				self.bits[mask] = self.meta.word_length - (layer+1) * self.meta.dim
-			self.flags = tf.concat([self.flags, flags], axis=0)
+			self.flags = tf.concat([self.flags, flags], axis=-1)
 
 		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
-		code = code[0]
 		if self.meta.payload and tree_end:
 			payload = info[-3].numpy()
 			bits = self.bits
 		else:
 			payload = []
 			bits = []
-		return self.probs, code, payload, bits
+		return self.probs[0], code[0], payload, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)

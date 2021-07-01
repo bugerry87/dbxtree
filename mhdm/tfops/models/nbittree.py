@@ -356,7 +356,7 @@ class NbitTree(Model):
 		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 			feature = X[0]
-			probs = tf.reshape(self(feature, training=False)[...,1-self.bins:], (-1, self.bins-1))
+			probs = self(feature, training=False)[...,1-self.bins:]
 			return probs
 
 		def encode():
@@ -367,7 +367,7 @@ class NbitTree(Model):
 					)
 				return tf.constant([''])
 			
-			cdf = probs
+			cdf = probs[0]
 			symbols = tf.cast(labels-1, tf.int16)
 			
 			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True)
@@ -379,15 +379,15 @@ class NbitTree(Model):
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
 			code = tfc.range_encode(symbols, cdf, precision=16)
-			return tf.expand_dims(code, axis=0)
+			return code[None,...]
 		
 		def ignore():
 			return tf.constant([''])
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		feature, probs, labels, do_encode = X
-		pred = tf.reshape(self(feature, training=False)[...,1-self.bins:], (-1, self.bins-1))
-		probs = tf.concat([probs, pred], axis=0)
+		pred = self(feature, training=False)[...,1-self.bins:]
+		probs = tf.concat([probs, pred], axis=-2)
 		code = tf.cond(do_encode, encode, ignore)
 		return probs, code
 
