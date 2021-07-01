@@ -112,10 +112,6 @@ class NbitTree(Model):
 	def bins(self):
 		return 1<<self.flag_size
 
-	@property
-	def output_shape(self):
-		return self.bins
-
 	def set_meta(self, index, bits_per_dim,	**kwargs):
 		"""
 		"""
@@ -123,7 +119,6 @@ class NbitTree(Model):
 			bits_per_dim=bits_per_dim,
 			dim=self.dim,
 			mode=self.mode,
-			output_shape=self.output_shape,
 			flag_size=self.flag_size,
 			bins=self.bins,
 			dtype=self.dtype,
@@ -143,7 +138,7 @@ class NbitTree(Model):
 		self.meta = meta
 		return meta
 	
-	def encoder(self, index, bits_per_dim, *args,
+	def encoder(self, index, bits_per_dim,
 		sort_bits=None,
 		permute=None,
 		offset=None,

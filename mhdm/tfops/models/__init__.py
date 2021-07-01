@@ -1,6 +1,6 @@
 
 ## Local
 from .nbittree import NbitTree
-from .permutation import Permutation
+from .entropymap import EntropyMapper
 
-__all__ = [NbitTree]
+__all__ = [NbitTree, EntropyMapper]
