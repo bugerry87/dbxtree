@@ -146,7 +146,7 @@ def init_main_args(parents=[]):
 		'--strides', '-s',
 		metavar='INT',
 		type=int,
-		default=3,
+		default=1,
 		help='step size of the kernels'
 		)
 	
@@ -211,7 +211,7 @@ def main(
 		assert len(tf.config.list_physical_devices('GPU')) > 0
 		assert tf.test.is_built_with_cuda()
 	
-	strategy = tf.distribute.MirroredStrategy()
+	#strategy = tf.distribute.MirroredStrategy()
 	tf.summary.trace_on(graph=True, profiler=False)
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	log_dir = os.path.join(log_dir, timestamp)
@@ -229,18 +229,18 @@ def main(
 	if kwargs:
 		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
-	tflog.info('Number of devices: {}'.format(strategy.num_replicas_in_sync))
+	#tflog.info('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 	
-	with strategy.scope():
-		model = EntropyMapper(
-			bins=sum(bits_per_dim),
-			kernels=kernels,
-			kernel_size=kernel_size,
-			strides=strides,
-			layers=layers,
-			name=name,
-			**kwargs
-			)
+	#with strategy.scope():
+	model = EntropyMapper(
+		bins=sum(bits_per_dim),
+		kernels=kernels,
+		kernel_size=kernel_size,
+		strides=strides,
+		layers=layers,
+		name=name,
+		**kwargs
+		)
 	
 	meta_args = dict(
 		bits_per_dim=bits_per_dim,
@@ -275,13 +275,13 @@ def main(
 	else:
 		validation_steps = 0
 	
-	with strategy.scope():
-		model.compile(
-			optimizer='adam',
-			loss='mse',
-			sample_weight_mode='temporal'
-			)
-		model.build()
+	#with strategy.scope():
+	model.compile(
+		optimizer='adam',
+		loss='mse',
+		sample_weight_mode='temporal'
+		)
+	model.build()
 	model.summary(print_fn=tflog.info)
 	tflog.info("Samples for Train: {}, Validation: {}".format(steps_per_epoch, validation_steps))
 	

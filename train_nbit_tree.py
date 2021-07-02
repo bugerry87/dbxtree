@@ -13,7 +13,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTree
-from mhdm.tfops.metrics import CombinedLoss, regularized_cosine, regularized_crossentropy
+from mhdm.tfops.metrics import RegularizedCrossentropy, RegularizedCosine
 from mhdm.tfops.callbacks import NbitTreeCallback, LogCallback
 
 
@@ -232,6 +232,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--loss',
+		metavar='STR',
+		type=str,
+		default='regularized_cosine',
+		help="The final activation function"
+		)
+	
+	main_args.add_argument(
 		'--floor',
 		metavar='FLOAT',
 		type=float,
@@ -287,7 +295,7 @@ def main(
 	convolutions=2,
 	branches=('uids', 'pos', 'pivots', 'meta'),
 	dense=0,
-	loss='regularized_crossentropy',
+	loss='regularized_cosine',
 	activation='softmax',
 	floor=0.0,
 	log_dir='logs',
@@ -390,14 +398,10 @@ def main(
 	else:
 		test_steps = 0	
 
-	loss = CombinedLoss(
-		loss_funcs=[regularized_cosine],
-		loss_kwargs=[
-			dict(
-				msle_smoothing=0
-			)],
-		loss_weights = [1.0]
-		)
+	if loss == 'regularized_cosine':
+		loss = RegularizedCosine(msle_smoothing=0.01)
+	elif loss == 'regularized_crossentropy':
+		loss = RegularizedCrossentropy(msle_smoothing=0.01)
 	
 	with strategy.scope():
 		model.compile(

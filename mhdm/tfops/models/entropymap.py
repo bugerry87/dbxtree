@@ -9,6 +9,7 @@ from .. import count
 from .. import bitops
 from ... import utils
 
+@tf.function
 def map_entropy(X, bits):
 	"""
 	"""
@@ -24,8 +25,9 @@ def map_entropy(X, bits):
 		eid = tf.argmax(e, axis=-1)[..., None]
 		mask &= (eid != shifts)
 		e = tf.cast(e, E.dtype)
-		e = tf.gather_nd(e, eid, batch_dims=1)
-		x = tf.gather_nd(X, eid, batch_dims=1)
+		eid = tf.concat([point_range[...,None], eid], axis=-1)
+		e = tf.gather_nd(e, eid)
+		x = tf.gather_nd(X, eid)
 		e *= x * 2 - 1
 
 		idx = bitops.left_shift(idx, 1) + x
@@ -35,10 +37,8 @@ def map_entropy(X, bits):
 		idx = tf.gather(idx, sort)
 		idx, counts = tf.unique_with_counts(idx, X.dtype)[1:]
 		idx = tf.gather(idx, unsort)
-
-		i = tf.concat([point_range[...,None], eid], axis=-1)
-		E = tf.tensor_scatter_nd_update(E, i, e)
-		print(E[0,:])
+		
+		E = tf.tensor_scatter_nd_update(E, eid, e)
 		return E, idx, mask, counts
 
 	with tf.name_scope("map_entropy"):
@@ -54,7 +54,8 @@ def map_entropy(X, bits):
 		
 		E = tf.while_loop(
 			cond, body,
-			loop_vars=(E, idx, mask, counts),
+			loop_vars=(E, idx, mask, counts[...,None]),
+			shape_invariants=(E.shape, idx.shape, mask.shape, tf.TensorShape((None))),
 			maximum_iterations=bits
 			)[0]
 		E = tf.cast(E, tf.float32) / tf.cast(counts, tf.float32)
@@ -84,12 +85,14 @@ class EntropyMapper(Model):
 		"""
 		super(EntropyMapper, self).__init__(**kwargs)
 		self.bins = bins
+		self.kernels = kernels
+
 		self.encoder = Sequential([
 			Conv1D(kernels*i, kernel_size, strides,
 				activation='relu',
 				padding='same',
 				) for i in range(layers, 1, -1)
-			])
+			], 'encoder')
 		self.encoder.add(
 			Conv1D(kernels, kernel_size, strides,
 				activation='tanh',
@@ -100,7 +103,7 @@ class EntropyMapper(Model):
 				activation='relu',
 				padding='same',
 				) for i in range(1, layers)
-			])
+			], 'teacher')
 		self.teacher.add(
 			Conv1DTranspose(self.bins, kernel_size, strides,
 				activation='tanh',
@@ -111,7 +114,7 @@ class EntropyMapper(Model):
 				activation='relu',
 				padding='same',
 				) for i in range(1, layers)
-			])
+			], 'decoder')
 		self.decoder.add(
 			Conv1DTranspose(self.bins, kernel_size, strides,
 				activation='tanh',
@@ -124,7 +127,6 @@ class EntropyMapper(Model):
 		"""
 		meta = utils.Prototype(
 			bits_per_dim=bits_per_dim,
-			dim=self.dim,
 			bins=self.bins,
 			dtype=self.dtype,
 			**kwargs
@@ -220,6 +222,12 @@ class EntropyMapper(Model):
 		X = tf.cast(X, self.dtype)
 		X = self.decoder(X)
 		return X
+	
+	def build(self):
+		self.encoder.build((None, None, self.bins))
+		self.teacher.build((None, None, self.kernels))
+		self.decoder.build((None, None, self.kernels))
+		super(EntropyMapper, self).build((None, None, self.bins))
 
 	def call(self, X, training=False):
 		C = self.encode(X)
