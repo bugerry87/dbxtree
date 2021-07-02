@@ -154,7 +154,7 @@ def init_main_args(parents=[]):
 		'--layers', '-L',
 		metavar='INT',
 		type=int,
-		default=0,
+		default=2,
 		help='Number of layers'
 		)
 	
@@ -163,6 +163,13 @@ def init_main_args(parents=[]):
 		metavar='PATH',
 		default='logs',
 		help="Model type (default=logs)"
+		)
+	
+	main_args.add_argument(
+		'--cache',
+		metavar='PATH',
+		default=None,
+		help="Set a path to cache the pre-processed dataset or (default) not"
 		)
 	
 	main_args.add_argument(
@@ -199,6 +206,7 @@ def main(
 	strides=2,
 	layers=2,
 	log_dir='logs',
+	cache=None,
 	verbose=2,
 	cpu=False,
 	name=None,
@@ -218,6 +226,14 @@ def main(
 	log_model = os.path.join(log_dir, "ckpts", "entropymap_{}".format(timestamp))
 	log_output = os.path.join(log_dir, timestamp + '.log')
 	os.makedirs(log_dir, exist_ok=True)
+	if cache:
+		train_cache = os.path.join(cache, 'train')
+		val_cache = os.path.join(cache, 'val')
+		os.makedirs(cache, exist_ok=True)
+	else:
+		train_cache = None
+		val_cache = None
+
 	train_index = train_index[0] if train_index and len(train_index) == 1 else train_index
 	val_index = val_index[0] if val_index and len(val_index) == 1 else val_index
 
@@ -245,11 +261,11 @@ def main(
 	meta_args = dict(
 		bits_per_dim=bits_per_dim,
 		offset=offset,
-		scale=scale
+		scale=scale,
 		)
 	
-	trainer, train_meta = model.trainer(train_index, **meta_args) if train_index else (None, None, None)
-	validator, val_meta = model.validator(val_index, **meta_args) if val_index else (None, None, None)
+	trainer, train_meta = model.trainer(train_index, cache=train_cache, **meta_args) if train_index else (None, None, None)
+	validator, val_meta = model.validator(val_index, cache=val_cache, **meta_args) if val_index else (None, None, None)
 	master_meta = train_meta or val_meta
 
 	if master_meta is None:

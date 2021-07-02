@@ -14,48 +14,44 @@ def map_entropy(X, bits):
 	"""
 	"""
 	def cond(*args):
-		return True
-
-	def body(E, idx, mask, counts):
+		return tf.constant(True)
+	
+	def body(E, X, idx, counts):
 		num_seg = tf.math.reduce_max(idx) + 1
 		e = tf.math.unsorted_segment_sum(X, idx, num_seg) #n,b
-		e = tf.concat([e[...,None], counts[...,None,None] - e[...,None]], axis=-1) #n,b,2
-		e = tf.gather(e, idx)
-		e = tf.math.reduce_max(e, axis=-1) * tf.cast(mask, e.dtype) #n,b
-		eid = tf.argmax(e, axis=-1)[..., None]
-		mask &= (eid != shifts)
-		e = tf.cast(e, E.dtype)
-		eid = tf.concat([point_range[...,None], eid], axis=-1)
+		e = tf.gather(e, idx) #n,b
+		eid = tf.argmax(tf.abs(e), axis=-1)[...,None]
+		eid = tf.concat([point_range, eid], axis=-1)
 		e = tf.gather_nd(e, eid)
 		x = tf.gather_nd(X, eid)
-		e *= x * 2 - 1
 
-		idx = bitops.left_shift(idx, 1) + x
+		idx = bitops.left_shift(idx, 1) + tf.cast(x > 0, idx.dtype)
 		sort = tf.argsort(idx)
 		unsort = tf.argsort(sort)
-
 		idx = tf.gather(idx, sort)
 		idx, counts = tf.unique_with_counts(idx, X.dtype)[1:]
 		idx = tf.gather(idx, unsort)
 		
+		X = tf.tensor_scatter_nd_update(X, eid, zeros)
 		E = tf.tensor_scatter_nd_update(E, eid, e)
-		return E, idx, mask, counts
+		return E, X, idx, counts
 
 	with tf.name_scope("map_entropy"):
 		counts = count(X)
-		point_range = tf.range(counts)
+		point_range = tf.range(counts)[...,None]
 		shifts = tf.range(bits, dtype=X.dtype)
 		one = tf.constant(1, dtype=X.dtype)
 		idx = tf.zeros_like(X[...,0])
+		zeros = tf.zeros_like(X[...,0])
 		X = bitops.right_shift(X, shifts)
 		X = bitops.bitwise_and(X, one)
+		X = X * (one+one) - one
 		E = tf.zeros_like(X)
-		mask = tf.ones_like(X, tf.bool)
 		
 		E = tf.while_loop(
 			cond, body,
-			loop_vars=(E, idx, mask, counts[...,None]),
-			shape_invariants=(E.shape, idx.shape, mask.shape, tf.TensorShape((None))),
+			loop_vars=(E, X, idx, counts[...,None]),
+			shape_invariants=(E.shape, X.shape, idx.shape, tf.TensorShape((None))),
 			maximum_iterations=bits
 			)[0]
 		E = tf.cast(E, tf.float32) / tf.cast(counts, tf.float32)
@@ -91,34 +87,42 @@ class EntropyMapper(Model):
 			Conv1D(kernels*i, kernel_size, strides,
 				activation='relu',
 				padding='same',
+				name='encoder_conv_{}'.format(i)
 				) for i in range(layers, 1, -1)
 			], 'encoder')
 		self.encoder.add(
 			Conv1D(kernels, kernel_size, strides,
 				activation='tanh',
-				padding='same'
+				padding='same',
+				name='encoder_conv_out'
 			))
+		
 		self.teacher = Sequential([
 			Conv1DTranspose(kernels*i, kernel_size, strides,
 				activation='relu',
 				padding='same',
+				name='teacher_conv_{}'.format(i)
 				) for i in range(1, layers)
 			], 'teacher')
 		self.teacher.add(
 			Conv1DTranspose(self.bins, kernel_size, strides,
 				activation='tanh',
-				padding='same'
+				padding='same',
+				name='teacher_conv_out'
 			))
+		
 		self.decoder = Sequential([
 			Conv1DTranspose(kernels*i, kernel_size, strides,
 				activation='relu',
 				padding='same',
+				name='decoder_conv_{}'.format(i)
 				) for i in range(1, layers)
 			], 'decoder')
 		self.decoder.add(
 			Conv1DTranspose(self.bins, kernel_size, strides,
 				activation='tanh',
-				padding='same'
+				padding='same',
+				name='decoder_conv_out'
 			))
 		pass
 
@@ -185,6 +189,7 @@ class EntropyMapper(Model):
 	def trainer(self, *args,
 		mapper=None,
 		meta=None,
+		cache=None,
 		**kwargs
 		):
 		"""
@@ -199,16 +204,16 @@ class EntropyMapper(Model):
 		
 		trainer = trainer.map(samples)
 		trainer = trainer.batch(1)
+		if cache:
+			trainer = trainer.cache(cache)
 		return trainer, meta
 	
 	def validator(self, *args,
-		mapper=None,
-		meta=None,
 		**kwargs
 		):
 		"""
 		"""
-		return self.trainer(*args, mapper=mapper, meta=meta, **kwargs)
+		return self.trainer(*args, **kwargs)
 
 	def encode(self, X):
 		X = self.encoder(X)
@@ -236,8 +241,8 @@ class EntropyMapper(Model):
 		Eb = self.decode(C > 0)
 		Eb = tf.math.divide_no_nan(Eb, tf.stop_gradient(tf.math.reduce_max(Eb, axis=-1, keepdims=True)))
 		if training:
-			E = tf.math.divide_no_nan(Eb, tf.stop_gradient(tf.math.reduce_max(E, axis=-1, keepdims=True)))
-			return E, Eb
+			E = tf.math.divide_no_nan(E, tf.stop_gradient(tf.math.reduce_max(E, axis=-1, keepdims=True)))
+			return Eb, E
 		else:
 			return Eb
 	
