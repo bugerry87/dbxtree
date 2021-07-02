@@ -93,7 +93,6 @@ class EntropyMapper(Model):
 		self.encoder.add(
 			Dense(kernels,
 				activation='tanh',
-				padding='same',
 				name='encoder_dense_out'
 			))
 		
@@ -107,8 +106,7 @@ class EntropyMapper(Model):
 		self.teacher.add(
 			Dense(self.bins,
 				activation='tanh',
-				padding='same',
-				name='teacher_conv_out'
+				name='teacher_dense_out'
 			))
 		
 		self.decoder = Sequential([
@@ -121,8 +119,7 @@ class EntropyMapper(Model):
 		self.decoder.add(
 			Dense(self.bins,
 				activation='tanh',
-				padding='same',
-				name='decoder_conv_out'
+				name='decoder_dense_out'
 			))
 		pass
 
