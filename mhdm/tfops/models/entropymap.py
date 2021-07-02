@@ -226,7 +226,9 @@ class EntropyMapper(Model):
 		if training:
 			E = self.teach(C)
 		Eb = self.decode(C > 0)
+		Eb = tf.math.divide_no_nan(Eb, tf.stop_gradient(tf.math.reduce_max(Eb, axis=-1, keepdims=True)))
 		if training:
+			E = tf.math.divide_no_nan(Eb, tf.stop_gradient(tf.math.reduce_max(E, axis=-1, keepdims=True)))
 			return E, Eb
 		else:
 			return Eb
