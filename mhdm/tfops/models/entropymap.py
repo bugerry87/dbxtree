@@ -2,7 +2,7 @@
 ## Installed
 import tensorflow as tf
 from tensorflow.keras import Model, Sequential
-from tensorflow.keras.layers import Conv1D, Conv1DTranspose
+from tensorflow.keras.layers import Dense, Conv1D, Conv1DTranspose
 
 ## Local
 from .. import count
@@ -84,42 +84,42 @@ class EntropyMapper(Model):
 		self.kernels = kernels
 
 		self.encoder = Sequential([
-			Conv1D(kernels*i, kernel_size, strides,
+			Conv1D(2**layers, kernel_size, strides,
 				activation='relu',
 				padding='same',
 				name='encoder_conv_{}'.format(i)
-				) for i in range(layers, 1, -1)
+				) for i in range(layers)
 			], 'encoder')
 		self.encoder.add(
-			Conv1D(kernels, kernel_size, strides,
+			Dense(kernels,
 				activation='tanh',
 				padding='same',
-				name='encoder_conv_out'
+				name='encoder_dense_out'
 			))
 		
 		self.teacher = Sequential([
-			Conv1DTranspose(kernels*i, kernel_size, strides,
+			Conv1DTranspose(2**layers, kernel_size, strides,
 				activation='relu',
 				padding='same',
 				name='teacher_conv_{}'.format(i)
-				) for i in range(1, layers)
+				) for i in range(layers)
 			], 'teacher')
 		self.teacher.add(
-			Conv1DTranspose(self.bins, kernel_size, strides,
+			Dense(self.bins,
 				activation='tanh',
 				padding='same',
 				name='teacher_conv_out'
 			))
 		
 		self.decoder = Sequential([
-			Conv1DTranspose(kernels*i, kernel_size, strides,
+			Conv1DTranspose(2**layers, kernel_size, strides,
 				activation='relu',
 				padding='same',
 				name='decoder_conv_{}'.format(i)
 				) for i in range(1, layers)
 			], 'decoder')
 		self.decoder.add(
-			Conv1DTranspose(self.bins, kernel_size, strides,
+			Dense(self.bins,
 				activation='tanh',
 				padding='same',
 				name='decoder_conv_out'
