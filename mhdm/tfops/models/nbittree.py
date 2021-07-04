@@ -316,6 +316,7 @@ class NbitTree(Model):
 		"""
 		"""
 		X = 0
+		meta = 1.0
 		for name, branch in self.branches.items():
 			x = inputs[...,branch.offsets[0]:branch.offsets[1]]
 			x = branch.dense(x)
@@ -326,9 +327,10 @@ class NbitTree(Model):
 				x = conv(x)
 				x = normalize(x)
 			if name == 'meta':
-				X *= x
+				meta = x
 			else:
 				X += x
+		X *= meta
 
 		for dense in self.dense:
 			X = dense(X)
