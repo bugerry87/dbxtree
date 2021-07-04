@@ -1,3 +1,5 @@
+## Installed
+import tensorflow as tf
 
 ## Local
 from .nbittree import NbitTree
