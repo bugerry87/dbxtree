@@ -8,6 +8,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
 ## Local
+from . import bitops
 from ..bitops import BitBuffer
 
 ## Optional
@@ -167,7 +168,23 @@ class LogCallback(Callback):
 class EntropyMapCallback(LambdaCallback):
 	"""
 	"""
-	def __init__(self):
+	def __init__(self, samples, info, meta,
+		dim=1,
+		freq=1,
+		steps=0,
+		when=['on_epoch_end'],
+		writer=None,
+		):
+		"""
+		"""
+		super(EntropyMapCallback, self).__init__(**{w:self for w in when})
+		self.dim = dim
+		self.samples = samples
+		self.info = info
+		self.meta = meta
+		self.freq = freq
+		self.steps = steps
+		self.writer = writer
 		pass
 
 	def __call__(self, *args):
@@ -176,13 +193,61 @@ class EntropyMapCallback(LambdaCallback):
 		if epoch % self.freq != 0:
 			return
 		
-		bpp_sum = 0
-		bpp_min = (1<<32)-1
-		bpp_max = 0
-		bpp_zip = 0
+		bpp_sum = 0.0
+		bpp_min = float(1<<32)
+		bpp_max = 0.0
 		self.model.reset_metrics()
 
+		true = tf.constant(True)
+		dim = tf.constant(self.dim, self.meta.qtype)
+
+		def cond(*args):
+			return true
+		
+		def body(nodes, flags, layer):
+			idx = tf.unique(nodes[layer])[-1]
+			layer += 1
+			flags = tf.concat((flags, bitops.encode(nodes[layer], idx, dim, tf.int8)[0]), axis=-1)
+			return nodes, flags, layer
+
 		for step, sample, info in zip(range(self.steps), self.samples, self.info):
-			E = sample
+			E = sample[0]
 			X = info[1]
+			E = self.model.predict_on_batch(E)
+			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
+			X = self.model.permute(X, E[0])
+
+			nodes = bitops.tokenize(X, self.dim, self.meta.bins)
+			flags = tf.constant([], dtype=tf.int8)
+			layer = tf.constant(0)
+
+			flags = tf.while_loop(
+				cond, body,
+				loop_vars=(nodes, flags, layer),
+				shape_invariants=(nodes.get_shape(), [None], layer.get_shape()),
+				maximum_iterations=self.meta.bins-1,
+				name='encoder_loop'
+				)[1]
+			
+			bpp = float(len(flags.numpy())) / len(X.numpy())
+			bpp_sum += bpp
+			bpp_min = min(bpp_min, bpp)
+			bpp_max = max(bpp_max, bpp)
 			pass
+
+		metrics['bpp'] = bpp_sum / self.meta.num_of_samples
+		metrics['bpp_min'] = bpp_min
+		metrics['bpp_max'] = bpp_max
+
+		for name, metric in metrics.items():
+			name = 'test_' + name
+			log[name] = metric
+		
+		if self.writer is not None:
+			with self.writer.as_default():
+				for name, metric in metrics.items():
+					name = 'epoch_' + name
+					tf.summary.scalar(name, metric, epoch)
+			self.writer.flush()
+		pass
+	pass		

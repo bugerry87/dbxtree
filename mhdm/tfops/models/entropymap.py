@@ -10,13 +10,16 @@ from .. import count
 from .. import bitops
 from ... import utils
 
+
 @tf.function
 def map_entropy(X, bits):
 	"""
 	"""
+	@tf.function
 	def cond(*args):
-		return tf.constant(True)
+		return true
 	
+	@tf.function
 	def body(E, X, idx, counts):
 		num_seg = tf.math.reduce_max(idx) + 1
 		e = tf.math.unsorted_segment_sum(X, idx, num_seg) #n,b
@@ -44,6 +47,7 @@ def map_entropy(X, bits):
 		one = tf.constant(1, dtype=X.dtype)
 		idx = tf.zeros_like(X[...,0])
 		zeros = tf.zeros_like(X[...,0])
+		true = tf.constant(True)
 		X = bitops.right_shift(X, shifts)
 		X = bitops.bitwise_and(X, one)
 		X = X * (one+one) - one
@@ -52,8 +56,9 @@ def map_entropy(X, bits):
 		E = tf.while_loop(
 			cond, body,
 			loop_vars=(E, X, idx, counts[...,None]),
-			shape_invariants=(E.shape, X.shape, idx.shape, tf.TensorShape((None))),
-			maximum_iterations=bits
+			shape_invariants=(E.get_shape(), X.get_shape(), idx.get_shape(), tf.TensorShape((None))),
+			maximum_iterations=bits,
+			name="map_entropy_loop"
 			)[0]
 		E = tf.cast(E, tf.float32) / tf.cast(counts, tf.float32)
 	return E
@@ -64,6 +69,7 @@ def permute(X, E):
 	with tf.name_scope("entropy_permute"):
 		E = tf.abs(E)
 		p = tf.argsort(E, axis=-1)[:,::-1]
+		p = tf.cast(p, X.dtype)
 		X = bitops.permute(X, p, E.shape[-1])
 	return X
 
@@ -143,6 +149,7 @@ class EntropyMapper(Model):
 		else:
 			meta.index = [f for f in utils.ifile(index)]
 			meta.num_of_samples = len(index)
+		meta.num_of_files = meta.num_of_samples
 		self.meta = meta
 		return meta
 
@@ -197,17 +204,22 @@ class EntropyMapper(Model):
 			return E, (E, E)
 
 		if mapper is None:
-			trainer, meta = self.mapper(*args, **kwargs)
-		else:
-			trainer = mapper
+			mapper, meta = self.mapper(*args, **kwargs)
 		
-		trainer = trainer.map(samples)
+		trainer = mapper.map(samples)
 		trainer = trainer.batch(1)
 		if cache:
 			trainer = trainer.cache(cache)
-		return trainer, meta
+		return trainer, mapper, meta
 	
 	def validator(self, *args,
+		**kwargs
+		):
+		"""
+		"""
+		return self.trainer(*args, **kwargs)
+	
+	def tester(self, *args,
 		**kwargs
 		):
 		"""
@@ -252,3 +264,5 @@ class EntropyMapper(Model):
 	@staticmethod
 	def permute(X, E):
 		return permute(X, E)
+
+__all__ = [ EntropyMapper ]

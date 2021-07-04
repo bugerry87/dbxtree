@@ -12,7 +12,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import EntropyMapper
-from mhdm.tfops.callbacks import LogCallback
+from mhdm.tfops.callbacks import EntropyMapCallback, LogCallback
 
 
 def init_main_args(parents=[]):
@@ -44,6 +44,14 @@ def init_main_args(parents=[]):
 		nargs='*',
 		default=None,
 		help='A index file to validation data'
+		)
+	
+	main_args.add_argument(
+		'--test_index', '-T',
+		metavar='PATH',
+		nargs='*',
+		default=None,
+		help='A index file to test data'
 		)
 	
 	main_args.add_argument(
@@ -97,6 +105,22 @@ def init_main_args(parents=[]):
 		type=int,
 		default=0,
 		help='Define to validate on a subset'
+		)
+	
+	main_args.add_argument(
+		'--test_freq',
+		metavar='INT',
+		type=int,
+		default=1,
+		help="Test frequency (default=1)"
+		)
+	
+	main_args.add_argument(
+		'--test_steps',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Define for test on a subset'
 		)
 	
 	main_args.add_argument(
@@ -191,6 +215,7 @@ def init_main_args(parents=[]):
 def main(
 	train_index=None,
 	val_index=None,
+	test_index=None,
 	epochs=1,
 	monitor=None,
 	stop_patience=-1,
@@ -198,6 +223,8 @@ def main(
 	fix_subset=False,
 	validation_freq=1,
 	validation_steps=0,
+	test_freq=1,
+	test_steps=0,
 	bits_per_dim=[16,16,16,0],
 	offset=None,
 	scale=None,
@@ -229,13 +256,16 @@ def main(
 	if cache:
 		train_cache = os.path.join(cache, 'train')
 		val_cache = os.path.join(cache, 'val')
+		test_cache = os.path.join(cache, 'test')
 		os.makedirs(cache, exist_ok=True)
 	else:
 		train_cache = None
 		val_cache = None
+		test_cache = None
 
 	train_index = train_index[0] if train_index and len(train_index) == 1 else train_index
 	val_index = val_index[0] if val_index and len(val_index) == 1 else val_index
+	test_index = test_index[0] if test_index and len(test_index) == 1 else test_index
 
 	tflog = tf.get_logger()
 	tflog.setLevel(logging.DEBUG)
@@ -264,8 +294,9 @@ def main(
 		scale=scale,
 		)
 	
-	trainer, train_meta = model.trainer(train_index, cache=train_cache, **meta_args) if train_index else (None, None, None)
-	validator, val_meta = model.validator(val_index, cache=val_cache, **meta_args) if val_index else (None, None, None)
+	trainer, train_info, train_meta = model.trainer(train_index, cache=train_cache, **meta_args) if train_index else (None, None, None)
+	validator, val_info, val_meta = model.validator(val_index, cache=val_cache, **meta_args) if val_index else (None, None, None)
+	tester, test_info, test_meta = model.tester(test_index, cache=test_cache, **meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta
 
 	if master_meta is None:
@@ -290,6 +321,15 @@ def main(
 		validation_steps = val_meta.num_of_samples
 	else:
 		validation_steps = 0
+	
+	if test_steps:
+		test_meta.num_of_samples = test_steps
+		if fix_subset:
+			tester = tester.take(test_steps)
+	elif test_meta is not None:
+		test_steps = test_meta.num_of_samples
+	else:
+		test_steps = 0	
 	
 	#with strategy.scope():
 	model.compile(
@@ -319,6 +359,20 @@ def main(
 			patience=stop_patience
 			))
 	
+	if test_info is not None:
+		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
+		when = ['on_test_end' if trainer is None else 'on_epoch_end']
+		test_callback = EntropyMapCallback(
+			samples=tester,
+			info=test_info,
+			meta=test_meta,
+			freq=test_freq,
+			steps=test_steps,
+			when=when,
+			writer=writer
+			)
+		callbacks.append(test_callback)
+	
 	log_callback = LogCallback(tflog)
 	callbacks.append(log_callback)
 
@@ -341,6 +395,11 @@ def main(
 			verbose=verbose,
 			return_dict=True
 			)
+	elif tester is not None:
+		history = dict()
+		test_callback.model = model
+		test_callback(history)
+		log_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")
 	tflog.info('Done!')
