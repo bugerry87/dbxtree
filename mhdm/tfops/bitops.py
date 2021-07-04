@@ -11,7 +11,6 @@ bitwise_xor = tf.bitwise.bitwise_xor
 invert = tf.bitwise.invert
 
 
-@tf.function
 def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 	with tf.name_scope("serialize"):
 		one = tf.constant(1, dtype=dtype, name='one')
@@ -37,7 +36,6 @@ def serialize(X, bits_per_dim, offset=None, scale=None, axis=0, dtype=tf.int64):
 	return X, offset, scale
 
 
-@tf.function
 def realize(X, bits_per_dim, offset=0.0, scale=1.0, xtype=tf.float32):
 	with tf.name_scope("realize"):
 		one = tf.constant(1, dtype=X.dtype, name='one')
@@ -54,7 +52,6 @@ def realize(X, bits_per_dim, offset=0.0, scale=1.0, xtype=tf.float32):
 	return X
 
 
-@tf.function
 def sort(X, bits=64, reverse=False, absolute=False, axis=0):
 	with tf.name_scope("sort_bits"):
 		one = tf.constant(1, dtype=X.dtype, name='one')
@@ -79,7 +76,6 @@ def sort(X, bits=64, reverse=False, absolute=False, axis=0):
 	return X, p
 
 
-@tf.function
 def permute(X, p, bits=63):
 	with tf.name_scope("permute_bits"):
 		one = tf.constant(1, dtype=X.dtype, name='one')
@@ -90,18 +86,15 @@ def permute(X, p, bits=63):
 	return X
 
 
-@tf.function
 def tokenize(X, dim, depth, axis=0):
 	with tf.name_scope("tokenize"):
 		X = tf.sort(X, axis=axis)
-		shifts = tf.range(depth) * dim
-		shifts = tf.cast(shifts, X.dtype)
+		shifts = tf.range(depth, dtype=X.dtype) * tf.cast(dim, X.dtype)
 		tokens = right_shift(X, shifts[::-1])
 		tokens = tf.transpose(tokens)
 	return tokens
 
 
-@tf.function
 def encode(nodes, idx, dim, ftype=tf.int64, htype=tf.int64):
 	with tf.name_scope("encode"):
 		one = tf.constant(1, nodes.dtype)
@@ -117,7 +110,6 @@ def encode(nodes, idx, dim, ftype=tf.int64, htype=tf.int64):
 	return flags, hist
 
 
-@tf.function
 def decode(flags, pos, dim, buffer=tf.constant([0], dtype=tf.int64)):
 	with tf.name_scope("decode"):
 		size = tf.reshape(tf.size(buffer), [-1])

@@ -11,15 +11,12 @@ from .. import bitops
 from ... import utils
 
 
-@tf.function
 def map_entropy(X, bits):
 	"""
 	"""
-	@tf.function
 	def cond(*args):
 		return true
 	
-	@tf.function
 	def body(E, X, idx, counts):
 		num_seg = tf.math.reduce_max(idx) + 1
 		e = tf.math.unsorted_segment_sum(X, idx, num_seg) #n,b
@@ -64,7 +61,6 @@ def map_entropy(X, bits):
 	return E
 
 
-@tf.function
 def permute(X, E):
 	with tf.name_scope("entropy_permute"):
 		E = tf.abs(E)

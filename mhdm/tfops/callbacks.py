@@ -217,7 +217,7 @@ class EntropyMapCallback(LambdaCallback):
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
 			X = self.model.permute(X, E[0])
 
-			nodes = bitops.tokenize(X, self.dim, self.meta.bins)
+			nodes = bitops.tokenize(X, dim, E.shape[-1])
 			flags = tf.constant([], dtype=tf.int8)
 			layer = tf.constant(0)
 
