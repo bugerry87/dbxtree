@@ -76,15 +76,6 @@ class NbitTree(Model):
 					)
 				self.layer_register += list(self.branches[branch].__dict__.values())
 			pass
-
-		self.merge_flags = Conv1D(
-			self.flag_size*2, self.flag_size, self.flag_size,
-			activation='softmax',
-			padding='valid',
-			dtype=self.dtype,
-			name='merge_flags',
-			**kwargs
-			)
 		
 		self.dense = [Dense(
 			self.kernels,

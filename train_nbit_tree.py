@@ -235,7 +235,7 @@ def init_main_args(parents=[]):
 		'--loss',
 		metavar='STR',
 		type=str,
-		default='regularized_cosine',
+		default='regularized_crossentropy',
 		help="The final activation function"
 		)
 	

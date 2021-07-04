@@ -1,10 +1,6 @@
 ## Installed
 import tensorflow as tf
 
-## Local
-from .nbittree import NbitTree
-from .entropymap import EntropyMapper
-
 @tf.function
 def normalize(X):
 	n = tf.stop_gradient(X)
@@ -12,5 +8,9 @@ def normalize(X):
 	n = tf.math.reduce_max(X, axis=-1, keepdims=True)
 	X = tf.math.divide_no_nan(X, n)
 	return X
+
+## Inhire
+from .nbittree import NbitTree
+from .entropymap import EntropyMapper
 
 __all__ = [NbitTree, EntropyMapper, normalize]
