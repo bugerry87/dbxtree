@@ -7,6 +7,7 @@ from tensorflow.keras.layers import Dense, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 ## Local
+from . import normalize
 from .. import bitops
 from .. import spatial
 from ... import utils
@@ -323,30 +324,24 @@ class NbitTree(Model):
 	def call(self, inputs, *args):
 		"""
 		"""
-		stack = []
-		flags = []
-		for branch in self.branches.values():
+		X = 0
+		for name, branch in self.branches.items():
 			x = inputs[...,branch.offsets[0]:branch.offsets[1]]
 			x = branch.dense(x)
-			x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x, axis=-1, keepdims=True)))
-			flags.append(x)
+			x = normalize(x)
 			x = branch.merge(x)
-			x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x, axis=-1, keepdims=True)))
+			x = normalize(x)
 			for conv in branch.conv:
 				x = conv(x)
-				x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x, axis=-1, keepdims=True)))
-			stack.append(x)
+				x = normalize(x)
+			if name == 'meta':
+				X *= x
+			else:
+				X += x
 
-		X = tf.concat(stack, axis=-1)
 		for dense in self.dense:
 			X = dense(X)
-			X = tf.math.divide_no_nan(X, tf.stop_gradient(tf.math.reduce_max(X, axis=-1, keepdims=True)))
-		
-		x = tf.concat(flags, axis=-1)
-		x = tf.stop_gradient(x)
-		x = self.merge_flags(x)
-		x = tf.math.divide_no_nan(x, tf.stop_gradient(tf.math.reduce_max(x, axis=-1, keepdims=True)))
-		X = tf.concat([x, X], axis=-1)	
+			X = normalize(X)
 		X = self.head(X)
 		return X
 	

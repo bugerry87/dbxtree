@@ -162,3 +162,27 @@ class LogCallback(Callback):
 	def on_train_end(self, log):
 		if self.msg:
 			self.logger.info(self.msg)
+
+
+class EntropyMapCallback(LambdaCallback):
+	"""
+	"""
+	def __init__(self):
+		pass
+
+	def __call__(self, *args):
+		args = (*args[::-1], 0)
+		log, epoch = args[:2]
+		if epoch % self.freq != 0:
+			return
+		
+		bpp_sum = 0
+		bpp_min = (1<<32)-1
+		bpp_max = 0
+		bpp_zip = 0
+		self.model.reset_metrics()
+
+		for step, sample, info in zip(range(self.steps), self.samples, self.info):
+			E = sample
+			X = info[1]
+			pass

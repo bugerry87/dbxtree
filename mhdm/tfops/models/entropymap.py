@@ -5,6 +5,7 @@ from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense, Conv1D, Conv1DTranspose
 
 ## Local
+from . import normalize
 from .. import count
 from .. import bitops
 from ... import utils
@@ -58,6 +59,7 @@ def map_entropy(X, bits):
 	return E
 
 
+@tf.function
 def permute(X, E):
 	with tf.name_scope("entropy_permute"):
 		E = tf.abs(E)
@@ -171,7 +173,7 @@ class EntropyMapper(Model):
 			X = X[i]
 			X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
 			E = map_entropy(X, self.bins)
-			return E, filename, offset, scale
+			return E, X, offset, scale, filename
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			mapper = tf.data.TextLineDataset(index)
@@ -236,9 +238,9 @@ class EntropyMapper(Model):
 		if training:
 			E = self.teach(C)
 		Eb = self.decode(C > 0)
-		Eb = tf.math.divide_no_nan(Eb, tf.stop_gradient(tf.math.reduce_max(Eb, axis=-1, keepdims=True)))
+		Eb = normalize(Eb)
 		if training:
-			E = tf.math.divide_no_nan(E, tf.stop_gradient(tf.math.reduce_max(E, axis=-1, keepdims=True)))
+			E = normalize(E)
 			return Eb, E
 		else:
 			return Eb
@@ -246,3 +248,7 @@ class EntropyMapper(Model):
 	@staticmethod
 	def map_entropy(X, bits):
 		return map_entropy(X, bits)
+	
+	@staticmethod
+	def permute(X, E):
+		return permute(X, E)
