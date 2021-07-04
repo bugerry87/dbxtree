@@ -229,7 +229,7 @@ class EntropyMapCallback(LambdaCallback):
 				name='encoder_loop'
 				)[1]
 			
-			bpp = float(len(flags.numpy())) / len(X.numpy())
+			bpp = float(len(flags.numpy())) * 2 / len(X.numpy())
 			bpp_sum += bpp
 			bpp_min = min(bpp_min, bpp)
 			bpp_max = max(bpp_max, bpp)
