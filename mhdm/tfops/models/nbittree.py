@@ -372,7 +372,7 @@ class NbitTree(Model):
 		def ignore():
 			return empty_code
 		
-		empty_code = tf.constant([''], name='ignore')
+		empty_code = tf.constant('', name='ignore')
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		feature, probs, labels, do_encode = X
 		pred = self(feature, training=False)[...,1-self.bins:]
