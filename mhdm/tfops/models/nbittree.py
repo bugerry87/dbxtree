@@ -355,10 +355,12 @@ class NbitTree(Model):
 					)
 				return empty_code
 			
-			tf.print(probs.shape)
-			print(probs.shape)
-			cdf = tf.squeeze(probs)
-			symbols = tf.cast(tf.squeeze(labels)-1, tf.int16)
+			cdf = tf.reshape(probs, (-1, self.bins-1))
+			symbols = tf.reshape(labels, (-1, self.bins-1))
+			symbols = tf.cast(labels-1, tf.int16)
+
+			tf.print(cdf.shape)
+			print(cdf.shape)
 			
 			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='pmax')
 			cdf = tf.math.divide_no_nan(cdf, pmax)
