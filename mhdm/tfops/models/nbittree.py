@@ -377,7 +377,7 @@ class NbitTree(Model):
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
 			code = tfc.range_encode(symbols, cdf, precision=16)
-			return code[None,...]
+			return code
 		
 		def ignore():
 			return empty_code
@@ -389,7 +389,7 @@ class NbitTree(Model):
 		pred = self(feature, training=False)[...,1-self.bins:]
 		probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
 		code = tf.cond(do_encode, encode, ignore, name='do_encode_cond')
-		return probs, code
+		return probs, code[None,...]
 
 	@staticmethod
 	def parse(filename):
