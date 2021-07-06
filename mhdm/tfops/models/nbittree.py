@@ -344,7 +344,7 @@ class NbitTree(Model):
 		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 			feature = X[0]
-			probs = self(feature, training=False) #[...,1-self.bins:]
+			probs = self(feature, training=False)[...,1-self.bins:]
 			return probs
 
 		def encode():
@@ -374,7 +374,7 @@ class NbitTree(Model):
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		feature, probs, labels, do_encode = X
-		pred = self(feature, training=False) #[...,1-self.bins:]
+		pred = self(feature, training=False)[...,1-self.bins:]
 		probs = tf.concat([probs, pred], axis=-2, name='probs_flags')
 		code = tf.cond(do_encode, encode, ignore, name='do_encode_cond')
 		return probs, code
