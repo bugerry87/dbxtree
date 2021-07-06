@@ -353,7 +353,7 @@ class NbitTree(Model):
 					"Model has no range_encoder and will only return raw probabilities and an empty string. " \
 					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
 					)
-				return tf.constant([''])
+				return empty_code
 			
 			cdf = probs[0]
 			symbols = tf.cast(labels[0]-1, tf.int16)
@@ -367,16 +367,17 @@ class NbitTree(Model):
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
 			code = tfc.range_encode(symbols, cdf, precision=16)
-			return code[None,...]
+			return code[None,None,...]
 		
 		def ignore():
-			return tf.constant([''], name='ignore')
+			return empty_code
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		feature, probs, labels, do_encode = X
 		pred = self(feature, training=False)[...,1-self.bins:]
 		probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
 		code = tf.cond(do_encode, encode, ignore, name='do_encode_cond')
+		empty_code = tf.constant([['']], name='ignore')
 		return probs, code
 
 	@staticmethod
