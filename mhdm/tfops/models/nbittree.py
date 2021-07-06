@@ -8,7 +8,7 @@ from tensorflow.python.keras.engine import data_adapter
 
 ## Local
 from . import normalize
-from .. import bitops, spatial, count
+from .. import bitops, spatial, yield_devices
 from ... import utils
 
 ## Optional
@@ -316,25 +316,29 @@ class NbitTree(Model):
 		"""
 		X = 0
 		meta = 1.0
-		for name, branch in self.branches.items():
-			x = inputs[...,branch.offsets[0]:branch.offsets[1]]
-			x = branch.dense(x)
-			x = normalize(x)
-			x = branch.merge(x)
-			x = normalize(x)
-			for conv in branch.conv:
-				x = conv(x)
+		device_iter = iter(yield_devices('GPU'))
+		next(device_iter)
+		for (name, branch), device in zip(self.branches.items(), device_iter):
+			with tf.device(device.name):
+				x = inputs[...,branch.offsets[0]:branch.offsets[1]]
+				x = branch.dense(x)
 				x = normalize(x)
-			if name == 'meta':
-				meta = x
-			else:
-				X += x
+				x = branch.merge(x)
+				x = normalize(x)
+				for conv in branch.conv:
+					x = conv(x)
+					x = normalize(x)
+				if name == 'meta':
+					meta = x
+				else:
+					X += x
 		X *= meta
 
-		for dense in self.dense:
-			X = dense(X)
-			X = normalize(X)
-		X = self.head(X)
+		with tf.device(next(device_iter).name):
+			for dense in self.dense:
+				X = dense(X)
+				X = normalize(X)
+			X = self.head(X)
 		return X
 	
 	def predict_step(self, data):
@@ -375,9 +379,9 @@ class NbitTree(Model):
 		empty_code = tf.constant('', name='ignore')
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		feature, probs, labels, do_encode = X
+		do_encode = tf.math.reduce_all(do_encode)
 		pred = self(feature, training=False)[...,1-self.bins:]
 		probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
-		do_encode = do_encode & tf.cast(count(probs), tf.bool)
 		code = tf.cond(do_encode, encode, ignore, name='do_encode_cond')
 		return probs, code
 

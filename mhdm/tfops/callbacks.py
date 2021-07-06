@@ -46,8 +46,8 @@ class NbitTreeCallback(LambdaCallback):
 
 	def flag_mode(self, step, sample, info, tree_start, tree_end):
 		feature = sample[0]
-		encode = tf.constant(tree_end and self.range_encode, shape=(1,1))
-		flags = info[1][None,...]
+		encode = tf.constant(tree_end and self.range_encode)
+		flags = info[1]
 		layer = info[2].numpy()
 		if self.meta.payload:
 			mask = info[-2].numpy()

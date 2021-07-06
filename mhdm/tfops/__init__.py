@@ -22,3 +22,11 @@ def count(input, dtype=None):
 	c = tf.ones_like(input, dtype=dtype)
 	c = tf.math.reduce_sum(c)
 	return c
+
+def yield_devices(prefer=None):
+	devices = tf.python.client.device_lib.list_local_devices()
+	devices = [d for d in devices if d.device_type in prefer] or devices
+	i = 0
+	while True:
+		yield devices[i % len(devices)]
+		i += 1
