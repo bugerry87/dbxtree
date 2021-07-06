@@ -344,7 +344,7 @@ class NbitTree(Model):
 		if self.mode <= 0:
 			X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 			feature = X[0]
-			probs = self(feature, training=False)[...,1-self.bins:]
+			probs = self(feature, training=False) #[...,1-self.bins:]
 			return probs
 
 		def encode():
@@ -358,11 +358,11 @@ class NbitTree(Model):
 			cdf = probs[0]
 			symbols = tf.cast(labels[0]-1, tf.int16)
 			
-			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True)
+			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='pmax')
 			cdf = tf.math.divide_no_nan(cdf, pmax)
 			cdf = tf.clip_by_value(cdf, self.floor, 1.0)
 			cdf = tf.math.cumsum(cdf, axis=-1)
-			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True)
+			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='cdf_max')
 			cdf = tf.math.round(cdf * float(1<<16))
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
@@ -370,12 +370,12 @@ class NbitTree(Model):
 			return code[None,...]
 		
 		def ignore():
-			return tf.constant([''])
+			return tf.constant([''], name='ignore')
 		
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		feature, probs, labels, do_encode = X
-		pred = self(feature, training=False)[...,1-self.bins:]
-		probs = tf.concat([probs, pred], axis=-2)
+		pred = self(feature, training=False) #[...,1-self.bins:]
+		probs = tf.concat([probs, pred], axis=-2, name='probs_flags')
 		code = tf.cond(do_encode, encode, ignore, name='do_encode_cond')
 		return probs, code
 

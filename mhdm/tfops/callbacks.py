@@ -61,7 +61,7 @@ class NbitTreeCallback(LambdaCallback):
 		else:
 			if self.meta.payload:
 				self.bits[mask] = self.meta.word_length - (layer+1) * self.meta.dim
-			self.flags = tf.concat([self.flags, flags], axis=-1)
+			self.flags = tf.concat([self.flags, flags], axis=-1, name='concat_flags')
 
 		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
 		if self.meta.payload and tree_end:
