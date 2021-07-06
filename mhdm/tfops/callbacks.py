@@ -70,7 +70,7 @@ class NbitTreeCallback(LambdaCallback):
 		else:
 			payload = []
 			bits = []
-		return self.probs[0], code[0][0], payload, bits
+		return self.probs[0], code[0], payload, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
