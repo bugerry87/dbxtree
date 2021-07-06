@@ -355,6 +355,8 @@ class NbitTree(Model):
 					)
 				return empty_code
 			
+			tf.print(probs.shape)
+			print(probs.shape)
 			cdf = tf.squeeze(probs)
 			symbols = tf.cast(tf.squeeze(labels)-1, tf.int16)
 			
