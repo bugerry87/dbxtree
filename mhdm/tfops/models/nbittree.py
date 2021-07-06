@@ -8,8 +8,7 @@ from tensorflow.python.keras.engine import data_adapter
 
 ## Local
 from . import normalize
-from .. import bitops
-from .. import spatial
+from .. import bitops, spatial, count
 from ... import utils
 
 ## Optional
@@ -358,9 +357,6 @@ class NbitTree(Model):
 			cdf = tf.reshape(probs, (-1, self.bins-1))
 			symbols = tf.reshape(labels, (-1, self.bins-1))
 			symbols = tf.cast(labels-1, tf.int16)
-
-			tf.print(cdf.shape)
-			print(cdf.shape)
 			
 			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='pmax')
 			cdf = tf.math.divide_no_nan(cdf, pmax)
@@ -381,6 +377,7 @@ class NbitTree(Model):
 		feature, probs, labels, do_encode = X
 		pred = self(feature, training=False)[...,1-self.bins:]
 		probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
+		tf.print(count(probs))
 		code = encode() #tf.cond(do_encode, encode, ignore, name='do_encode_cond')
 		return probs, code
 
