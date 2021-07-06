@@ -28,5 +28,6 @@ def yield_devices(prefer=None):
 	devices = [d for d in devices if d.device_type in prefer] or devices
 	i = 0
 	while True:
+		assert(devices[i % len(devices)].device_type != 'CPU')
 		yield devices[i % len(devices)]
 		i += 1
