@@ -44,6 +44,7 @@ class NbitTree(Model):
 		self.floor = floor
 		self.branches = dict()
 		self.layer_register = []
+		self.devices = iter(yield_devices('GPU'))
 		branches = set(branches)
 
 		for branch in branches:
@@ -159,44 +160,46 @@ class NbitTree(Model):
 
 		@tf.function
 		def parse(filename):
-			X = tf.io.read_file(filename)
-			X = tf.io.decode_raw(X, xtype)
-			X = tf.reshape(X, (-1, meta.input_dims))
-			i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
-			X = X[i]
-			if meta.spherical:
-				X = spatial.xyz2uvd(X)
-			X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
-			if meta.permute is not None:
-				permute = tf.cast(meta.permute, dtype=X.dtype)
-				X = bitops.permute(X, permute, meta.word_length)
-			elif meta.sort_bits is not None:
-				absolute = 'absolute' in meta.sort_bits
-				reverse = 'reverse' in meta.sort_bits
-				X, permute = bitops.sort(X, bits=meta.word_length, absolute=absolute, reverse=reverse)
-			else:
-				permute = tf.constant([], dtype=X.dtype)
-			X = bitops.tokenize(X, meta.dim, meta.tree_depth+1)
-			X0 = X[:-1]
-			X1 = X[1:]
-			layer = tf.range(meta.tree_depth, dtype=X.dtype)
-			filename = [filename] * meta.tree_depth
-			permute = [permute] * meta.tree_depth
-			offset = [offset] * meta.tree_depth
-			scale = [scale] * meta.tree_depth
-			if payload:
-				mask = [tf.ones_like(X0[0], dtype=bool)] + [tf.gather(*tf.unique_with_counts(X0[i])[-1:0:-1]) > 1 for i in range(meta.tree_depth-1)]
-			else:
-				mask = [tf.ones_like(X0[0], dtype=bool)] * meta.tree_depth
+			with tf.device(next(self.devices).name):
+				X = tf.io.read_file(filename)
+				X = tf.io.decode_raw(X, xtype)
+				X = tf.reshape(X, (-1, meta.input_dims))
+				i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
+				X = X[i]
+				if meta.spherical:
+					X = spatial.xyz2uvd(X)
+				X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
+				if meta.permute is not None:
+					permute = tf.cast(meta.permute, dtype=X.dtype)
+					X = bitops.permute(X, permute, meta.word_length)
+				elif meta.sort_bits is not None:
+					absolute = 'absolute' in meta.sort_bits
+					reverse = 'reverse' in meta.sort_bits
+					X, permute = bitops.sort(X, bits=meta.word_length, absolute=absolute, reverse=reverse)
+				else:
+					permute = tf.constant([], dtype=X.dtype)
+				X = bitops.tokenize(X, meta.dim, meta.tree_depth+1)
+				X0 = X[:-1]
+				X1 = X[1:]
+				layer = tf.range(meta.tree_depth, dtype=X.dtype)
+				filename = [filename] * meta.tree_depth
+				permute = [permute] * meta.tree_depth
+				offset = [offset] * meta.tree_depth
+				scale = [scale] * meta.tree_depth
+				if payload:
+					mask = [tf.ones_like(X0[0], dtype=bool)] + [tf.gather(*tf.unique_with_counts(X0[i])[-1:0:-1]) > 1 for i in range(meta.tree_depth-1)]
+				else:
+					mask = [tf.ones_like(X0[0], dtype=bool)] * meta.tree_depth
 			return X0, X1, layer, filename, permute, offset, scale, mask
 		
 		@tf.function
 		def encode(X0, X1, layer, filename, permute, offset, scale, mask):
-			uids, idx, counts = tf.unique_with_counts(X0[mask])
-			uids = bitops.left_shift(uids, layer*meta.dim) 
-			flags = bitops.encode(X1[mask], idx, meta.dim, ftype)[0]
-			if meta.payload:
-				flags *= tf.cast(counts > 1, flags.dtype)
+			with tf.device(next(self.devices).name):
+				uids, idx, counts = tf.unique_with_counts(X0[mask])
+				uids = bitops.left_shift(uids, layer*meta.dim) 
+				flags = bitops.encode(X1[mask], idx, meta.dim, ftype)[0]
+				if meta.payload:
+					flags *= tf.cast(counts > 1, flags.dtype)
 			return (uids, flags, layer, permute, offset, scale, X0, mask, filename)
 		
 		if isinstance(index, str) and index.endswith('.txt'):
@@ -226,39 +229,44 @@ class NbitTree(Model):
 			uids = tf.reshape(uids, [-1])
 
 			if 'ordinal' in self.branches:
-				ordinal = tf.cast(uids, tf.float64) / tf.cast((1<<meta.word_length)-1, tf.float64)
-				ordinal = tf.cast(ordinal, meta.dtype)
+				with tf.device(next(self.devices).name):
+					ordinal = tf.cast(uids, tf.float64) / tf.cast((1<<meta.word_length)-1, tf.float64)
+					ordinal = tf.cast(ordinal, meta.dtype)
 
 			if 'pos' in self.branches:
-				pos = NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
-				meta.features['pos'] = pos
+				with tf.device(next(self.devices).name):
+					pos = NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
+					meta.features['pos'] = pos
 			
 			if 'pivots' in self.branches:
-				kernel = [*range(-self.kernels//4, 0), *range(1, self.kernels//4+1)]
-				pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
-				pivots = NbitTree.finalize(pivots, meta, permute, word_length=layer*meta.dim)[...,None,:]
-				pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2)
-				pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
-				pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
-				pivots = 1.0-pivots
-				meta.features['pivots'] = pivots
+				with tf.device(next(self.devices).name):
+					kernel = [*range(-self.kernels//4, 0), *range(1, self.kernels//4+1)]
+					pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
+					pivots = NbitTree.finalize(pivots, meta, permute, word_length=layer*meta.dim)[...,None,:]
+					pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2)
+					pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
+					pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
+					pivots = 1.0-pivots
+					meta.features['pivots'] = pivots
 			
 			if 'meta' in self.branches:
-				indices = tf.ones_like(uids, dtype=layer.dtype)[...,None] * layer * meta.dim
-				indices = tf.concat([indices + i for i in range(meta.dim)], axis=-1)
-				permute = tf.gather(permute, indices)
-				permute = tf.one_hot(permute, meta.word_length, dtype=meta.dtype)
-				permute = tf.reshape(permute, [-1, meta.word_length * meta.dim])
-				meta.features['meta'] = permute
+				with tf.device(next(self.devices).name):
+					indices = tf.ones_like(uids, dtype=layer.dtype)[...,None] * layer * meta.dim
+					indices = tf.concat([indices + i for i in range(meta.dim)], axis=-1)
+					permute = tf.gather(permute, indices)
+					permute = tf.one_hot(permute, meta.word_length, dtype=meta.dtype)
+					permute = tf.reshape(permute, [-1, meta.word_length * meta.dim])
+					meta.features['meta'] = permute
 
 			if 'uids' in self.branches:
-				uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
-				uids = bitops.bitwise_and(uids, 1)
-				uids = tf.cast(uids, meta.dtype)
-				m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
-				uids = uids * 2 - tf.cast(m, meta.dtype)
-				uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
-				meta.features['uids'] = uids
+				with tf.device(next(self.devices).name):
+					uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
+					uids = bitops.bitwise_and(uids, 1)
+					uids = tf.cast(uids, meta.dtype)
+					m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
+					uids = uids * 2 - tf.cast(m, meta.dtype)
+					uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
+					meta.features['uids'] = uids
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
 			return feature, flags
@@ -316,9 +324,7 @@ class NbitTree(Model):
 		"""
 		X = 0
 		meta = 1.0
-		device_iter = iter(yield_devices('GPU'))
-		next(device_iter)
-		for (name, branch), device in zip(self.branches.items(), device_iter):
+		for (name, branch), device in zip(self.branches.items(), self.devices):
 			with tf.device(device.name):
 				x = inputs[...,branch.offsets[0]:branch.offsets[1]]
 				x = branch.dense(x)
@@ -334,7 +340,7 @@ class NbitTree(Model):
 					X += x
 		X *= meta
 
-		with tf.device(next(device_iter).name):
+		with tf.device(next(self.devices).name):
 			for dense in self.dense:
 				X = dense(X)
 				X = normalize(X)
