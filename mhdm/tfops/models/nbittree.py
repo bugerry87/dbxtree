@@ -367,17 +367,17 @@ class NbitTree(Model):
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
 			code = tfc.range_encode(symbols, cdf, precision=16)
-			return code[None,None,...]
+			return code[None,...]
 		
 		def ignore():
 			return empty_code
 		
-		empty_code = tf.constant([['']], name='ignore')
+		empty_code = tf.constant([''], name='ignore')
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
 		feature, probs, labels, do_encode = X
 		pred = self(feature, training=False)[...,1-self.bins:]
 		probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
-		code = tf.cond(do_encode, encode, ignore, name='do_encode_cond')
+		code = encode() #tf.cond(do_encode, encode, ignore, name='do_encode_cond')
 		return probs, code
 
 	@staticmethod
