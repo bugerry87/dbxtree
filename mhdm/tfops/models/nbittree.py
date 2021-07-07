@@ -366,7 +366,7 @@ class NbitTree(Model):
 			
 			cdf = tf.reshape(probs, (-1, self.bins-1))
 			symbols = tf.reshape(labels-1, [-1])
-			symbols = tf.cast(labels, tf.int16)
+			symbols = tf.cast(symbols, tf.int16)
 			
 			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='pmax')
 			cdf = tf.math.divide_no_nan(cdf, pmax)
