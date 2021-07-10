@@ -61,10 +61,12 @@ def map_entropy(X, bits):
 	return E
 
 
-def permute(X, E):
+def permute(X, E, reverse=False):
 	with tf.name_scope("entropy_permute"):
 		E = tf.abs(E)
-		p = tf.argsort(E, axis=-1)[:,::-1]
+		p = tf.argsort(E, axis=-1)
+		if reverse:
+			p = p[:,::-1]
 		p = tf.cast(p, X.dtype)
 		X = bitops.permute(X, p, E.shape[-1])
 	return X
