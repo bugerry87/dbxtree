@@ -193,9 +193,8 @@ class EntropyMapCallback(LambdaCallback):
 		if epoch % self.freq != 0:
 			return
 		
-		bpp_sum = 0.0
-		bpp_min = float(1<<32)
-		bpp_max = 0.0
+		gt_bpp_sum = 0.0
+		prd_bpp_sum = 0.0
 		self.model.reset_metrics()
 
 		true = tf.constant(True)
@@ -209,14 +208,8 @@ class EntropyMapCallback(LambdaCallback):
 			layer += 1
 			flags = tf.concat((flags, bitops.encode(nodes[layer], idx, dim, tf.int8)[0]), axis=-1)
 			return nodes, flags, layer
-
-		for step, sample, info in zip(range(self.steps), self.samples, self.info):
-			E = sample[0]
-			X = info[1]
-			E = self.model.predict_on_batch(E)
-			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
-			X = self.model.permute(X, E[0])
-
+		
+		def encode(X, E):
 			nodes = bitops.tokenize(X, dim, E.shape[-1])
 			flags = tf.constant([], dtype=tf.int8)
 			layer = tf.constant(0)
@@ -228,16 +221,25 @@ class EntropyMapCallback(LambdaCallback):
 				maximum_iterations=self.meta.bins-1,
 				name='encoder_loop'
 				)[1]
+			return flags
+
+		for step, sample, info in zip(range(self.steps), self.samples, self.info):
+			gtE = sample[0]
+			X = info[1]
+			prdE = self.model.predict_on_batch(gtE)
+			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
 			
-			bpp = float(len(flags.numpy())) * 2 / len(X.numpy())
-			bpp_sum += bpp
-			bpp_min = min(bpp_min, bpp)
-			bpp_max = max(bpp_max, bpp)
+			gt_flags = encode(self.model.permute(X, gtE[0]), gtE)
+			prd_flags = encode(self.model.permute(X, prdE[0]), prdE)
+			gt_bpp = float(len(gt_flags.numpy()) * 2) / len(X.numpy())	
+			prd_bpp = float(len(prd_flags.numpy()) * 2) / len(X.numpy())
+
+			gt_bpp_sum += gt_bpp
+			prd_bpp_sum += prd_bpp
 			pass
 
-		metrics['bpp'] = bpp_sum / self.meta.num_of_samples
-		metrics['bpp_min'] = bpp_min
-		metrics['bpp_max'] = bpp_max
+		metrics['gt_bpp'] = gt_bpp_sum / self.meta.num_of_samples
+		metrics['prd_bpp'] = prd_bpp_sum / self.meta.num_of_samples
 
 		for name, metric in metrics.items():
 			name = 'test_' + name
