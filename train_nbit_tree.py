@@ -267,6 +267,12 @@ def init_main_args(parents=[]):
 		action='store_true',
 		help="Whether to allow cpu or (default) force gpu execution"
 		)
+	
+	main_args.add_argument(
+		'--checkpoint',
+		metavar='PATH',
+		help='Resume from a checkpoint'
+		)
 	return main_args
 
 
@@ -301,6 +307,7 @@ def main(
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
+	checkpoint=None,
 	name=None,
 	log_params={},
 	**kwargs
@@ -314,7 +321,7 @@ def main(
 	tf.summary.trace_on(graph=True, profiler=False)
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	log_dir = os.path.join(log_dir, timestamp)
-	log_model = os.path.join(log_dir, "ckpts", "nbittree_{}".format(timestamp))
+	log_model = os.path.join(log_dir, "ckpts", "nbittree_{epoch:04d}-{loss:.3f}.hdf5")
 	log_output = os.path.join(log_dir, timestamp + '.log')
 	log_data = os.path.join(log_dir, 'test')
 	os.makedirs(log_dir, exist_ok=True)
@@ -407,6 +414,9 @@ def main(
 		)
 	model.build(meta=master_meta)
 	model.summary(print_fn=tflog.info)
+	if checkpoint:
+		#tf.train.Checkpoint(optimizer=model.optimizer, model=model).restore(checkpoint)
+		model.load_weights(checkpoint, by_name=False, skip_mismatch=False)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
 	monitor = monitor or 'val_accuracy' if validator else 'accuracy'

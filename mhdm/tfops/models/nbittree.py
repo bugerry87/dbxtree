@@ -45,7 +45,7 @@ class NbitTree(Model):
 		self.branches = dict()
 		self.layer_register = []
 		self.devices = iter(yield_devices('GPU'))
-		branches = set(branches)
+		#branches = set(branches)
 
 		for branch in branches:
 			if branch in ('uids', 'pos', 'pivots', 'meta'):
