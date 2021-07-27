@@ -423,8 +423,7 @@ def main(
 	model.build(meta=master_meta)
 	model.summary(print_fn=tflog.info)
 	if checkpoint:
-		#tf.train.Checkpoint(optimizer=model.optimizer, model=model).restore(checkpoint)
-		model.load_weights(checkpoint, by_name=False, skip_mismatch=False)
+		model.load_weights(checkpoint, by_name=checkpoint.endswith('.hdf5'), skip_mismatch=checkpoint.endswith('.hdf5'))
 	model.save_weights(log_model_start)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
