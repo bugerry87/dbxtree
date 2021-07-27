@@ -70,6 +70,12 @@ def init_main_args(parents=[]):
 		default=None,
 		help='Choose the metric to be monitored for checkpoints and early stopping (default=automatic)'
 		)
+
+	main_args.add_argument(
+		'--save_best_only',
+		action='store_true',
+		help="Whether to save only best model or (default) not"
+		)
 	
 	main_args.add_argument(
 		'--stop_patience',
@@ -282,6 +288,7 @@ def main(
 	test_index=None,
 	epochs=1,
 	monitor=None,
+	save_best_only=False,
 	stop_patience=-1,
 	steps_per_epoch=0,
 	fix_subset=False,
@@ -322,9 +329,10 @@ def main(
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	log_dir = os.path.join(log_dir, timestamp)
 	log_model = os.path.join(log_dir, "ckpts", "nbittree_{epoch:04d}-{loss:.3f}.hdf5")
+	log_model_start = os.path.join(log_dir, "ckpts", 'nbittree_start.hdf5')
 	log_output = os.path.join(log_dir, timestamp + '.log')
 	log_data = os.path.join(log_dir, 'test')
-	os.makedirs(log_dir, exist_ok=True)
+	os.makedirs(os.path.join(log_dir, "ckpts"), exist_ok=True)
 	train_index = train_index[0] if train_index and len(train_index) == 1 else train_index
 	val_index = val_index[0] if val_index and len(val_index) == 1 else val_index
 	test_index = test_index[0] if test_index and len(test_index) == 1 else test_index
@@ -417,6 +425,7 @@ def main(
 	if checkpoint:
 		#tf.train.Checkpoint(optimizer=model.optimizer, model=model).restore(checkpoint)
 		model.load_weights(checkpoint, by_name=False, skip_mismatch=False)
+	model.save_weights(log_model_start)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
 	monitor = monitor or 'val_accuracy' if validator else 'accuracy'
@@ -425,7 +434,7 @@ def main(
 		tensorboard,
 		ModelCheckpoint(
 			log_model,
-			save_best_only=True,
+			save_best_only=save_best_only,
 			monitor=monitor
 			),
 		TerminateOnNaN()
