@@ -40,7 +40,7 @@ def realize(X, bits_per_dim, offset=0, scale=1, xtype=float):
 	cells[m] = 1.0
 	cells = np.asarray(scale, xtype) / (cells * 0.5)
 	cells[m] = 0.0
-	X = X.astype(xtype)
+	X = deserialize(X, bits_per_dim, xtype)
 	X *= cells
 	X -= offset - cells * 0.5
 	return X

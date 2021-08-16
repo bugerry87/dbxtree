@@ -17,7 +17,7 @@ def map_entropy(X, bits):
 	def cond(*args):
 		return true
 	
-	def body(E, X, idx, counts):
+	def body(E, X, idx, mask):
 		num_seg = tf.math.reduce_max(idx) + 1
 		e = tf.math.unsorted_segment_sum(X, idx, num_seg) #n,b
 		e = tf.gather(e, idx) #n,b
@@ -25,40 +25,37 @@ def map_entropy(X, bits):
 		eid = tf.concat([point_range, eid], axis=-1)
 		e = tf.gather_nd(e, eid)
 		x = tf.gather_nd(X, eid)
+		mask = tf.tensor_scatter_nd_update(mask, eid, -ones)
+		E = tf.tensor_scatter_nd_update(E, eid, e)
 
-		idx = bitops.left_shift(idx, 1) + tf.cast(x > 0, idx.dtype)
+		idx = bitops.left_shift(idx, ones[0]) + tf.cast(x > 0, idx.dtype)
 		sort = tf.argsort(idx)
 		unsort = tf.argsort(sort)
-		idx = tf.gather(idx, sort)
-		idx, counts = tf.unique_with_counts(idx, X.dtype)[1:]
+		idx = tf.unique(idx, X.dtype)[1]
 		idx = tf.gather(idx, unsort)
-		
-		X = tf.tensor_scatter_nd_update(X, eid, zeros)
-		E = tf.tensor_scatter_nd_update(E, eid, e)
-		return E, X, idx, counts
+		return E, X, idx, mask
 
 	with tf.name_scope("map_entropy"):
 		counts = count(X)
 		point_range = tf.range(counts)[...,None]
 		shifts = tf.range(bits, dtype=X.dtype)
-		one = tf.constant(1, dtype=X.dtype)
 		idx = tf.zeros_like(X[...,0])
-		zeros = tf.zeros_like(X[...,0])
+		ones = tf.ones_like(X[...,0])
 		true = tf.constant(True)
 		X = bitops.right_shift(X, shifts)
-		X = bitops.bitwise_and(X, one)
-		X = X * (one+one) - one
+		X = bitops.bitwise_and(X, ones[0])
+		X = X * (ones[0]+ones[0]) - ones[0]
 		E = tf.zeros_like(X)
+		mask = tf.ones_like(X)
 		
-		E = tf.while_loop(
+		E, X, idx, mask = tf.while_loop(
 			cond, body,
-			loop_vars=(E, X, idx, counts[...,None]),
-			shape_invariants=(E.get_shape(), X.get_shape(), idx.get_shape(), tf.TensorShape((None))),
+			loop_vars=(E, X, idx, mask),
 			maximum_iterations=bits,
 			name="map_entropy_loop"
-			)[0]
+			)
 		E = tf.cast(E, tf.float32) / tf.cast(counts, tf.float32)
-	return E
+	return E, idx
 
 
 def permute(X, E, reverse=False):
@@ -177,7 +174,7 @@ class EntropyMapper(Model):
 			i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
 			X = X[i]
 			X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
-			E = map_entropy(X, self.bins)
+			E, X = map_entropy(X, self.bins)
 			return E, X, offset, scale, filename
 		
 		if isinstance(index, str) and index.endswith('.txt'):

@@ -424,6 +424,7 @@ def main(
 	model.summary(print_fn=tflog.info)
 	if checkpoint:
 		model.load_weights(checkpoint, by_name=checkpoint.endswith('.hdf5'), skip_mismatch=checkpoint.endswith('.hdf5'))
+		print(model.branches['uids'].dense.weights)
 	model.save_weights(log_model_start)
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
@@ -443,7 +444,7 @@ def main(
 		callbacks.append(EarlyStopping(
 			monitor=monitor,
 			patience=stop_patience
-			))
+		))
 	
 	if test_encoder is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
@@ -490,6 +491,7 @@ def main(
 		log_callback(history)
 	else:
 		raise RuntimeError("Unexpected Error!")
+	
 	tflog.info('Done!')
 	return history
 
