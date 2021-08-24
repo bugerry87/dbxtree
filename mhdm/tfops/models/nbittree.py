@@ -329,8 +329,8 @@ class NbitTree(Model):
 				inp = inputs[...,branch.offsets[0]:branch.offsets[1]]
 				x = branch.dense(inp)
 				x = normalize(x)
-				x = branch.merge(tf.concat([inp, x], axis=-1))
-				x = normalize(x)
+				inp = branch.merge(tf.concat([inp, x], axis=-1))
+				x = normalize(inp)
 				for conv in branch.conv:
 					x = conv(tf.concat([inp, x], axis=-1))
 					x = normalize(x)
