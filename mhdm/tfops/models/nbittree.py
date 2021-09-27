@@ -137,6 +137,7 @@ class NbitTree(Model):
 		scale=None,
 		payload=False,
 		spherical=False,
+		keypoints=False,
 		xtype='float32',
 		qtype='int64',
 		ftype='int64',
@@ -150,6 +151,7 @@ class NbitTree(Model):
 			permute=permute,
 			payload=payload,
 			spherical=spherical,
+			keypoints=keypoints,
 			offset=offset,
 			scale=scale,
 			xtype=xtype,
@@ -166,6 +168,8 @@ class NbitTree(Model):
 				X = tf.reshape(X, (-1, meta.input_dims))
 				i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
 				X = X[i]
+				if meta.keypoints:
+					X = tf.gather(X, spatial.edge_detection(X[...,:,:3], meta.keypoints)[0])
 				if meta.spherical:
 					X = spatial.xyz2uvd(X)
 				X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)

@@ -12,6 +12,7 @@ import numpy as np
 
 ## Local
 from . import spatial
+from . import bitops
 
 ## Optional
 try:
@@ -30,6 +31,15 @@ def psnr(A, B=None, peak=1.0):
 	return 10 * np.log10(float(peak) / MSE)
 
 
+def snr(A, B=None, noise=1.0):
+	if B is None:
+		MSE = A
+	else:
+		MSE = np.mean((A - B) ** 2)
+	
+	return 10 * np.log10(MSE / float(noise))
+
+
 def xyz2uvd(X, norm=False, z_off=0.0, d_off=0.0, mode='sphere'):
 	x, y, z = X.T
 	pi = np.where(x > 0.0, np.pi, -np.pi)
@@ -40,7 +50,7 @@ def xyz2uvd(X, norm=False, z_off=0.0, d_off=0.0, mode='sphere'):
 		if mode == 'sphere':
 			uvd[:,1] = np.arcsin((z + z_off) / (uvd[:,2] + d_off))
 		elif mode == 'cone':
-			uvd[:,1] = (z + z_off) / (np.linalg.norm(X[:,:2], axis=-1) + d_off)
+			uvd[:,1] = (z + z_off) / (np.linalg.norm(X[:,:2], axis=-1) * d_off)
 		else:
 			raise ValueError("Unknown mode: '{}'!".format(mode))
 	if norm is False:

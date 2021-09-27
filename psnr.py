@@ -98,10 +98,11 @@ def init_main_args(parents=[]):
 
 
 def vec_normals(X):
-	U = lidar.xyz2uvd(X, z_off=-0.13, d_off=0.03, mode='cone')
+	U = lidar.xyz2uvd(X, z_off=0.0, d_off=0.0, mode='sphere') #-0.13 0.03
+	U[:,(0,1)] *= (100, 200)
 	Ti = Delaunay(U[:,:2]).simplices
 	fN = spatial.face_normals(X[Ti], True)
-	vN = spatial.vec_normals(fN, Ti, True)
+	vN = spatial.vec_normals(Ti, fN, True)
 	return vN
 
 
@@ -127,6 +128,8 @@ def main(args):
 	for in_file, gt_file in files:
 		if path.splitext(in_file)[-1] == '.pkl':
 			X = nbittree.decode(in_file)[0][...,:3]
+		elif path.splitext(in_file)[-1] == '.bin':
+			X = lidar.load(in_file, (-1,3), np.float32)[...,:3]
 		else:
 			X = lidar.load(in_file)[...,:3]
 		
@@ -143,8 +146,10 @@ def main(args):
 		Ytree = cKDTree(Y)
 
 		knn = args.knn if args.knn > 3 else 1
-		XYdelta, XYnn = Xtree.query(Y, k=knn, workers=args.jobs)
-		YXdelta, YXnn = Ytree.query(X, k=knn, workers=args.jobs)
+		XYdelta, XYnn = Xtree.query(Y, k=knn, n_jobs=args.jobs)
+		YXdelta, YXnn = Ytree.query(X, k=knn, n_jobs=args.jobs)
+
+		print(Xpoints, len(XYnn), Ypoints, len(YXnn))
 		
 		if args.knn <= 1:
 			XYmse = np.mean(XYdelta**2)

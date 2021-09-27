@@ -12,8 +12,7 @@ def magnitude(X, sqrt=False):
 	if len(X.shape) == 1:
 		m = np.sum(X**2)
 	else:
-		shape = X.shape[:-1] + (1,)
-		m = np.sum(X**2, axis=-1).reshape(*shape)
+		m = np.sum(X**2, axis=-1, keepdims=True)
 	return np.sqrt(m) if sqrt else m
 
 
@@ -21,13 +20,16 @@ def norm(X, magnitude=False):
 	if len(X.shape) == 1:
 		m = np.linalg.norm(X)
 	else:
-		shape = X.shape[:-1] + (1,)
-		m = np.linalg.norm(X, axis=-1).reshape(*shape)
+		m = np.linalg.norm(X, axis=-1)[...,None]
 	n = X / m
 	if magnitude:
 		return n, m
 	else:
 		return n
+
+
+def dot(A, B):
+	return np.sum(A * B, axis=-1)
 
 
 def prob(X):
@@ -48,17 +50,16 @@ def face_normals(T, normalize=True, magnitude=False):
 def edge_normals(T, fN=None, normalize=True, magnitude=False):
 	if fN is None:
 		fN = face_normals(T, False)
-	fN = fN.repeat(3, axis=0)
 	xN = T[:,(1,2,0)] - T
 	xN = xN.reshape(-1,3)
-	eN = np.cross(xN, fN).reshape(-1,3,3)
+	eN = np.cross(xN, fN)
 	if normalize:
 		return norm(eN, magnitude)
 	else:
 		return eN
 
 
-def vec_normals(fN, Ti, normalize=True, magnitude=False):
+def vec_normals(Ti, fN, normalize=True, magnitude=False):
 	Ti = Ti.flatten()
 	fN = fN.repeat(3, axis=0)
 	vN = np.zeros((Ti.max()+1, 3))

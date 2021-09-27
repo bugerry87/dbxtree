@@ -197,6 +197,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--keypoints',
+		metavar='Float',
+		type=float,
+		default=0.0,
+		help="A threshold for the keypoint detector (default=disabled)"
+		)
+	
+	main_args.add_argument(
 		'--convolutions', '-C',
 		metavar='INT',
 		type=int,
@@ -302,6 +310,7 @@ def main(
 	permute=None,
 	payload=False,
 	spherical=False,
+	keypoints=False,
 	offset=None,
 	scale=None,
 	kernels=16,
@@ -365,6 +374,7 @@ def main(
 		permute=permute,
 		payload=payload,
 		spherical=spherical,
+		keypoints=keypoints,
 		offset=offset,
 		scale=scale
 		)
