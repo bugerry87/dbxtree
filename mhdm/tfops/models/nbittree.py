@@ -330,26 +330,22 @@ class NbitTree(Model):
 		meta = 1.0
 		for (name, branch), device in zip(self.branches.items(), self.devices):
 			with tf.device(device.name):
-				inp = inputs[...,branch.offsets[0]:branch.offsets[1]]
-				x = branch.dense(inp)
-				x = normalize(x)
-				inp = branch.merge(tf.concat([inp, x], axis=-1))
-				x = normalize(inp)
+				x = inputs[...,branch.offsets[0]:branch.offsets[1]]
+				x = branch.merge(x)
 				for conv in branch.conv:
-					x = conv(tf.concat([inp, x], axis=-1))
+					x += conv(x)
 					x = normalize(x)
 				if name == 'meta':
 					meta = x
 				else:
 					X += x
 		X *= meta
-		inp = X
 
 		with tf.device(next(self.devices).name):
 			for dense in self.dense:
-				X = dense(tf.concat([inp, X], axis=-1))
+				X += dense(X)
 				X = normalize(X)
-			X = self.head(tf.concat([inp, X], axis=-1))
+			X = self.head(X)
 		return X
 	
 	def predict_step(self, data):
