@@ -50,13 +50,6 @@ class NbitTree(Model):
 		for branch in branches:
 			if branch in ('uids', 'pos', 'pivots', 'meta'):
 				self.branches[branch] = utils.Prototype(
-					dense = Dense(
-						self.kernels,
-						activation='relu',
-						dtype=self.dtype,
-						name='dense_{}'.format(branch),
-						**kwargs
-						),
 					merge = Conv1D(
 						self.kernels, self.flag_size, self.flag_size,
 						activation='relu',
