@@ -65,6 +65,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--learning_rate',
+		metavar='Float',
+		type=float,
+		default=0.001,
+		help="Learning rate for the Adam optimizer (default=0.001)"
+		)
+	
+	main_args.add_argument(
 		'--monitor',
 		metavar='STR',
 		default=None,
@@ -295,6 +303,7 @@ def main(
 	val_index=None,
 	test_index=None,
 	epochs=1,
+	learning_rate=0.001,
 	monitor=None,
 	save_best_only=False,
 	stop_patience=-1,
@@ -424,8 +433,10 @@ def main(
 	elif loss == 'regularized_crossentropy':
 		loss = RegularizedCrossentropy(msle_smoothing=0.01)
 	
+	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+
 	model.compile(
-		optimizer='adam',
+		optimizer=optimizer,
 		loss=loss,
 		metrics=['accuracy'],
 		sample_weight_mode='temporal'
