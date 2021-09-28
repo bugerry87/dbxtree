@@ -8,7 +8,7 @@ from tensorflow.python.keras.engine import data_adapter
 
 ## Local
 from . import normalize
-from .. import bitops, spatial, yield_devices
+from .. import bitops, spatial, yield_devices, count
 from ... import utils
 
 ## Optional
@@ -168,6 +168,7 @@ class NbitTree(Model):
 				X = tf.reshape(X, (-1, meta.input_dims))
 				i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
 				X = X[i]
+				points = count(X[...,0])
 				if meta.keypoints:
 					X = tf.gather(X, spatial.edge_detection(X[...,:,:3], meta.keypoints)[0])
 				if meta.spherical:
@@ -190,21 +191,22 @@ class NbitTree(Model):
 				permute = [permute] * meta.tree_depth
 				offset = [offset] * meta.tree_depth
 				scale = [scale] * meta.tree_depth
+				points = [points] * meta.tree_depth
 				if payload:
 					mask = [tf.ones_like(X0[0], dtype=bool)] + [tf.gather(*tf.unique_with_counts(X0[i])[-1:0:-1]) > 1 for i in range(meta.tree_depth-1)]
 				else:
 					mask = [tf.ones_like(X0[0], dtype=bool)] * meta.tree_depth
-			return X0, X1, layer, filename, permute, offset, scale, mask
+			return X0, X1, layer, filename, permute, offset, scale, mask, points
 		
 		@tf.function
-		def encode(X0, X1, layer, filename, permute, offset, scale, mask):
+		def encode(X0, X1, layer, filename, permute, offset, scale, mask, points):
 			with tf.device(next(self.devices).name):
 				uids, idx, counts = tf.unique_with_counts(X0[mask])
 				uids = bitops.left_shift(uids, layer*meta.dim) 
 				flags = bitops.encode(X1[mask], idx, meta.dim, ftype)[0]
 				if meta.payload:
 					flags *= tf.cast(counts > 1, flags.dtype)
-			return (uids, flags, layer, permute, offset, scale, X0, mask, filename)
+			return (uids, flags, layer, permute, offset, scale, X0, mask, points, filename)
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)

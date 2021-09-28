@@ -50,7 +50,7 @@ class NbitTreeCallback(LambdaCallback):
 		flags = info[1]
 		layer = info[2].numpy()
 		if self.meta.payload:
-			mask = info[-2].numpy()
+			mask = info[-3].numpy()
 
 		if tree_start:
 			self.probs = tf.zeros((1, 0, self.meta.bins-1), dtype=self.meta.dtype)
@@ -65,7 +65,7 @@ class NbitTreeCallback(LambdaCallback):
 
 		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
 		if self.meta.payload and tree_end:
-			payload = info[-3].numpy()
+			payload = info[-4].numpy()
 			bits = self.bits
 		else:
 			payload = []
@@ -92,7 +92,7 @@ class NbitTreeCallback(LambdaCallback):
 			probs, code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
-				points = int(len(info[-2]))
+				points = int(info[-2])
 				bit_count = 0
 				if self.output:
 					if py7zr:
