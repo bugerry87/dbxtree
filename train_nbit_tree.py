@@ -426,7 +426,7 @@ def main(
 	elif test_meta is not None:
 		test_steps = test_meta.num_of_samples
 	else:
-		test_steps = 0	
+		test_steps = 0
 
 	if loss == 'regularized_cosine':
 		loss = RegularizedCosine(msle_smoothing=0.01)

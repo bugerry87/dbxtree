@@ -9,6 +9,7 @@ import mhdm.spatial as spatial
 from mayavi import mlab
 import mhdm.viz as viz
 from mhdm import aabbtree
+import mhdm.bitops as bitops
 
 ## Detect Keypoints
 X = np.fromfile('data/0000000000.bin', np.float32).reshape(-1, 4)[:,:-1]
@@ -52,6 +53,11 @@ def animation():
 	
 	print("Done in steps:", count)
 	print("Evaluating...")
+	K.astype(np.float32).tofile('data/run_lidar.bin')
+	bits_per_dim = [9,9,9]
+	K, offset, scale = bitops.serialize(K, bits_per_dim, qtype=np.uint64)
+	K = bitops.realize(K, bits_per_dim, offset, scale, xtype=np.float32)
+
 	P = lidar.xyz2uvd(K[:,(1,0,2)])
 	P[:,(0,1)] *= (100, 200)
 	Ti = Delaunay(P[:,(0,1)]).simplices
@@ -61,7 +67,7 @@ def animation():
 	print("K:", K.shape)
 	print("Y:", Y.shape)
 	print("O:", O.shape, O.mean(), O.min(), O.max())
-	print('PSNR@0.03:', lidar.psnr(X, Y, 0.03**2), 'dB')
+	print('PSNR@1.0:', lidar.psnr(X, Y), 'dB')
 	print('ACC@0.03:', 100 * float(np.sum(O<0.03)) / len(O), '%')
 	print('CD:', O.mean(), 'm')
 	K.astype(np.float32).tofile('data/run_lidar.bin')

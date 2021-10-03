@@ -40,7 +40,7 @@ def realize(X, bits_per_dim, offset=0, scale=1, xtype=float):
 	cells[m] = 1.0
 	cells = np.asarray(scale, xtype) / (cells * 0.5)
 	cells[m] = 0.0
-	X = deserialize(X, bits_per_dim, xtype)
+	X = deserialize(X, bits_per_dim, X.dtype).astype(xtype)
 	X *= cells
 	X -= offset - cells * 0.5
 	return X
@@ -48,7 +48,7 @@ def realize(X, bits_per_dim, offset=0, scale=1, xtype=float):
 
 def serialize(X, bits_per_dim, qtype=object, offset=None, scale=None):
 	X, offset, scale = quantization(X, bits_per_dim, qtype, offset, scale)
-	shifts = np.cumsum([0] + bits_per_dim[:-1], dtype=qtype)
+	shifts = np.cumsum([0] + list(bits_per_dim[:-1]), dtype=qtype)
 	X = np.sum(X<<shifts, axis=-1, dtype=qtype)
 	return X, offset, scale
 
@@ -56,7 +56,7 @@ def serialize(X, bits_per_dim, qtype=object, offset=None, scale=None):
 def deserialize(X, bits_per_dim, qtype=object):
 	X = X.reshape(-1,1)
 	masks = (1<<np.array(bits_per_dim, dtype=qtype)) - 1
-	shifts = np.cumsum([0] + bits_per_dim[:-1], dtype=qtype)
+	shifts = np.cumsum([0] + list(bits_per_dim[:-1]), dtype=qtype)
 	X = (X>>shifts) & masks
 	return X
 

@@ -226,6 +226,7 @@ class NbitTree(Model):
 			token = bitops.left_shift(tf.range(meta.flag_size, dtype=pivots.dtype), (meta.tree_depth - layer - 1) * meta.dim)
 			uids = bitops.bitwise_or(pivots, token)
 			uids = tf.reshape(uids, [-1])
+			pos = None
 
 			if 'ordinal' in self.branches:
 				with tf.device(next(self.devices).name):
