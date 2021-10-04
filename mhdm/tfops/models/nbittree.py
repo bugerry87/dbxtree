@@ -326,21 +326,23 @@ class NbitTree(Model):
 		meta = 1.0
 		for (name, branch), device in zip(self.branches.items(), self.devices):
 			with tf.device(device.name):
-				x = inputs[...,branch.offsets[0]:branch.offsets[1]]
-				x = branch.merge(x)
+				x0 = inputs[...,branch.offsets[0]:branch.offsets[1]]
+				x0 = branch.merge(x0)
+				x = x0
 				for conv in branch.conv:
-					x += conv(x)
-					x = normalize(x)
+					x = conv(x)
+					x = normalize(x0 + x)
 				if name == 'meta':
 					meta = x
 				else:
 					X += x
 		X *= meta
+		x = X
 
 		with tf.device(next(self.devices).name):
 			for dense in self.dense:
-				X += dense(X)
-				X = normalize(X)
+				x = dense(x)
+				x = normalize(X + x)
 			X = self.head(X)
 		return X
 	
