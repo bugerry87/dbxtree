@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from argparse import ArgumentParser
 import logging
+import pickle
 
 ## Installed
 import numpy as np
@@ -14,7 +15,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 ## Local
 from mhdm.tfops.models import NbitTree
 from mhdm.tfops.metrics import RegularizedCrossentropy, RegularizedCosine
-from mhdm.tfops.callbacks import NbitTreeCallback, LogCallback
+from mhdm.tfops.callbacks import NbitTreeCallback, SaveOptimizerCallback, LogCallback
 
 
 def init_main_args(parents=[]):
@@ -348,6 +349,7 @@ def main(
 	log_dir = os.path.join(log_dir, timestamp)
 	log_model = os.path.join(log_dir, "ckpts", "nbittree_{epoch:04d}-{loss:.3f}.hdf5")
 	log_model_start = os.path.join(log_dir, "ckpts", 'nbittree_start.hdf5')
+	log_optimizer = os.path.join(log_dir, "ckpts", "nbittree_{epoch:04d}-{loss:.3f}.train.pkl")
 	log_output = os.path.join(log_dir, timestamp + '.log')
 	log_data = os.path.join(log_dir, 'test')
 	os.makedirs(os.path.join(log_dir, "ckpts"), exist_ok=True)
@@ -434,7 +436,6 @@ def main(
 		loss = RegularizedCrossentropy(msle_smoothing=0.01)
 	
 	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
 	model.compile(
 		optimizer=optimizer,
 		loss=loss,
@@ -457,6 +458,13 @@ def main(
 			log_model,
 			save_best_only=save_best_only,
 			monitor=monitor
+			),
+		SaveOptimizerCallback(
+			model.optimizer,
+			log_optimizer,
+			monitor=monitor,
+			save_best_only=save_best_only,
+			mode='max'
 			),
 		TerminateOnNaN()
 		]

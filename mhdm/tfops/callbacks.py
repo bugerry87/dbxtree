@@ -1,6 +1,7 @@
 
 ## Build In
 import os.path as path
+import pickle
 
 ## Installed
 import numpy as np
@@ -163,6 +164,60 @@ class LogCallback(Callback):
 	def on_train_end(self, log):
 		if self.msg:
 			self.logger.info(self.msg)
+
+
+class SaveOptimizerCallback(Callback):
+	"""
+	"""
+	def __init__(self, optimizer, file_pattern,
+		monitor='loss',
+		save_best_only=True,
+		mode='min'
+		):
+		"""
+		"""
+		super(SaveOptimizerCallback, self).__init__()
+		self.optimizer = optimizer
+		self.file_pattern = file_pattern
+		self.monitor = monitor
+		self.save_best_only = save_best_only
+		self.best = None
+		self.mode = mode
+		pass
+
+	def min(self, val):
+		if self.best is None or self.best > val:
+			self.best = val
+			return True
+		else:
+			return False
+	
+	def max(self, val):
+		if self.best is None or self.best < val:
+			self.best = val
+			return True
+		else:
+			return False
+
+	def __call__(self, *args):
+		args = (*args[::-1], 0)
+		log, epoch = args[:2]
+		if not self.save_best_only or self[self.mode](log[self.monitor]):
+			optimizer_weights = tf.keras.backend.batch_get_value(self.optimizer.weights)
+			with open(self.file_pattern.format(epoch=epoch, **log), 'wb') as f:
+				pickle.dump(optimizer_weights, f)
+		pass
+
+	def on_epoch_end(self, epoch, log):
+		self(epoch, log)
+	
+	'''
+	def on_epoch_begin(self, epoch, log):
+		pass
+	
+	def on_train_end(self, log):
+		pass
+	'''
 
 
 class EntropyMapCallback(LambdaCallback):
