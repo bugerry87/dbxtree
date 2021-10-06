@@ -183,6 +183,9 @@ class SaveOptimizerCallback(Callback):
 		self.save_best_only = save_best_only
 		self.best = None
 		self.mode = mode
+		self.epoch = 0
+		self.__dict__['max'] = self.max
+		self.__dict__['min'] = self.min
 		pass
 
 	def min(self, val):
@@ -201,15 +204,18 @@ class SaveOptimizerCallback(Callback):
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
-		log, epoch = args[:2]
+		log, self.epoch = args[:2]
 		if not self.save_best_only or self.__dict__[self.mode](log[self.monitor]):
 			optimizer_weights = tf.keras.backend.batch_get_value(self.optimizer.weights)
-			with open(self.file_pattern.format(epoch=epoch, **log), 'wb') as f:
+			with open(self.file_pattern.format(epoch=self.epoch, **log), 'wb') as f:
 				pickle.dump(optimizer_weights, f)
 		pass
 
 	def on_epoch_end(self, epoch, log):
 		self(epoch, log)
+
+	def on_train_end(self, log):
+		self(self.epoch, log)
 	
 	'''
 	def on_epoch_begin(self, epoch, log):
