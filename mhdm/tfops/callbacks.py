@@ -202,7 +202,7 @@ class SaveOptimizerCallback(Callback):
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
 		log, epoch = args[:2]
-		if not self.save_best_only or self[self.mode](log[self.monitor]):
+		if not self.save_best_only or self.__dict__[self.mode](log[self.monitor]):
 			optimizer_weights = tf.keras.backend.batch_get_value(self.optimizer.weights)
 			with open(self.file_pattern.format(epoch=epoch, **log), 'wb') as f:
 				pickle.dump(optimizer_weights, f)
