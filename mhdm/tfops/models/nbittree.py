@@ -169,7 +169,7 @@ class NbitTree(Model):
 				i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
 				X = X[i]
 				points = count(X[...,0])
-				X = augment(X)
+				#X = augment(X)
 				if meta.keypoints:
 					X = tf.gather(X, spatial.edge_detection(X[...,:,:3], meta.keypoints)[0])
 				if meta.spherical:
