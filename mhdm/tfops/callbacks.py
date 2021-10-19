@@ -8,6 +8,8 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
+from mhdm.tfops.models.nbittree import NbitTree
+
 ## Local
 from . import bitops
 from ..bitops import BitBuffer
@@ -93,6 +95,7 @@ class NbitTreeCallback(LambdaCallback):
 			probs, code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
+				X=tf.constant([0], dtype=tf.int64)
 				points = float(info[-2])
 				bit_count = 0
 				if self.output:
@@ -111,6 +114,7 @@ class NbitTreeCallback(LambdaCallback):
 				for p, b in zip(payload, bits):
 					self.buffer.write(p, b, soft_flush=True)
 			bit_count += len(code)*8 + int(sum(bits))
+			X = NbitTree.decode(info[1], self.meta, X)
 			
 			if tree_end:
 				self.buffer.close()
@@ -122,6 +126,8 @@ class NbitTreeCallback(LambdaCallback):
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
+				#X = NbitTree.finalize(X, self.meta, info[3], info[4], info[5])
+				#X.numpy().tofile('data/test.bin')
 
 		metrics['bpp'] = bpp_sum / self.meta.num_of_files
 		metrics['bpp_min'] = bpp_min

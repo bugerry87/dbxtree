@@ -236,6 +236,5 @@ def decode(header_file, payload=True):
 	elif header.permute:
 		X = bitops.permute(X, header.permute)
 	
-	X = bitops.deserialize(X, header.bits_per_dim, header.qtype)
 	X = bitops.realize(X, header.bits_per_dim, header.offset, header.scale, header.xtype)
 	return X, header
