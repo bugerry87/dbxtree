@@ -71,7 +71,7 @@ class NbitTreeCallback(LambdaCallback):
 		else:
 			payload = []
 			bits = []
-		return code[0], payload, bits
+		return self.probs[0], code[0], payload, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
@@ -90,7 +90,7 @@ class NbitTreeCallback(LambdaCallback):
 			tree_start = step % self.meta.tree_depth == 0
 			tree_end = (step+1) % self.meta.tree_depth == 0
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
-			code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
+			probs, code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
 				points = float(info[-2])
