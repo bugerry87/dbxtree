@@ -62,7 +62,7 @@ class NbitTreeCallback(LambdaCallback):
 		else:
 			if self.meta.payload:
 				self.bits[mask] = self.meta.word_length - (layer+1) * self.meta.dim
-			self.flags = tf.concat([self.flags, flags], axis=-1, name='concat_flags')
+			self.flags = tf.concat([self.flags, flags], axis=-1)
 
 		self.probs, code = self.model.predict_on_batch((feature, self.probs, self.flags, encode))
 		if self.meta.payload and tree_end:
@@ -71,7 +71,7 @@ class NbitTreeCallback(LambdaCallback):
 		else:
 			payload = []
 			bits = []
-		return self.probs[0], code[0], payload, bits
+		return code[0], payload, bits
 
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
@@ -90,7 +90,7 @@ class NbitTreeCallback(LambdaCallback):
 			tree_start = step % self.meta.tree_depth == 0
 			tree_end = (step+1) % self.meta.tree_depth == 0
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
-			probs, code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
+			code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
 				points = float(info[-2])
@@ -105,8 +105,8 @@ class NbitTreeCallback(LambdaCallback):
 					self.buffer.open(buffer, 'wb')
 			
 			if self.output:
-				for c in code:
-					self.buffer.write(c, 8, soft_flush=True)
+				for f in self.flags:
+					self.buffer.write(f, 1<<self.meta.dim, soft_flush=True)
 
 				for p, b in zip(payload, bits):
 					self.buffer.write(p, b, soft_flush=True)

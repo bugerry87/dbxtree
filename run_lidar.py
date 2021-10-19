@@ -13,7 +13,7 @@ import mhdm.bitops as bitops
 
 ## Detect Keypoints
 X = np.fromfile('data/0000000000.bin', np.float32).reshape(-1, 4)[:,:-1]
-#print("X:", X.shape, X.mean(axis=0), np.abs(X).max(axis=0), "\n", X[:10])
+print("X:", X.shape, X.mean(axis=0), np.abs(X).max(axis=0), "\n", X[:10])
 t = 0.03
 tau = 1.0
 
@@ -54,14 +54,17 @@ def animation():
 	print("Done in steps:", count)
 	print("Evaluating...")
 	K.astype(np.float32).tofile('data/run_lidar.bin')
-	bits_per_dim = [9,9,9]
-	K, offset, scale = bitops.serialize(K, bits_per_dim, qtype=np.uint64)
-	K = bitops.realize(K, bits_per_dim, offset, scale, xtype=np.float32)
+	bits_per_dim = [14,14,10]
+	Q, offset, scale = bitops.serialize(K, bits_per_dim, qtype=np.uint64, offset=None, scale=None)
+	Q = bitops.realize(Q, bits_per_dim, offset, scale, xtype=np.float32)
 
-	P = lidar.xyz2uvd(K[:,(1,0,2)])
+	P = lidar.xyz2uvd(Q[:,(1,0,2)])
 	P[:,(0,1)] *= (100, 200)
 	Ti = Delaunay(P[:,(0,1)]).simplices
-	O, Y, nn = aabbtree.query(K, Ti, X)
+	#n = spatial.face_normals(P[Ti], True)
+	#print(n, n.max(axis=0), n.min(axis=0))
+	#Ti = Ti[np.abs(n[:,0]) > 0.1]
+	O, Y, nn = aabbtree.query(Q, Ti, X)
 	O = np.sqrt(O)
 
 	print("K:", K.shape)

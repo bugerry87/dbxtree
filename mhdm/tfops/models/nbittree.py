@@ -152,6 +152,13 @@ class NbitTree(Model):
 			ftype=ftype,
 			**kwargs
 			)
+		
+		@tf.function
+		def augment(X):
+			a = tf.random.uniform([1], dtype=X.dtype) * 6.3
+			M = tf.concat([tf.cos(a), -tf.sin(a), [0], tf.sin(a), -tf.cos(a), [0,0,0,1]], axis=0)
+			M = tf.reshape(M, [3,3])
+			return tf.concat([X[:,:3] @ M, X[:,3:]], axis=-1)
 
 		@tf.function
 		def parse(filename):
@@ -162,6 +169,7 @@ class NbitTree(Model):
 				i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
 				X = X[i]
 				points = count(X[...,0])
+				X = augment(X)
 				if meta.keypoints:
 					X = tf.gather(X, spatial.edge_detection(X[...,:,:3], meta.keypoints)[0])
 				if meta.spherical:
@@ -336,7 +344,7 @@ class NbitTree(Model):
 					meta = x
 				else:
 					X += x
-		X *= meta
+		X += meta
 		x = tf.stop_gradient(X)
 
 		with tf.device(next(self.devices).name):
