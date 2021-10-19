@@ -105,9 +105,9 @@ class NbitTreeCallback(LambdaCallback):
 					self.buffer.open(buffer, 'wb')
 			
 			if self.output:
-				for f in code:
-					self.buffer.write(f, 8, soft_flush=True)
-
+				for f in info[1]:
+					self.buffer.write(f, 1<<self.meta.dim, soft_flush=True)
+				
 				for p, b in zip(payload, bits):
 					self.buffer.write(p, b, soft_flush=True)
 			bit_count += len(code)*8 + int(sum(bits))
