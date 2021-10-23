@@ -230,15 +230,10 @@ class NbitTree(Model):
 		@tf.function
 		def features(uids, flags, layer, permute, *args):
 			pivots = uids[...,None]
-			token = bitops.left_shift(tf.range(meta.flag_size, dtype=pivots.dtype), (meta.tree_depth - layer - 1) * meta.dim)
+			token = bitops.left_shift(tf.range(meta.flag_size, dtype=pivots.dtype), layer * meta.dim)
 			uids = bitops.bitwise_or(pivots, token)
 			uids = tf.reshape(uids, [-1])
 			pos = None
-
-			if 'ordinal' in self.branches:
-				with tf.device(next(self.devices).name):
-					ordinal = tf.cast(uids, tf.float64) / tf.cast((1<<meta.word_length)-1, tf.float64)
-					ordinal = tf.cast(ordinal, meta.dtype)
 
 			if 'pos' in self.branches:
 				with tf.device(next(self.devices).name):
@@ -270,14 +265,11 @@ class NbitTree(Model):
 					uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
 					uids = bitops.bitwise_and(uids, 1)
 					uids = tf.cast(uids, meta.dtype)
-					m = tf.range(uids.shape[-1], dtype=layer.dtype) <= layer
+					m = tf.range(uids.shape[-1], dtype=layer.dtype) < (layer+1) * meta.dim
 					uids = uids * 2 - tf.cast(m, meta.dtype)
-					uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
+					#uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
 					meta.features['uids'] = uids
-			
-			if 'ancestry' in self.branches:
-				with tf.device(next(self.devices).name):
-					pass
+					tf.print("\n", uids[3], summarize=38)
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
 			return feature, flags
