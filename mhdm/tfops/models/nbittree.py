@@ -269,7 +269,6 @@ class NbitTree(Model):
 					uids = uids * 2 - tf.cast(m, meta.dtype)
 					#uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
 					meta.features['uids'] = uids
-					tf.print("\n", uids[3], summarize=38)
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
 			return feature, flags

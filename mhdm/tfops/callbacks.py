@@ -95,7 +95,7 @@ class NbitTreeCallback(LambdaCallback):
 			probs, code, payload, bits = self.mode(step, sample, info, tree_start, tree_end)
 
 			if tree_start:
-				X=tf.constant([0], dtype=tf.int64)
+				#X=tf.constant([0], dtype=tf.int64)
 				points = float(info[-2])
 				bit_count = 0
 				if self.output:
