@@ -203,7 +203,6 @@ class NbitTree(Model):
 		def encode(X0, X1, layer, filename, permute, offset, scale, mask, points):
 			with tf.device(next(self.devices).name):
 				uids, idx, counts = tf.unique_with_counts(X0[mask])
-				uids = bitops.left_shift(uids, layer*meta.dim) 
 				flags = bitops.encode(X1[mask], idx, meta.dim, ftype)[0]
 				if meta.payload:
 					flags *= tf.cast(counts > 1, flags.dtype)
@@ -275,6 +274,10 @@ class NbitTree(Model):
 					uids = uids * 2 - tf.cast(m, meta.dtype)
 					uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
 					meta.features['uids'] = uids
+			
+			if 'ancestry' in self.branches:
+				with tf.device(next(self.devices).name):
+					pass
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
 			return feature, flags

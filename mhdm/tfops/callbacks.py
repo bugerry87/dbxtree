@@ -114,11 +114,11 @@ class NbitTreeCallback(LambdaCallback):
 				for p, b in zip(payload, bits):
 					self.buffer.write(p, b, soft_flush=True)
 			bit_count += len(code)*8 + int(sum(bits))
-			X = NbitTree.decode(info[1], self.meta, X)
+			#X = NbitTree.decode(info[1], self.meta, X)
 			
 			if tree_end:
 				self.buffer.close()
-				if self.output and py7zr:
+				if False and self.output and py7zr:
 					with py7zr.SevenZipFile(arcfile, 'w') as z:
 						z.write(buffer, arcname)
 					bpp_zip += path.getsize(arcfile) * 8 / points
