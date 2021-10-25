@@ -107,7 +107,7 @@ class NbitTreeCallback(LambdaCallback):
 						buffer = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.bin')
 					self.buffer.open(buffer, 'wb')
 			
-			if self.output:
+			if False and self.output:
 				for c in code:
 					self.buffer.write(c, 8, soft_flush=True)
 				

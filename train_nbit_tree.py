@@ -487,7 +487,7 @@ def main(
 			when=when,
 			writer=writer,
 			range_encode=True,
-			output=None
+			output=log_data
 			)
 		callbacks.append(test_callback)
 	
