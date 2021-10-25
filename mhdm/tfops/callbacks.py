@@ -108,8 +108,8 @@ class NbitTreeCallback(LambdaCallback):
 					self.buffer.open(buffer, 'wb')
 			
 			if self.output:
-				for f in info[1]:
-					self.buffer.write(f, 1<<self.meta.dim, soft_flush=True)
+				for c in code:
+					self.buffer.write(c, 8, soft_flush=True)
 				
 				for p, b in zip(payload, bits):
 					self.buffer.write(p, b, soft_flush=True)
