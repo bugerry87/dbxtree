@@ -249,7 +249,6 @@ class NbitTree(Model):
 					pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
 					pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
 					pivots = tf.exp(-pivots)
-					tf.print(pivots)
 					meta.features['pivots'] = pivots
 			
 			if 'meta' in self.branches:
