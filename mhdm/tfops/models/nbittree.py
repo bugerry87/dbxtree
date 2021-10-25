@@ -230,25 +230,26 @@ class NbitTree(Model):
 		@tf.function
 		def features(uids, flags, layer, permute, *args):
 			pivots = uids[...,None]
-			token = bitops.left_shift(tf.range(meta.flag_size, dtype=pivots.dtype), layer * meta.dim)
+			token = bitops.left_shift(tf.range(meta.flag_size, dtype=pivots.dtype), layer*meta.dim)
 			uids = bitops.bitwise_or(pivots, token)
 			uids = tf.reshape(uids, [-1])
 			pos = None
 
 			if 'pos' in self.branches:
 				with tf.device(next(self.devices).name):
-					pos = NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
+					pos = NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
 					meta.features['pos'] = pos
 			
 			if 'pivots' in self.branches:
 				with tf.device(next(self.devices).name):
 					kernel = [*range(-self.kernels//4, 0), *range(1, self.kernels//4+1)]
-					pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, word_length=(layer+1)*meta.dim)
-					pivots = NbitTree.finalize(pivots, meta, permute, word_length=layer*meta.dim)[...,None,:]
+					pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
+					pivots = NbitTree.finalize(pivots, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)[...,None,:]
 					pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2)
 					pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
 					pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
-					pivots = 1.0-pivots
+					pivots = tf.exp(-pivots)
+					tf.print(pivots)
 					meta.features['pivots'] = pivots
 			
 			if 'meta' in self.branches:
@@ -267,7 +268,7 @@ class NbitTree(Model):
 					uids = tf.cast(uids, meta.dtype)
 					m = tf.range(uids.shape[-1], dtype=layer.dtype) < (layer+1) * meta.dim
 					uids = uids * 2 - tf.cast(m, meta.dtype)
-					#uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
+					uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
 					meta.features['uids'] = uids
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
@@ -338,7 +339,7 @@ class NbitTree(Model):
 					meta = x
 				else:
 					X += x
-		X *= meta
+		X += meta
 		x = tf.stop_gradient(X)
 
 		with tf.device(next(self.devices).name):
@@ -429,14 +430,17 @@ class NbitTree(Model):
 		bits_per_dim = meta.bits_per_dim
 		if permute is not None and permute.shape[0]:
 			X = bitops.permute(X, permute, meta.word_length)
+		
+		'''
 		else:
 			permute = tf.range(meta.word_length)[::-1]
-
+		
 		if word_length is not None:
 			low = tf.math.cumsum(bits_per_dim, exclusive=True)
 			high = tf.math.cumsum(bits_per_dim, exclusive=False)
 			permute = tf.cast(permute[:word_length, None], low.dtype)
 			bits_per_dim = tf.math.reduce_sum(tf.cast(permute >= low, meta.qtype) * tf.cast(permute < high, meta.qtype), axis=0)
+			'''
 
 		X = bitops.realize(X, bits_per_dim, offset, scale, meta.xtype)
 		if meta.spherical:
