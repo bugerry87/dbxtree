@@ -338,7 +338,7 @@ class NbitTree(Model):
 					meta = x
 				else:
 					X += x
-		X += meta
+		X *= meta
 		x = tf.stop_gradient(X)
 
 		with tf.device(next(self.devices).name):
