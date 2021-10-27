@@ -117,11 +117,12 @@ class NbitTreeCallback(LambdaCallback):
 			#X = NbitTree.decode(info[1], self.meta, X)
 			
 			if tree_end:
-				self.buffer.close()
-				if False and self.output and py7zr:
-					with py7zr.SevenZipFile(arcfile, 'w') as z:
-						z.write(buffer, arcname)
-					bpp_zip += path.getsize(arcfile) * 8 / points
+				if False and self.output:
+					self.buffer.close()
+					if py7zr:
+						with py7zr.SevenZipFile(arcfile, 'w') as z:
+							z.write(buffer, arcname)
+						bpp_zip += path.getsize(arcfile) * 8 / points
 				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
@@ -144,6 +145,7 @@ class NbitTreeCallback(LambdaCallback):
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
 					tf.summary.scalar(name, metric, epoch)
+					tf.summary.text('test_code', code, epoch)
 			self.writer.flush()
 		pass
 
