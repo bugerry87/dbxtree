@@ -334,11 +334,7 @@ class NbitTree(Model):
 				for conv in branch.conv:
 					x = tf.concat([x0, conv(x)], axis=-1)
 					x = normalize(x)
-				if name == 'meta':
-					meta = x
-				else:
-					X += x
-		X *= meta
+				X += x
 		x = tf.stop_gradient(X)
 
 		with tf.device(next(self.devices).name):
