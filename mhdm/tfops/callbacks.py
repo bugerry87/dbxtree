@@ -98,7 +98,7 @@ class NbitTreeCallback(LambdaCallback):
 				#X=tf.constant([0], dtype=tf.int64)
 				points = float(info[-2])
 				bit_count = 0
-				if self.output:
+				if False and self.output:
 					if py7zr:
 						arcfile = path.join(self.output, path.splitext(path.basename(filename))[0] + '.nbit.7z')
 						arcname = path.splitext(path.basename(filename))[0] + '.nbit.bin'
