@@ -294,7 +294,13 @@ def init_main_args(parents=[]):
 	main_args.add_argument(
 		'--checkpoint',
 		metavar='PATH',
-		help='Resume from a checkpoint'
+		help='Load from checkpoint'
+		)
+	
+	main_args.add_argument(
+		'--training_state',
+		metavar='PATH',
+		help='Resume from a training_state'
 		)
 	return main_args
 
@@ -334,6 +340,7 @@ def main(
 	verbose=2,
 	cpu=False,
 	checkpoint=None,
+	training_state=None,
 	name=None,
 	log_params={},
 	**kwargs
@@ -444,10 +451,17 @@ def main(
 		)
 	model.build(meta=master_meta)
 	model.summary(print_fn=tflog.info)
+	
 	if checkpoint:
 		model.load_weights(checkpoint, by_name=checkpoint.endswith('.hdf5'), skip_mismatch=checkpoint.endswith('.hdf5'))
-		print(model.branches['uids'].dense.weights)
 	model.save_weights(log_model_start)
+
+	if training_state:
+		with tf.name_scope(optimizer._name):
+			with tf.init_scope():
+				optimizer._create_all_weights(model.trainable_variables)
+		with open(training_state, 'rb') as f:
+			model.optimizer.set_weights(pickle.load(f))
 	tflog.info("Samples for Train: {}, Validation: {}, Test: {}".format(steps_per_epoch, validation_steps, test_steps))
 	
 	monitor = monitor or 'val_accuracy' if validator else 'accuracy'
