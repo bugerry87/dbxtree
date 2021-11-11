@@ -53,7 +53,6 @@ def animation():
 	
 	print("Done in steps:", count)
 	print("Evaluating...")
-	K.astype(np.float32).tofile('data/run_lidar.bin')
 	bits_per_dim = [14,14,10]
 	Q, offset, scale = bitops.serialize(K, bits_per_dim, qtype=np.uint64, offset=None, scale=None)
 	Q = bitops.realize(Q, bits_per_dim, offset, scale, xtype=np.float32)
@@ -73,7 +72,6 @@ def animation():
 	print('PSNR@1.0:', lidar.psnr(X, Y), 'dB')
 	print('ACC@0.03:', 100 * float(np.sum(O<0.03)) / len(O), '%')
 	print('CD:', O.mean(), 'm')
-	K.astype(np.float32).tofile('data/run_lidar.bin')
 
 animator = animation()
 viz.show_figure()

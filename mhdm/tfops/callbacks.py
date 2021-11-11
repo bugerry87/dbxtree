@@ -213,6 +213,7 @@ class SaveOptimizerCallback(Callback):
 	def __call__(self, *args):
 		args = (*args[::-1], 0)
 		log, self.epoch = args[:2]
+		#tf.print("Optimizer Learning Rate:", self.optimizer._decayed_lr(tf.float32))
 		if not self.save_best_only or self.__dict__[self.mode](log[self.monitor]):
 			optimizer_weights = tf.keras.backend.batch_get_value(self.optimizer.weights)
 			with open(self.file_pattern.format(epoch=self.epoch, **log), 'wb') as f:

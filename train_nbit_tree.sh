@@ -25,10 +25,4 @@ CHECKPOINT='--checkpoint=./logs/20211031-172915/ckpts/nbittree_start.hdf5'
 #export TF_ENABLE_AUTO_MIXED_PRECISION=0
 #export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib64:/home/bugerry1987/anaconda3/lib
 #python train_nbit_tree.py $TRAIN $MODEL $LOG $PERM $TEST $TRANSFORM $CHECKPOINT #$VAL #$PAYLOAD 
--X ./data/train_index.txt -e 100 --steps_per_epoch=100 --save_best_only --learning_rate=0.001 \
--T ./data/test_index.txt --test_steps=100 --test_freq=1 --floor=0.0005 \
---sort_bits absolute --keypoints=0.03 --bits_per_dim 14 14 10 0 \
--d 2 -k 128 -C 4 -D 2 --branches uids pos pivots meta \
---activation softmax --loss regularized_crossentropy \
--v 2 --log_dir=./logs --checkpoint=./logs/20211031-172915/ckpts/nbittree_0414-1.902.hdf5
---training_state=./logs/20211031-172915/ckpts/nbittree_0413-1.902.train.pkl
+python train_nbit_tree.py -X ./data/train_index.txt -e 100 --steps_per_epoch 100 --save_best_only --learning_rate 0.001 -T ./data/test_index.txt --test_steps 100 --test_freq 1 --floor 0.0005 --sort_bits absolute --keypoints 0.03 --bits_per_dim 14 14 10 0 -d 2 -k 128 -C 4 -D 2 --branches uids pos pivots meta --activation softmax --loss regularized_crossentropy -v 2 --log_dir ./logs --checkpoint ./logs/20211031-172915/ckpts/nbittree_0414-1.902.hdf5 --training_state ./logs/20211031-172915/ckpts/nbittree_0413-1.902.train.pkl
