@@ -36,16 +36,28 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--outfile', '-o',
-		metavar='PATH',
-		default='',
-		help='A file path for the output data'
+		'--uncompressed', '-X',
+		metavar='FILE',
+		help='Name of the uncompressed file'
+		)
+	
+	main_args.add_argument(
+		'--compressed', '-Y',
+		metavar='FILE',
+		help='Name of the compressed file'
+		)
+	
+	main_args.add_argument(
+		'--radius', '-r',
+		metavar='FLOAT',
+		type=float,
+		default=0.03,
+		help='Accepted radius of error'
 		)
 	
 	main_args.set_defaults(
 		run=lambda **kwargs: main_args.print_help()
 		)
-	
 	return main_args
 
 
@@ -62,28 +74,6 @@ def init_encode_args(parents=[], subparser=None):
 			conflict_handler='resolve',
 			parents=parents
 			)
-	
-	encode_args.add_argument(
-		'--infile', '-X',
-		metavar='FILE',
-		help='Name of the input file'
-		)
-	
-	encode_args.add_argument(
-		'--radius', '-r',
-		metavar='FLOAT',
-		type=float,
-		default=0.03,
-		help='Accepted radius of error'
-		)
-	
-	encode_args.add_argument(
-		'--dim', '-d',
-		metavar='INT',
-		type=int,
-		default=1,
-		help='Dimensionality of the tree'
-		)
 	
 	encode_args.add_argument(
 		'--xtype', '-t',
@@ -111,12 +101,30 @@ def init_encode_args(parents=[], subparser=None):
 	encode_args.set_defaults(
 		run=encode
 		)
-	
 	return encode_args
 
 
-def encode(infile, outfile,
-	dim=1,
+def init_decode_args(parents=[], subparser=None):
+	if subparser:
+		decode_args = subparser.add_parser('decode',
+			help='Decode SpatialTree to datapoints',
+			conflict_handler='resolve',
+			parents=parents
+			)
+	else:
+		decode_args = ArgumentParser(
+			description='Decode SpatialTree to datapoints',
+			conflict_handler='resolve',
+			parents=parents
+			)
+	
+	decode_args.set_defaults(
+		run=decode
+		)
+	return decode_args
+
+
+def encode(uncompressed, compressed,
 	radius=0.03,
 	xshape=(-1,4),
 	xtype='float32',
@@ -126,40 +134,95 @@ def encode(infile, outfile,
 	"""
 	"""
 	def expand(X, bbox, i):
-		if len(i) == 0:
+		dim = len(i)
+		flag_size = 1<<dim
+		if dim == 0:
 			encode.count += 1
 			log("BBox:", bbox, "bits:", i, "Points Detected:", encode.count)
 			return
 		if np.all(np.all(np.abs(X) <= radius, axis=-1)):
-			flags.write(0, 1<<len(i), soft_flush=True)
+			flags.write(0, flag_size, soft_flush=True)
 			encode.count += 1
 			log("BBox:", bbox, "bits:", i, "Points Detected:", encode.count)
 			return
 		m = X[...,i] >= 0
 		bbox[...,i] *= 0.5
-		X[...,i] += (1 - m.astype(bool)*2) * bbox[...,i]
+		X[...,i] += (1 - m*2) * bbox[...,i]
 
 		flag = 0
 		t = np.packbits(m, -1, 'little').reshape(-1)
-		for d in range(1<<len(i)):
+		for d in range(flag_size):
 			m = t==d
 			if np.any(m):
 				flag |= 1<<d
-				args = np.argsort(bbox)[::-1]
-				args = args[bbox[args] >= radius][:dim]
-				yield expand(X[m].copy(), bbox.copy(), args)
-		flags.write(flag, 1<<len(i), soft_flush=True)
+				i = np.argsort(bbox)[::-1]
+				i = i[bbox[i] >= radius]
+				yield expand(X[m].copy(), bbox.copy(), i)
+		flags.write(flag, flag_size, soft_flush=True)
 	
 	encode.count = 0
-	flags = BitBuffer(outfile.replace('.bin', '.flg.bin'), 'wb')
-	X = lidar.load(infile, xshape, xtype)[..., :oshape[-1]]
-	bbox = np.abs(X).max(axis=0)
-	i = np.argsort(bbox)[::-1][:dim]
+	flags = BitBuffer(compressed, 'wb')
+	X = lidar.load(uncompressed, xshape, xtype)[..., :oshape[-1]].astype(np.float32)
+	bbox = np.abs(X).max(axis=0).astype(np.float32)
+	flags.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
+	flags.write(bbox.shape[-1] * 32, 8, soft_flush=True)
+	flags.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
+	i = np.argsort(bbox)[::-1]
 	nodes = deque(expand(X, bbox, i))
 	while nodes:
 		node = nodes.popleft()
 		nodes.extend(node)
 	
+	flags.close()
+	log("Done")
+	pass
+
+
+def decode(compressed, uncompressed,
+	**kwargs
+	):
+	"""
+	"""
+	def expand(x, bbox, i):
+		dim = len(i)
+		flag_size = 1<<dim
+		if dim == 0:
+			X.append(x)
+			decode.count += 1
+			log("X:", x, "bits:", i, "Points Detected:", decode.count)
+			return
+		
+		flag = flags.read(flag_size)
+		if not flag:
+			X.append(x)
+			decode.count += 1
+			log("X:", x, "bits:", i, "Points Detected:", decode.count)
+			return
+
+		bbox[...,i] *= 0.5
+		for d in np.arange(flag_size, dtype=np.uint8):
+			if not flag >> d & 1: continue
+			m = np.unpackbits(d, -1, dim, 'little').astype(np.float32)
+			xx = x.copy()
+			xx[...,i] -= (1 - m*2) * bbox[...,i]
+			ii = np.argsort(bbox)[::-1]
+			ii = ii[bbox[ii] >= radius]
+			yield expand(xx, bbox.copy(), ii)
+	
+	decode.count = 0
+	flags = BitBuffer(compressed, 'rb')
+	radius = np.frombuffer(flags.read(32).to_bytes(4, 'big'), dtype=np.float32)[0]
+	bbox_bits = flags.read(8)
+	bbox = flags.read(bbox_bits).to_bytes(bbox_bits // 8, 'big')
+	bbox = np.frombuffer(bbox, dtype=np.float32)
+	i = np.argsort(bbox)[::-1]
+	X = []
+	nodes = deque(expand(np.zeros_like(bbox), bbox.copy(), i))
+	while nodes:
+		node = nodes.popleft()
+		nodes.extend(node)
+	
+	lidar.save(np.vstack(X), uncompressed)
 	flags.close()
 	log("Done")
 	pass
@@ -173,4 +236,5 @@ if __name__ == '__main__':
 	main_args = init_main_args()
 	subparser = main_args.add_subparsers(help='Application Modes:')
 	init_encode_args([main_args], subparser)
+	init_decode_args([main_args], subparser)
 	main(*main_args.parse_known_args())
