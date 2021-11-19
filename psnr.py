@@ -212,6 +212,32 @@ def main(args):
 		"\n  sym cd:   {:10.4f}m"
 		"\n  sym psnr: {:10.2f}dB"
 		).format('XY', 'YX', *means))
+	
+	mins = np.asarray(report, float).min(axis=0)
+	log(("MIN:"
+		"\n            {:^10}   {:^10}"
+		"\n  points:   {:10.0f}   {:10.0f}"
+		"\n  psnr:     {:10.2f}dB {:10.2f}dB"
+		"\n  acc:      {:10.2f}%  {:10.2f}%"
+		"\n  peak:     {:10.4f}m  {:10.4f}m"
+		"\n  me:       {:10.4f}m  {:10.4f}m"
+		"\n  cd:       {:10.4f}m  {:10.4f}m"
+		"\n  sym cd:   {:10.4f}m"
+		"\n  sym psnr: {:10.2f}dB"
+		).format('XY', 'YX', *mins))
+	
+	maxs = np.asarray(report, float).max(axis=0)
+	log(("Max:"
+		"\n            {:^10}   {:^10}"
+		"\n  points:   {:10.0f}   {:10.0f}"
+		"\n  psnr:     {:10.2f}dB {:10.2f}dB"
+		"\n  acc:      {:10.2f}%  {:10.2f}%"
+		"\n  peak:     {:10.4f}m  {:10.4f}m"
+		"\n  me:       {:10.4f}m  {:10.4f}m"
+		"\n  cd:       {:10.4f}m  {:10.4f}m"
+		"\n  sym cd:   {:10.4f}m"
+		"\n  sym psnr: {:10.2f}dB"
+		).format('XY', 'YX', *maxs))
 	pass
 
 
