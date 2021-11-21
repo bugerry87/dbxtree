@@ -51,6 +51,7 @@ def animation():
 		count += 1
 		yield
 	
+	K.tofile('data/run_lidar.bin')
 	print("Done in steps:", count)
 	print("Evaluating...")
 	bits_per_dim = [14,14,10]
