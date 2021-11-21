@@ -53,6 +53,12 @@ def regularized_cosine(y_true, y_pred,
 	return loss
 
 
+def focal_loss(y_true, y_pred, from_logits=False, label_smoothing=0, gamma=5.0):
+	pt = (1.0 - y_true) - y_pred * (1.0 - y_true * 2.0)
+	loss = -(1 - pt) ** gamma * tf.math.log(pt)
+	return tf.math.reduce_mean(loss)
+
+
 def combinate(y_true, y_pred, loss_funcs, loss_kwargs, loss_weights):
 	loss = tf.math.reduce_sum([loss(y_true, y_pred, **kwargs) * weight for loss, kwargs, weight in zip(loss_funcs, loss_kwargs, loss_weights)], axis=0)
 	return loss
@@ -86,6 +92,23 @@ class RegularizedCosine(LossFunctionWrapper):
 		"""
 		super(RegularizedCosine, self).__init__(
 			regularized_cosine,
+			name=name,
+			**kwargs
+			)
+		pass
+
+
+class FocalLoss(LossFunctionWrapper):
+	"""
+	"""
+	def __init__(self,
+		name='focal_loss',
+		**kwargs
+		):
+		"""
+		"""
+		super(FocalLoss, self).__init__(
+			focal_loss,
 			name=name,
 			**kwargs
 			)

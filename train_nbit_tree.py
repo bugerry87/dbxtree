@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import NbitTree
-from mhdm.tfops.metrics import RegularizedCrossentropy, RegularizedCosine
+from mhdm.tfops.metrics import FocalLoss, RegularizedCrossentropy, RegularizedCosine
 from mhdm.tfops.callbacks import NbitTreeCallback, SaveOptimizerCallback, LogCallback
 
 
@@ -438,9 +438,11 @@ def main(
 		test_steps = 0
 
 	if loss == 'regularized_cosine':
-		loss = RegularizedCosine(msle_smoothing=0.01)
+		loss = RegularizedCosine(msle_smoothing=0.0001)
 	elif loss == 'regularized_crossentropy':
-		loss = RegularizedCrossentropy(msle_smoothing=0.01)
+		loss = RegularizedCrossentropy(msle_smoothing=0.0001)
+	elif loss == 'focal_loss':
+		loss = FocalLoss(gamma=5.0)
 	
 	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 	model.compile(
