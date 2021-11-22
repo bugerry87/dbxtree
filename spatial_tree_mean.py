@@ -133,22 +133,22 @@ def encode(uncompressed, compressed,
 	):
 	"""
 	"""
-	def expand(X, bbox, i):
+	def expand(X, bbox, mean, i):
 		dim = len(i)
 		flag_size = 1<<dim
 		if dim == 0:
 			encode.count += 1
-			log("BBox:", bbox, "bits:", i, "Points Detected:", encode.count)
+			log("Points Detected:", encode.count)
 			return
-		if np.all(np.all(np.abs(X) <= radius, axis=-1)):
+		if np.all(np.all(np.abs(X - mean) <= radius, axis=-1)):
 			flags.write(0, flag_size, soft_flush=True)
 			encode.count += 1
-			log("BBox:", bbox, "bits:", i, "Points Detected:", encode.count)
+			log("Points Detected:", encode.count)
 			return
 		
 		m = X[...,i] >= 0
-		bbox[...,i] *= 0.5
-		X[...,i] += (1 - m*2) * bbox[...,i]
+		_bbox = (1 - m*2) - mean[...,i] / BBox[...,i]
+		_mean = mean[...,i] +  * bbox[...,i]
 
 		flag = 0
 		t = np.packbits(m, -1, 'little').reshape(-1)
@@ -156,20 +156,22 @@ def encode(uncompressed, compressed,
 			m = t==d
 			if np.any(m):
 				flag |= 1<<d
-				i = np.argsort(bbox)[::-1]
-				i = i[bbox[i] >= radius]
-				yield expand(X[m], bbox.copy(), i)
+				xmean = mean.copy()
+				xmean[...,i] = _mean[m][0]
+				ii = np.argsort(bbox)[::-1]
+				ii = ii[bbox[ii] >= radius]
+				yield expand(X[m], bbox.copy(), xmean, ii)
 		flags.write(flag, flag_size, soft_flush=True)
 	
 	encode.count = 0
 	flags = BitBuffer(compressed, 'wb')
 	X = lidar.load(uncompressed, xshape, xtype)[..., :oshape[-1]].astype(np.float32)
-	bbox = np.abs(X).max(axis=0).astype(np.float32)
+	BBox = np.abs(X).max(axis=0).astype(np.float32)
 	flags.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
-	flags.write(bbox.shape[-1] * 32, 8, soft_flush=True)
-	flags.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
-	i = np.argsort(bbox)[::-1]
-	nodes = deque(expand(X, bbox, i))
+	flags.write(BBox.shape[-1] * 32, 8, soft_flush=True)
+	flags.write(int.from_bytes(BBox.tobytes(), 'big'), BBox.shape[-1] * 32, soft_flush=True)
+	i = np.argsort(BBox)[::-1]
+	nodes = deque(expand(X, BBox.copy(), np.zeros_like(BBox), i))
 	while nodes:
 		node = nodes.popleft()
 		nodes.extend(node)
