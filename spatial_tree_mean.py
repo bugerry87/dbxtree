@@ -55,6 +55,14 @@ def init_main_args(parents=[]):
 		help='Accepted radius of error'
 		)
 	
+	main_args.add_argument(
+		'--proportion', '-p',
+		metavar='FLOAT',
+		type=float,
+		default=0.5,
+		help='proportion of the bbox split'
+		)
+	
 	main_args.set_defaults(
 		run=lambda **kwargs: main_args.print_help()
 		)
@@ -129,26 +137,31 @@ def encode(uncompressed, compressed,
 	xshape=(-1,4),
 	xtype='float32',
 	oshape=(-1,3),
+	proportion=0.5,
 	**kwargs
 	):
 	"""
 	"""
-	def expand(X, bbox, mean, i):
+	def expand(X, bbox, sign):
+		i = np.argsort(bbox)[::-1]
+		i = i[bbox[i] >= radius]
 		dim = len(i)
 		flag_size = 1<<dim
 		if dim == 0:
 			encode.count += 1
 			log("Points Detected:", encode.count)
 			return
-		if np.all(np.all(np.abs(X - mean) <= radius, axis=-1)):
+		if np.all(np.all(np.abs(X) <= radius, axis=-1)):
 			flags.write(0, flag_size, soft_flush=True)
 			encode.count += 1
 			log("Points Detected:", encode.count)
 			return
 		
 		m = X[...,i] >= 0
-		_bbox = (1 - m*2) - mean[...,i] / BBox[...,i]
-		_mean = mean[...,i] +  * bbox[...,i]
+		_sign = 1 - m*2
+		offset = bbox[...,i] * _sign * proportion
+		X[...,i] += offset
+		bbox[...,i] *= sign + (1 - sign*2) * proportion
 
 		flag = 0
 		t = np.packbits(m, -1, 'little').reshape(-1)
@@ -156,11 +169,7 @@ def encode(uncompressed, compressed,
 			m = t==d
 			if np.any(m):
 				flag |= 1<<d
-				xmean = mean.copy()
-				xmean[...,i] = _mean[m][0]
-				ii = np.argsort(bbox)[::-1]
-				ii = ii[bbox[ii] >= radius]
-				yield expand(X[m], bbox.copy(), xmean, ii)
+				yield expand(X[m], bbox.copy(), _sign[m][0])
 		flags.write(flag, flag_size, soft_flush=True)
 	
 	encode.count = 0
@@ -170,8 +179,7 @@ def encode(uncompressed, compressed,
 	flags.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
 	flags.write(BBox.shape[-1] * 32, 8, soft_flush=True)
 	flags.write(int.from_bytes(BBox.tobytes(), 'big'), BBox.shape[-1] * 32, soft_flush=True)
-	i = np.argsort(BBox)[::-1]
-	nodes = deque(expand(X, BBox.copy(), np.zeros_like(BBox), i))
+	nodes = deque(expand(X, BBox.copy(), 0))
 	while nodes:
 		node = nodes.popleft()
 		nodes.extend(node)

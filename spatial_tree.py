@@ -133,7 +133,9 @@ def encode(uncompressed, compressed,
 	):
 	"""
 	"""
-	def expand(X, bbox, i):
+	def expand(X, bbox):
+		i = np.argsort(bbox)[::-1]
+		i = i[bbox[i] >= radius]
 		dim = len(i)
 		flag_size = 1<<dim
 		if dim == 0:
@@ -156,9 +158,7 @@ def encode(uncompressed, compressed,
 			m = t==d
 			if np.any(m):
 				flag |= 1<<d
-				i = np.argsort(bbox)[::-1]
-				i = i[bbox[i] >= radius]
-				yield expand(X[m], bbox.copy(), i)
+				yield expand(X[m], bbox.copy())
 		flags.write(flag, flag_size, soft_flush=True)
 	
 	encode.count = 0
@@ -168,8 +168,7 @@ def encode(uncompressed, compressed,
 	flags.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
 	flags.write(bbox.shape[-1] * 32, 8, soft_flush=True)
 	flags.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
-	i = np.argsort(bbox)[::-1]
-	nodes = deque(expand(X, bbox, i))
+	nodes = deque(expand(X, bbox))
 	while nodes:
 		node = nodes.popleft()
 		nodes.extend(node)
