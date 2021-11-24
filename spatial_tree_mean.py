@@ -142,11 +142,12 @@ def encode(uncompressed, compressed,
 	):
 	"""
 	"""
-	def expand(X, bbox, sign):
+	def expand(X, bbox, depth):
 		i = np.argsort(bbox)[::-1]
 		i = i[bbox[i] >= radius]
 		dim = len(i)
 		flag_size = 1<<dim
+		proportion = 0.5 - np.exp(-depth * 0.25) * 0.25
 		if dim == 0:
 			encode.count += 1
 			log("Points Detected:", encode.count)
@@ -158,10 +159,8 @@ def encode(uncompressed, compressed,
 			return
 		
 		m = X[...,i] >= 0
-		_sign = 1 - m*2
-		offset = bbox[...,i] * _sign * proportion
-		X[...,i] += offset
-		bbox[...,i] *= sign + (1 - sign*2) * proportion
+		sign = 1 - m*2
+		X[...,i] += bbox[...,i] * sign * proportion
 
 		flag = 0
 		t = np.packbits(m, -1, 'little').reshape(-1)
@@ -169,7 +168,10 @@ def encode(uncompressed, compressed,
 			m = t==d
 			if np.any(m):
 				flag |= 1<<d
-				yield expand(X[m], bbox.copy(), _sign[m][0])
+				xsign = sign[m][0]
+				xbox = bbox.copy()
+				xbox[...,i] *= 1 - proportion
+				yield expand(X[m], xbox, depth+1)
 		flags.write(flag, flag_size, soft_flush=True)
 	
 	encode.count = 0
