@@ -7,10 +7,8 @@ from collections import deque
 import numpy as np
 
 ## Local
-from mhdm.utils import log, ifile
+from mhdm.utils import log
 from mhdm.bitops import BitBuffer
-import mhdm.spatial as spatial
-import mhdm.bitops as bitops
 import mhdm.lidar as lidar
 
 
@@ -142,7 +140,7 @@ def encode(uncompressed, compressed,
 	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
 
 	bbox = np.repeat(bbox[None,...], len(X), axis=0)
-	nodes = np.zeros(len(X), dtype=object)
+	nodes = np.ones(len(X), dtype=object)
 	r = np.arange(len(X))
 
 	while len(r):
@@ -151,17 +149,18 @@ def encode(uncompressed, compressed,
 		m = bbox[r] >= radius
 		shifts = np.sum(m, axis=-1)
 		i = np.argsort(bbox[r][idx], axis=-1)[::-1][inv]
+		nodes[r] <<= 3
+		nodes[r] |= np.packbits(X[r] >= 0, -1, 'little').reshape(-1).astype(int)
 		sign = X[r[...,None],i] >= 0
 		bbox[r] *= 1 - m*0.5
 		X[r[...,None],i] += m * (1-sign*2) * bbox[r[...,None],i]
 		bits = np.packbits(sign, -1, 'little').reshape(-1).astype(int)
 		bits &= (1<<shifts) - 1
-		bits = 1<<bits
-		np.bitwise_or.at(flags, inv, bits)
+		np.bitwise_or.at(flags, inv, 1<<bits)
 		m = np.all(~m[idx], axis=-1)
 		np.bitwise_or.at(m, inv, np.all(np.abs(X[r]) <= radius, axis=-1))
-		nodes[r] <<= shifts
-		nodes[r] |= bits
+		#nodes[r] <<= 3
+		#nodes[r] |= np.packbits(X[r] >= 0, -1, 'little').reshape(-1).astype(int)
 		shifts = shifts[idx]
 		flags = (flags*~m)[shifts>0]
 		shifts = shifts[shifts>0]

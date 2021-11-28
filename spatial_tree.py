@@ -7,10 +7,8 @@ from collections import deque
 import numpy as np
 
 ## Local
-from mhdm.utils import log, ifile
+from mhdm.utils import log
 from mhdm.bitops import BitBuffer
-import mhdm.spatial as spatial
-import mhdm.bitops as bitops
 import mhdm.lidar as lidar
 
 
@@ -135,7 +133,7 @@ def encode(uncompressed, compressed,
 	"""
 	def expand(X, bbox):
 		i = np.argsort(bbox)[::-1]
-		i = i[bbox[i] >= radius]
+		i = i[bbox[...,i] >= radius]
 		dim = len(i)
 		flag_size = 1<<dim
 		if dim == 0:
