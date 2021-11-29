@@ -140,35 +140,43 @@ def encode(uncompressed, compressed,
 	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
 
 	bbox = np.repeat(bbox[None,...], len(X), axis=0)
-	nodes = np.ones(len(X), dtype=object)
+	nodes = np.zeros(len(X), dtype=object)
+	shifts = np.zeros(len(X), dtype=object)
 	r = np.arange(len(X))
 
 	while len(r):
 		flags, idx, inv = np.unique(nodes[r], return_index=True, return_inverse=True)
 		flags[...] = 0
-		m = bbox[r] >= radius
-		shifts = np.sum(m, axis=-1)
+		m = bbox >= radius
+		dims = np.sum(m[r], axis=-1)
+		shifts += 3
 		i = np.argsort(bbox[r][idx], axis=-1)[::-1][inv]
-		nodes[r] <<= 3
-		nodes[r] |= np.packbits(X[r] >= 0, -1, 'little').reshape(-1).astype(int)
+
 		sign = X[r[...,None],i] >= 0
-		bbox[r] *= 1 - m*0.5
-		X[r[...,None],i] += m * (1-sign*2) * bbox[r[...,None],i]
+
+		nodes[r] |= np.packbits(sign, -1, 'little').reshape(-1).astype(int) << shifts[r]
+
+		bbox[r] *= 1 - m[r]*0.5
+		X[r[...,None],i] += (1-sign*2) * bbox[r[...,None],i] * m[r[...,None],i]
 		bits = np.packbits(sign, -1, 'little').reshape(-1).astype(int)
-		bits &= (1<<shifts) - 1
+		bits &= (1<<dims) - 1
 		np.bitwise_or.at(flags, inv, 1<<bits)
-		m = np.all(~m[idx], axis=-1)
+		m = np.all(~m[r][idx], axis=-1)
 		np.bitwise_or.at(m, inv, np.all(np.abs(X[r]) <= radius, axis=-1))
-		#nodes[r] <<= 3
-		#nodes[r] |= np.packbits(X[r] >= 0, -1, 'little').reshape(-1).astype(int)
-		shifts = shifts[idx]
-		flags = (flags*~m)[shifts>0]
-		shifts = shifts[shifts>0]
+		
+		dims = dims[idx]
+		flags = (flags*~m)[dims>0]
+		dims = dims[dims>0]
 		r = r[~m[inv]]
-		for flag, shift in zip(flags, 1<<shifts):
-			buffer.write(flag, shift, soft_flush=True)
+
+		encode.count += len(flags)
+
+		log(encode.count)
+
+		for flag, dim in zip(flags, 1<<dims):
+			buffer.write(flag, dim, soft_flush=True)
 	buffer.close()
-	log("Done")
+	log("Done", len(np.unique(nodes)))
 	pass
 
 

@@ -137,7 +137,7 @@ def encode(uncompressed, compressed,
 		dim = len(i)
 		flag_size = 1<<dim
 		if dim == 0:
-			encode.count += 1
+			#encode.count += 1
 			log("BBox:", bbox, "bits:", i, "Points Detected:", encode.count)
 			return
 		if np.all(np.all(np.abs(X) <= radius, axis=-1)):
@@ -158,6 +158,7 @@ def encode(uncompressed, compressed,
 				flag |= 1<<d
 				yield expand(X[m], bbox.copy())
 		flags.write(flag, flag_size, soft_flush=True)
+		encode.count += 1
 	
 	encode.count = 0
 	flags = BitBuffer(compressed, 'wb')
@@ -172,7 +173,7 @@ def encode(uncompressed, compressed,
 		nodes.extend(node)
 	
 	flags.close()
-	log("Done")
+	log("Done:", encode.count)
 	pass
 
 
