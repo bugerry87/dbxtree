@@ -140,43 +140,41 @@ def encode(uncompressed, compressed,
 	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
 
 	bbox = np.repeat(bbox[None,...], len(X), axis=0)
-	nodes = np.zeros(len(X), dtype=object)
-	shifts = np.zeros(len(X), dtype=object)
+	nodes = np.ones(len(X), dtype=object)
 	r = np.arange(len(X))
 
 	while len(r):
 		flags, idx, inv = np.unique(nodes[r], return_index=True, return_inverse=True)
 		flags[...] = 0
-		m = bbox >= radius
-		dims = np.sum(m[r], axis=-1)
-		shifts += 3
+
+		m = bbox[r] > radius
+		dims = np.sum(m, axis=-1)
+		m2 = flags > 0
+		np.bitwise_or.at(m2, inv, np.any(np.abs(X[r]) > radius, axis=-1))
+
 		i = np.argsort(bbox[r][idx], axis=-1)[::-1][inv]
-
 		sign = X[r[...,None],i] >= 0
-
-		nodes[r] |= np.packbits(sign, -1, 'little').reshape(-1).astype(int) << shifts[r]
-
-		bbox[r] *= 1 - m[r]*0.5
-		X[r[...,None],i] += (1-sign*2) * bbox[r[...,None],i] * m[r[...,None],i]
 		bits = np.packbits(sign, -1, 'little').reshape(-1).astype(int)
+		nodes[r] <<= sign.shape[-1]
+		nodes[r] |= bits
 		bits &= (1<<dims) - 1
 		np.bitwise_or.at(flags, inv, 1<<bits)
-		m = np.all(~m[r][idx], axis=-1)
-		np.bitwise_or.at(m, inv, np.all(np.abs(X[r]) <= radius, axis=-1))
+		flags = flags[np.argsort(idx)]
+
+		bbox[r] *= 1.0 - m*0.5
+		X[r] += (1-(X[r]>=0)*2) * bbox[r] * m
 		
+		r = r[(dims > 0) & m2[inv]]
 		dims = dims[idx]
-		flags = (flags*~m)[dims>0]
+		flags = (flags*m2)[dims>0]
 		dims = dims[dims>0]
-		r = r[~m[inv]]
-
-		encode.count += len(flags)
-
-		log(encode.count)
 
 		for flag, dim in zip(flags, 1<<dims):
 			buffer.write(flag, dim, soft_flush=True)
+		pass
+
 	buffer.close()
-	log("Done", len(np.unique(nodes)))
+	log("Done:", len(np.unique(nodes)))
 	pass
 
 
@@ -190,34 +188,36 @@ def decode(compressed, uncompressed,
 	bbox_bits = buffer.read(8)
 	bbox = buffer.read(bbox_bits).to_bytes(bbox_bits // 8, 'big')
 	bbox = np.frombuffer(bbox, dtype=np.float32)[None,...]
-	ii = np.argsort(bbox)[::-1]
-	mask = bbox >= radius
-	shifts = np.sum(mask, axis=-1)
 	X = np.zeros_like(bbox)
+	X_done = np.zeros((0,bbox.shape[-1]), dtype=X.dtype)
 
 	while True:
-		flags = np.hstack([buffer.read(1<<shift) for shift in shifts])
-		done = flags == 0
-		flags = [flag >> np.arange(8) & 1 for flag in flags]
-		idx = [np.full(max(np.sum(bits),1),i) for i, bits in enumerate(flags)]
-		idx = np.hstack(idx)
-		done = done[idx]
-		mask = np.hstack(flags) == 1
-		tokens = np.arange(8) * np.vstack(flags)
-		tokens = np.hstack(tokens)[mask]
-		tokens = np.vstack([(token >> i & 1)*2 - 1 for i, token in zip(ii[idx], tokens)])
-		bbox = bbox[idx][~done]
-		mask = bbox >= radius
-		bbox = bbox * (1 - mask*0.5)
-		shifts = np.sum(mask, axis=-1)
-		shifts = shifts[shifts>0]
-		X = X[idx]
-		X[~done] += bbox * tokens * mask
+		mask = bbox > radius
+		dims = np.sum(mask, axis=-1)
+		done = dims==0
+		dims = dims[~done]
+		if not len(dims):
+			break
+
 		ii = np.argsort(bbox)[::-1]
-		print(shifts.shape)
+		flags = np.hstack([buffer.read(shift) for shift in 1<<dims])
+		done[~done] |= flags == 0
+		flags = np.vstack([flag >> np.arange(8) & 1 for flag in flags])[flags != 0]
+		idx = np.hstack([np.full(max(np.sum(bits),1),i) for i, bits in enumerate(flags)])
+		tokens = np.arange(8) * flags
+		tokens = np.hstack(tokens)[np.hstack(flags) > 0]
+		tokens = np.vstack([(token >> i & 1)*2 - 1 for i, token in zip(ii[~done][idx], tokens)])
+		
+		mask = mask[~done][idx]
+		bbox = bbox[~done][idx] * (1 - mask*0.5)
+		X_done = np.vstack([X_done, X[done]])
+		X = X[~done][idx] - bbox * tokens * mask
+		log(X.shape, X_done.shape)
 		pass
 
-
+	X = np.vstack([X, X_done])
+	buffer.close()
+	log("Done:", X, X.shape)
 
 
 def main(args, unparsed):

@@ -223,7 +223,7 @@ def decode(compressed, uncompressed,
 	
 	lidar.save(np.vstack(X), uncompressed)
 	flags.close()
-	log("Done")
+	log("Done", len(X))
 	pass
 
 
