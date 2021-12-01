@@ -137,12 +137,13 @@ def encode(uncompressed, compressed,
 		dim = len(i)
 		flag_size = 1<<dim
 		if dim == 0:
-			#encode.count += 1
+			encode.count += 1
 			log("BBox:", bbox, "bits:", i, "Points Detected:", encode.count)
 			return
 		if np.all(np.all(np.abs(X) <= radius, axis=-1)):
 			flags.write(0, flag_size, soft_flush=True)
 			encode.count += 1
+			buffer.append(0)
 			log("BBox:", bbox, "bits:", i, "Points Detected:", encode.count)
 			return
 		
@@ -157,9 +158,12 @@ def encode(uncompressed, compressed,
 			if np.any(m):
 				flag |= 1<<d
 				yield expand(X[m], bbox.copy())
+		#input(flag)
+		buffer.append(flag)
 		flags.write(flag, flag_size, soft_flush=True)
 		encode.count += 1
 	
+	buffer = []
 	encode.count = 0
 	flags = BitBuffer(compressed, 'wb')
 	X = lidar.load(uncompressed, xshape, xtype)[..., :oshape[-1]].astype(np.float32)
@@ -173,6 +177,7 @@ def encode(uncompressed, compressed,
 		nodes.extend(node)
 	
 	flags.close()
+	np.array(buffer, dtype=np.uint8).tofile('data/flags.bin')
 	log("Done:", encode.count)
 	pass
 
