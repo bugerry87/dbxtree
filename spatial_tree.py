@@ -132,7 +132,7 @@ def encode(uncompressed, compressed,
 	"""
 	"""
 	def expand(X, bbox):
-		i = np.argsort(bbox)[::-1]
+		i = np.argsort(bbox)[...,::-1]
 		i = i[bbox[...,i] >= radius]
 		dim = len(i)
 		flag_size = 1<<dim
@@ -158,10 +158,8 @@ def encode(uncompressed, compressed,
 			if np.any(m):
 				flag |= 1<<d
 				yield expand(X[m], bbox.copy())
-		#input(flag)
 		buffer.append(flag)
 		flags.write(flag, flag_size, soft_flush=True)
-		encode.count += 1
 	
 	buffer = []
 	encode.count = 0
