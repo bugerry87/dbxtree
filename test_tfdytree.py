@@ -4,20 +4,35 @@ if __name__ == '__main__':
 	import numpy as np
 	import tensorflow as tf
 	import mhdm.tfops.dynamictree as dynamictree
-	from mhdm.bitops import BitBuffer 
+	from mhdm.bitops import BitBuffer
+	from mhdm.utils import time_delta
 
+	radius = 0.0015
 	buffer = BitBuffer('data/tf_dyntree.bin', 'wb')
-
 	X = np.fromfile('data/0000000000.bin', np.float32).reshape(-1,4)[...,:3]
+	itest = iter(np.fromfile('data/flags.bin', np.uint8))
+
 	bbox = np.abs(X).max(axis=0).astype(np.float32)
+	buffer.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
+	buffer.write(bbox.shape[-1] * 32, 8, soft_flush=True)
+	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
+
 	i = np.argsort(bbox)[...,::-1]
-	bbox = tf.constant(np.repeat(bbox[None,...,i], len(X), axis=0))
+	bbox = tf.constant(bbox[i])
 	X = tf.constant(X[...,i])
 	nodes = tf.constant(np.ones(len(X), dtype=np.int64))
-	radius = 0.0015
-	while len(X.numpy()):
-		X, nodes, bbox, flags, shifts = dynamictree.encode(X, nodes, bbox, radius)
-		print(len(X.numpy()))
-		for flag, shift in zip(flags.numpy(), shifts.numpy()):
-			buffer.write(flag, shift, soft_flush=True)
+	
+	delta = time_delta()
+	next(delta)
+	dims = 3
+	while dims:
+		X, nodes, bbox, flags, dims = dynamictree.encode(X, nodes, bbox, radius)
+		dims = dims.numpy()
+		#if dims:
+			#for flag, test in zip(flags.numpy(), itest):
+			#	if flag != test:
+			#		input("no match!")
+		#			pass
+				#buffer.write(flag, 1<<dims, soft_flush=True)
+	print(next(delta))
 	buffer.close()

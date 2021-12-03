@@ -8,7 +8,7 @@ from tensorflow.python.keras.engine import data_adapter
 
 ## Local
 from . import normalize
-from .. import bitops, spatial, yield_devices, count
+from .. import bitops, spatial, dynamictree
 from ... import utils
 
 ## Optional
@@ -17,10 +17,15 @@ try:
 except ModuleNotFoundError:
 	tfc = None
 
+try:
+	import tensorflow_transform as tfx
+except ModuleNotFoundError:
+	tfx = None
+
 class DynamicTree(Model):
 	"""
 	"""
-	def __init__(self, dim,
+	def __init__(self,
 		heads = 1,
 		kernels=16,
 		kernel_size=3,
@@ -36,8 +41,7 @@ class DynamicTree(Model):
 		"""
 		"""
 		super(NbitTree, self).__init__(name=name, dtype=dtype, **kwargs)
-		self.mode = dim
-		self.dim = max(dim, 1)
+		self.mode = 3
 		self.heads = max(heads, 1)
 		self.kernels = kernels
 		self.kernel_size = kernel_size
@@ -91,27 +95,22 @@ class DynamicTree(Model):
 	
 	@property
 	def flag_size(self):
-		return 1<<self.dim
+		return 1<<3
 	
 	@property
 	def bins(self):
 		return 1<<self.flag_size
 
-	def set_meta(self, index, bits_per_dim,	**kwargs):
+	def set_meta(self, index, **kwargs):
 		"""
 		"""
 		meta = utils.Prototype(
-			bits_per_dim=bits_per_dim,
-			dim=self.dim,
 			mode=self.mode,
 			flag_size=self.flag_size,
 			bins=self.bins,
 			dtype=self.dtype,
 			**kwargs
 			)
-		meta.input_dims = len(meta.bits_per_dim)
-		meta.word_length = sum(meta.bits_per_dim)
-		meta.tree_depth = int(np.ceil(meta.word_length / self.dim))
 		if isinstance(index, str) and index.endswith('.txt'):
 			meta.index = index
 			with open(index, 'r') as fid:
@@ -123,33 +122,22 @@ class DynamicTree(Model):
 		self.meta = meta
 		return meta
 	
-	def encoder(self, index, bits_per_dim,
-		sort_bits=None,
-		permute=None,
-		offset=None,
-		scale=None,
-		payload=False,
-		spherical=False,
-		keypoints=False,
+	def parser(self, index,
 		xtype='float32',
-		qtype='int64',
-		ftype='int64',
+		ntype='int64',
+		ftype='int8',
+		keypoints=0.0,
+		augment=False,
 		shuffle=0,
 		**kwargs
 		):
 		"""
 		"""
-		meta = self.set_meta(index, bits_per_dim,
-			sort_bits=sort_bits,
-			permute=permute,
-			payload=payload,
-			spherical=spherical,
-			keypoints=keypoints,
-			offset=offset,
-			scale=scale,
+		meta = self.set_meta(index,
 			xtype=xtype,
-			qtype=qtype,
+			ntype=ntype,
 			ftype=ftype,
+			keypoints=keypoints,
 			**kwargs
 			)
 		
@@ -158,55 +146,127 @@ class DynamicTree(Model):
 			a = tf.random.uniform([1], dtype=X.dtype) * 6.3
 			M = tf.concat([tf.cos(a), -tf.sin(a), [0], tf.sin(a), -tf.cos(a), [0,0,0,1]], axis=0)
 			M = tf.reshape(M, [3,3])
-			return tf.concat([X[:,:3] @ M, X[:,3:]], axis=-1)
+			return tf.concat([X @ M, X], axis=-1)
+		
+		@tf.function
+		def parse(filename):
+			X = tf.io.read_file(filename)
+			X = tf.io.decode_raw(X, xtype)
+			X = tf.reshape(X, (-1, 4))
+			i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
+			X = X[i,:3]
+
+			if augment:
+				X = augment(X)
+			if meta.keypoints:
+				X = tf.gather(X, spatial.edge_detection(X[...,:], meta.keypoints)[0])
+			
+			if tfx:
+				pca = tfx.pca(X, 3)
+				X = X @ pca
+			else:
+				pass
+			
+			X0 = X[:-1]
+			X1 = X[1:]
+			layer = tf.range(meta.tree_depth, dtype=X.dtype)
+			filename = [filename] * meta.tree_depth
+			points = [points] * meta.tree_depth
+		return X, pca
+
+		if isinstance(index, str) and index.endswith('.txt'):
+			parser = tf.data.TextLineDataset(index)
+		else:
+			parser = tf.data.Dataset.from_tensor_slices(index)
+
+		if shuffle:
+			parser = parser.shuffle(shuffle)
+		return parser.map(parse)
+	
+	def encoder(self, index,
+		radius=0.015,
+		xtype='float32',
+		ntype='int64',
+		ftype='int8',
+		keypoints=0.0,
+		augment=False,
+		shuffle=0,
+		**kwargs
+		):
+		"""
+		"""
+		meta = self.set_meta(index,
+			radius=radius,
+			xtype=xtype,
+			ntype=ntype,
+			ftype=ftype,
+			keypoints=keypoints,
+			**kwargs
+			)
+		
+		
 
 		@tf.function
 		def parse(filename):
-			with tf.device(next(self.devices).name):
-				X = tf.io.read_file(filename)
-				X = tf.io.decode_raw(X, xtype)
-				X = tf.reshape(X, (-1, meta.input_dims))
-				i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
-				X = X[i]
-				points = count(X[...,0])
-				#X = augment(X)
-				if meta.keypoints:
-					X = tf.gather(X, spatial.edge_detection(X[...,:,:3], meta.keypoints)[0])
-				if meta.spherical:
-					X = spatial.xyz2uvd(X)
-				X, offset, scale = bitops.serialize(X, meta.bits_per_dim, meta.offset, meta.scale, dtype=meta.qtype)
-				if meta.permute is not None:
-					permute = tf.cast(meta.permute, dtype=X.dtype)
-					X = bitops.permute(X, permute, meta.word_length)
-				elif meta.sort_bits is not None:
-					absolute = 'absolute' in meta.sort_bits
-					reverse = 'reverse' in meta.sort_bits
-					X, permute = bitops.sort(X, bits=meta.word_length, absolute=absolute, reverse=reverse)
-				else:
-					permute = tf.constant([], dtype=X.dtype)
-				X = bitops.tokenize(X, meta.dim, meta.tree_depth+1)
-				X0 = X[:-1]
-				X1 = X[1:]
-				layer = tf.range(meta.tree_depth, dtype=X.dtype)
-				filename = [filename] * meta.tree_depth
-				permute = [permute] * meta.tree_depth
-				offset = [offset] * meta.tree_depth
-				scale = [scale] * meta.tree_depth
-				points = [points] * meta.tree_depth
-				if payload:
-					mask = [tf.ones_like(X0[0], dtype=bool)] + [tf.gather(*tf.unique_with_counts(X0[i])[-1:0:-1]) > 1 for i in range(meta.tree_depth-1)]
-				else:
-					mask = [tf.ones_like(X0[0], dtype=bool)] * meta.tree_depth
-			return X0, X1, layer, filename, permute, offset, scale, mask, points
+			X = tf.io.read_file(filename)
+			X = tf.io.decode_raw(X, xtype)
+			X = tf.reshape(X, (-1, meta.input_dims))
+			i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
+			X = X[i]
+			points = count(X[...,0])
+			if augment:
+				X = augment(X)
+			if meta.keypoints:
+				X = tf.gather(X, spatial.edge_detection(X[...,:,:3], meta.keypoints)[0])
+			
+			if tfx:
+				pca = tfx.pca(X, 3)
+				X = X @ pca
+			else:
+				pass
+
+			
+			X0 = X[:-1]
+			X1 = X[1:]
+			layer = tf.range(meta.tree_depth, dtype=X.dtype)
+			filename = [filename] * meta.tree_depth
+			points = [points] * meta.tree_depth
+		return X, pca
 		
 		@tf.function
-		def encode(X0, X1, layer, filename, permute, offset, scale, mask, points):
-			with tf.device(next(self.devices).name):
-				uids, idx, counts = tf.unique_with_counts(X0[mask])
-				flags = bitops.encode(X1[mask], idx, meta.dim, ftype)[0]
-				if meta.payload:
-					flags *= tf.cast(counts > 1, flags.dtype)
-			return (uids, flags, layer, permute, offset, scale, X0, mask, points, filename)
+		def encode(X, *args):
+			bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
+			nodes = tf.ones_like(X[...,0], dtype=ntype)
+			dim = tf.constant(3)
+			Flags = []
+			Uids = []
+			Dims = []
+			BBoxes = []
+			Frames = []
+
+			def cond(x, nodes, bbox, dim):
+				return dims > 0
+			
+			def body(x, nodes, bbox, dim):
+				x, nodes, bbox, flags, dim, uids, frame = dynamictree.encode(x, nodes, bbox, radius)
+				Flags.append(flags)
+				Uids.append(uids)
+				Dims.append(dim)
+				BBoxes.append(bbox)
+				Frames.append(frame)
+				return x, nodes, bbox, dim
+			
+			tf.while_loop(cond, body, 
+				loop_vars=[X, nodes, bbox, dim],
+				shape_invariants=[(None,3), (None,), (3,) (1,)]
+			)
+
+			flags = tf.concat(Flags, axis=0)
+			uids = tf.concat(Uids, axis=0)
+			dims = tf.concat(Dims, axis=0)
+			bboxes = tf.concat(BBoxes, axis=0)
+			frames = tf.concat(Frames, axis=0)
+			return flags, uids, bboxes, dims, frames, X, pca, filename,
 		
 		if isinstance(index, str) and index.endswith('.txt'):
 			encoder = tf.data.TextLineDataset(index)
@@ -216,7 +276,6 @@ class DynamicTree(Model):
 		if shuffle:
 			encoder = encoder.shuffle(shuffle)
 		encoder = encoder.map(parse)
-		encoder = encoder.unbatch()
 		encoder = encoder.map(encode)
 		return encoder, meta
 	
@@ -236,39 +295,27 @@ class DynamicTree(Model):
 			pos = None
 
 			if 'pos' in self.branches:
-				with tf.device(next(self.devices).name):
-					pos = NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
-					meta.features['pos'] = pos
+				pos = NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
+				meta.features['pos'] = pos
 			
 			if 'pivots' in self.branches:
-				with tf.device(next(self.devices).name):
-					kernel = [*range(-self.kernels//4, 0), *range(1, self.kernels//4+1)]
-					pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
-					pivots = NbitTree.finalize(pivots, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)[...,None,:]
-					pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2)
-					pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
-					pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
-					pivots = tf.exp(-pivots)
-					meta.features['pivots'] = pivots
-			
-			if 'meta' in self.branches:
-				with tf.device(next(self.devices).name):
-					indices = tf.ones_like(uids, dtype=layer.dtype)[...,None] * layer * meta.dim
-					indices = tf.concat([indices + i for i in range(meta.dim)], axis=-1)
-					permute = tf.gather(permute, indices)
-					permute = tf.one_hot(permute, meta.word_length, dtype=meta.dtype)
-					permute = tf.reshape(permute, [-1, meta.word_length * meta.dim])
-					meta.features['meta'] = permute
+				kernel = [*range(-self.kernels//4, 0), *range(1, self.kernels//4+1)]
+				pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
+				pivots = NbitTree.finalize(pivots, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)[...,None,:]
+				pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2)
+				pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
+				pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
+				pivots = tf.exp(-pivots)
+				meta.features['pivots'] = pivots
 
 			if 'uids' in self.branches:
-				with tf.device(next(self.devices).name):
-					uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
-					uids = bitops.bitwise_and(uids, 1)
-					uids = tf.cast(uids, meta.dtype)
-					m = tf.range(uids.shape[-1], dtype=layer.dtype) < (layer+1) * meta.dim
-					uids = uids * 2 - tf.cast(m, meta.dtype)
-					uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
-					meta.features['uids'] = uids
+				uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
+				uids = bitops.bitwise_and(uids, 1)
+				uids = tf.cast(uids, meta.dtype)
+				m = tf.range(uids.shape[-1], dtype=layer.dtype) < (layer+1) * meta.dim
+				uids = uids * 2 - tf.cast(m, meta.dtype)
+				uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
+				meta.features['uids'] = uids
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
 			return feature, flags

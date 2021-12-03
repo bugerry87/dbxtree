@@ -5,6 +5,7 @@ from collections import deque
 
 ## Installed
 import numpy as np
+from sklearn.decomposition import PCA
 
 ## Local
 from mhdm.utils import log
@@ -134,10 +135,14 @@ def encode(uncompressed, compressed,
 	encode.count = 0
 	buffer = BitBuffer(compressed, 'wb')
 	X = lidar.load(uncompressed, xshape, xtype)[..., :oshape[-1]].astype(np.float32)
+
+	pca = PCA(n_components=3)
+	X = pca.fit_transform(X)
+
 	bbox = np.abs(X).max(axis=0).astype(np.float32)
 	buffer.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
-	buffer.write(bbox.shape[-1] * 32, 8, soft_flush=True)
 	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
+	buffer.write(int.from_bytes(pca.components_.tobytes(), 'big'), pca.components_.size * 32, soft_flush=True)
 
 	bbox = np.repeat(bbox[None,...], len(X), axis=0)
 	r = np.arange(len(X))
@@ -149,6 +154,8 @@ def encode(uncompressed, compressed,
 
 		big = bbox[r] > radius
 		dims = np.sum(big, axis=-1)
+		if np.any(bbox[r].min(axis=0) != bbox[r].max(axis=0)):
+			print(bbox[r].min(axis=0), bbox[r].max(axis=0))
 		keep = flags > 0
 		np.bitwise_or.at(keep, inv, np.any(np.abs(X[r]) > radius, axis=-1))
 		mask = (dims > 0) & keep[inv]
@@ -169,6 +176,7 @@ def encode(uncompressed, compressed,
 		flags = (flags*keep)[dims>0]
 		dims = dims[dims>0]
 
+		print(len(r))
 		for flag, dim in zip(flags, 1<<dims):
 			buffer.write(flag, dim, soft_flush=True)
 		pass
@@ -185,9 +193,10 @@ def decode(compressed, uncompressed,
 	"""
 	buffer = BitBuffer(compressed, 'rb')
 	radius = np.frombuffer(buffer.read(32).to_bytes(4, 'big'), dtype=np.float32)[0]
-	bbox_bits = buffer.read(8)
-	bbox = buffer.read(bbox_bits).to_bytes(bbox_bits // 8, 'big')
+	bbox = buffer.read(3*32).to_bytes(3*4, 'big')
 	bbox = np.frombuffer(bbox, dtype=np.float32)[None,...]
+	pca = buffer.read(9*32).to_bytes(9*4, 'big')
+
 	X = np.zeros_like(bbox)
 	X_done = np.zeros((0,bbox.shape[-1]), dtype=X.dtype)
 
@@ -216,6 +225,8 @@ def decode(compressed, uncompressed,
 		pass
 
 	X = np.vstack([X, X_done])
+	M = np.linalg.inv(pca.reshape(3,3))
+	X = X@M
 	buffer.close()
 	log("Done:", X, X.shape)
 
