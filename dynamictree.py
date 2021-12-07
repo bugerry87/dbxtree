@@ -225,7 +225,7 @@ def decode(compressed, uncompressed,
 		log(X.shape, X_done.shape)
 		pass
 
-	X = np.vstack([X, X_done])
+	X = np.vstack([X, X_done]).astype(np.float32)
 	M = np.linalg.inv(pca.reshape(3,3))
 	X = X@M
 	lidar.save(X, uncompressed)
