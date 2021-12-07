@@ -165,14 +165,9 @@ class DynamicTree(Model):
 				pca = tfx.pca(X, 3)
 				X = X @ pca
 			else:
+				pca = None
 				pass
-			
-			X0 = X[:-1]
-			X1 = X[1:]
-			layer = tf.range(meta.tree_depth, dtype=X.dtype)
-			filename = [filename] * meta.tree_depth
-			points = [points] * meta.tree_depth
-		return X, pca
+		return X, pca, filename
 
 		if isinstance(index, str) and index.endswith('.txt'):
 			parser = tf.data.TextLineDataset(index)
@@ -183,58 +178,28 @@ class DynamicTree(Model):
 			parser = parser.shuffle(shuffle)
 		return parser.map(parse)
 	
-	def encoder(self, index,
+	def encoder(self, *args,
 		radius=0.015,
-		xtype='float32',
-		ntype='int64',
-		ftype='int8',
-		keypoints=0.0,
-		augment=False,
-		shuffle=0,
+		parser=None,
+		meta=None,
 		**kwargs
 		):
 		"""
 		"""
-		meta = self.set_meta(index,
-			radius=radius,
-			xtype=xtype,
-			ntype=ntype,
-			ftype=ftype,
-			keypoints=keypoints,
-			**kwargs
-			)
-		
-		
+		@tf.function
+		def encode(parser):
+			for X, pca, filename in parser:
+				bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
+				uids = tf.ones_like(X[...,0], dtype=ntype)
+				dim = tf.constant(3)
+				x = X
+
+				while np.any(dim.numpy()):
+					x, nodes, bbox, flags, uids, pos, dim = dynamictree.encode(x, nodes, bbox, radius)
+					yield flags, uids, bbox, dim, X, pca, filename
 
 		@tf.function
-		def parse(filename):
-			X = tf.io.read_file(filename)
-			X = tf.io.decode_raw(X, xtype)
-			X = tf.reshape(X, (-1, meta.input_dims))
-			i = tf.math.reduce_all(tf.math.is_finite(X), axis=-1)
-			X = X[i]
-			points = count(X[...,0])
-			if augment:
-				X = augment(X)
-			if meta.keypoints:
-				X = tf.gather(X, spatial.edge_detection(X[...,:,:3], meta.keypoints)[0])
-			
-			if tfx:
-				pca = tfx.pca(X, 3)
-				X = X @ pca
-			else:
-				pass
-
-			
-			X0 = X[:-1]
-			X1 = X[1:]
-			layer = tf.range(meta.tree_depth, dtype=X.dtype)
-			filename = [filename] * meta.tree_depth
-			points = [points] * meta.tree_depth
-		return X, pca
-		
-		@tf.function
-		def encode(X, *args):
+		def ___encode___(X, *args):
 			bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
 			nodes = tf.ones_like(X[...,0], dtype=ntype)
 			dim = tf.constant(3)
@@ -266,55 +231,30 @@ class DynamicTree(Model):
 			dims = tf.concat(Dims, axis=0)
 			bboxes = tf.concat(BBoxes, axis=0)
 			frames = tf.concat(Frames, axis=0)
-			return flags, uids, bboxes, dims, frames, X, pca, filename,
+			return flags, uids, bboxes, dims, frames,
 		
-		if isinstance(index, str) and index.endswith('.txt'):
-			encoder = tf.data.TextLineDataset(index)
-		else:
-			encoder = tf.data.Dataset.from_tensor_slices(index)
-		
-		if shuffle:
-			encoder = encoder.shuffle(shuffle)
-		encoder = encoder.map(parse)
-		encoder = encoder.map(encode)
-		return encoder, meta
+		if parser is None:
+			parser, meta = self.parser(*args, **kwargs)
+		meta.radius = radius
+		encoder = tf.data.Dataset.from_generator(encode(parser))
+		return encoder, parser, meta
 	
 	def trainer(self, *args,
 		encoder=None,
+		parser=None,
 		meta=None,
 		**kwargs
 		):
 		"""
 		"""
 		@tf.function
-		def features(uids, flags, layer, permute, *args):
-			pivots = uids[...,None]
-			token = bitops.left_shift(tf.range(meta.flag_size, dtype=pivots.dtype), layer*meta.dim)
-			uids = bitops.bitwise_or(pivots, token)
-			uids = tf.reshape(uids, [-1])
-			pos = None
-
+		def features(flags, uids, pos, *args):
 			if 'pos' in self.branches:
-				pos = NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
 				meta.features['pos'] = pos
-			
-			if 'pivots' in self.branches:
-				kernel = [*range(-self.kernels//4, 0), *range(1, self.kernels//4+1)]
-				pos = pos if pos is not None else NbitTree.finalize(uids, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)
-				pivots = NbitTree.finalize(pivots, meta, permute, scale=0.5, word_length=(layer+1)*meta.dim)[...,None,:]
-				pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2)
-				pivots = pos[...,None,:] - tf.repeat(pivots, meta.flag_size, axis=0) 
-				pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
-				pivots = tf.exp(-pivots)
-				meta.features['pivots'] = pivots
 
 			if 'uids' in self.branches:
-				uids = bitops.right_shift(uids[...,None], tf.range(meta.word_length, dtype=uids.dtype))
+				uids = bitops.right_shift(uids[...,None], tf.range(63, dtype=uids.dtype))
 				uids = bitops.bitwise_and(uids, 1)
-				uids = tf.cast(uids, meta.dtype)
-				m = tf.range(uids.shape[-1], dtype=layer.dtype) < (layer+1) * meta.dim
-				uids = uids * 2 - tf.cast(m, meta.dtype)
-				uids = tf.concat([tf.math.minimum(uids, 0.0), tf.math.maximum(uids, 0.0)], axis=-1)
 				meta.features['uids'] = uids
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
@@ -326,12 +266,13 @@ class DynamicTree(Model):
 			return feature, labels
 	
 		if encoder is None:
-			encoder, meta = self.encoder(*args, **kwargs)
+			encoder, parser, meta = self.encoder(*args, **kwargs)
 		meta.features = dict()
+		
 		trainer = encoder.map(features)
 		trainer = trainer.map(labels)
 		trainer = trainer.batch(1)
-		return trainer, encoder, meta
+		return trainer, encoder, parser, meta
 	
 	def validator(self, *args,
 		encoder=None,
@@ -358,7 +299,7 @@ class DynamicTree(Model):
 		incr.i = 0
 
 		if input_shape:
-			super(NbitTree, self).build(input_shape)
+			super(DynamicTree, self).build(input_shape)
 		else:
 			self.meta = meta or self.meta
 			for k in self.branches:
@@ -366,7 +307,7 @@ class DynamicTree(Model):
 				self.branches[k].size = size
 				self.branches[k].offsets = (incr(0), incr(size))
 			feature_size = sum([b.size for b in self.branches.values()])
-			super(NbitTree, self).build(tf.TensorShape((None, None, feature_size)))
+			super(DynamicTree, self).build(tf.TensorShape((None, None, feature_size)))
 	
 	def call(self, inputs, *args):
 		"""

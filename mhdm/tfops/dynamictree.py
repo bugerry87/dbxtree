@@ -5,8 +5,12 @@ import tensorflow as tf
 ## Local
 from . import bitops
 
+tokens = tf.range(8)
+tokens = bitops.right_shift(tokens[...,None], tf.range(3))
+tokens = bitops.bitwise_and(tokens, 1)
+tokens = 0.5 - tf.cast(tokens, tf.float32)*1.0
 
-def encode(X, nodes, bbox, radius):
+def encode(X, nodes, pos, bbox, radius):
 	uids, inv = tf.unique(nodes)
 	n = tf.reduce_max(inv)+1
 
@@ -25,10 +29,15 @@ def encode(X, nodes, bbox, radius):
 	nodes = nodes[...,None]
 	nodes = bitops.left_shift(nodes, tf.cast(dims, nodes.dtype))
 	nodes = bitops.bitwise_or(nodes, tf.cast(bits, nodes.dtype))
+	
+	pivots = pos - bbox * tokens[None,...]
 
 	flags = tf.one_hot(bits[...,0], 8, dtype=tf.int32)
 	flags = tf.math.unsorted_segment_max(flags, inv, n) * keep
-	frame = tf.math.reduce_sum(flags)
+
+	i = tf.where(flags)
+	pos = tf.gather(pivots, i)
+
 	flags = bitops.left_shift(flags, tf.range(8))
 	flags = tf.math.reduce_sum(flags, axis=-1, keepdims=True) 
 	flags = flags[...,0]
@@ -44,4 +53,4 @@ def encode(X, nodes, bbox, radius):
 	nodes = tf.gather(nodes, i)
 	X = tf.gather(X, i)
 
-	return X, nodes, bbox, flags, dims, uids, frame
+	return X, nodes, pivots, pos, bbox, flags, dims, uids

@@ -20,14 +20,16 @@ if __name__ == '__main__':
 	i = np.argsort(bbox)[...,::-1]
 	bbox = tf.constant(bbox[i])
 	X = tf.constant(X[...,i])
+	pos = tf.zeros_like(bbox)[None, ...]
 	nodes = tf.constant(np.ones(len(X), dtype=np.int64))
 	
 	delta = time_delta()
 	next(delta)
 	dims = 3
 	while dims:
-		X, nodes, bbox, flags, dims = dynamictree.encode(X, nodes, bbox, radius)
+		X, nodes, pivots, pos, bbox, flags, dims, uids = dynamictree.encode(X, nodes, pos, bbox, radius)
 		dims = dims.numpy()
+		input(pos.numpy())
 		#if dims:
 			#for flag, test in zip(flags.numpy(), itest):
 			#	if flag != test:
