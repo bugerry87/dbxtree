@@ -139,10 +139,13 @@ def encode(uncompressed, compressed,
 	pca = PCA(n_components=3)
 	X = pca.fit_transform(X)
 
+	input(pca.mean_.size)
 	bbox = np.abs(X).max(axis=0).astype(np.float32)
 	buffer.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
 	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
+	buffer.write(int.from_bytes(pca.mean_.tobytes(), 'big'), pca.mean_.size * 32, soft_flush=True)
 	buffer.write(int.from_bytes(pca.components_.tobytes(), 'big'), pca.components_.size * 32, soft_flush=True)
+	input(pca.components_)
 
 	bbox = np.repeat(bbox[None,...], len(X), axis=0)
 	r = np.arange(len(X))

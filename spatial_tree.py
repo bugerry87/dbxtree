@@ -10,6 +10,7 @@ import numpy as np
 from mhdm.utils import log
 from mhdm.bitops import BitBuffer
 import mhdm.lidar as lidar
+import mhdm.viz as viz
 
 
 def init_main_args(parents=[]):
@@ -213,10 +214,15 @@ def decode(compressed, uncompressed,
 	
 	decode.count = 0
 	flags = BitBuffer(compressed, 'rb')
-	radius = np.frombuffer(flags.read(32).to_bytes(4, 'big'), dtype=np.float32)[0]
-	bbox_bits = flags.read(8)
-	bbox = flags.read(bbox_bits).to_bytes(bbox_bits // 8, 'big')
+	radius = flags.read(32).to_bytes(4, 'big')
+	radius = np.frombuffer(radius, dtype=np.float32)[0]
+	bbox = flags.read(3*32).to_bytes(3*4, 'big')
 	bbox = np.frombuffer(bbox, dtype=np.float32)
+	mean = flags.read(3*32).to_bytes(3*4, 'big')
+	mean = np.frombuffer(mean, dtype=np.float32)
+	pca = flags.read(9*32).to_bytes(9*4, 'big')
+	pca = np.frombuffer(pca, dtype=np.float32).reshape(3,3)
+
 	i = np.argsort(bbox)[::-1]
 	X = []
 	nodes = deque(expand(np.zeros_like(bbox), bbox.copy(), i))
@@ -224,7 +230,14 @@ def decode(compressed, uncompressed,
 		node = nodes.popleft()
 		nodes.extend(node)
 	
-	lidar.save(np.vstack(X), uncompressed)
+	X = X@pca
+	X += mean
+
+	fig = viz.create_figure()
+	viz.vertices(X, X[:,2], fig)
+	viz.show_figure()
+
+	lidar.save(X, uncompressed)
 	flags.close()
 	log("Done", len(X))
 	pass
