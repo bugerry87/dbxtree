@@ -196,6 +196,7 @@ def decode(compressed, uncompressed,
 	bbox = buffer.read(3*32).to_bytes(3*4, 'big')
 	bbox = np.frombuffer(bbox, dtype=np.float32)[None,...]
 	pca = buffer.read(9*32).to_bytes(9*4, 'big')
+	pca = np.frombuffer(pca, dtype=np.float32).reshape(3,3)
 
 	X = np.zeros_like(bbox)
 	X_done = np.zeros((0,bbox.shape[-1]), dtype=X.dtype)
@@ -227,6 +228,8 @@ def decode(compressed, uncompressed,
 	X = np.vstack([X, X_done])
 	M = np.linalg.inv(pca.reshape(3,3))
 	X = X@M
+	lidar.save(X, uncompressed)
+
 	buffer.close()
 	log("Done:", X, X.shape)
 
