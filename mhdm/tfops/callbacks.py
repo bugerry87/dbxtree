@@ -150,6 +150,98 @@ class NbitTreeCallback(LambdaCallback):
 		pass
 
 
+class DynamicTreeCallback(LambdaCallback):
+	"""
+	"""
+	def __init__(self, samples, info, meta,
+		freq=1,
+		steps=0,
+		when=['on_epoch_end'],
+		writer=None,
+		range_encode=True,
+		output=None,
+		):
+		"""
+		"""
+		super(DynamicTreeCallback, self).__init__(**{w:self for w in when})
+		self.samples = samples
+		self.info = info
+		self.meta = meta
+		self.steps = steps or meta.num_of_samples
+		self.freq = freq
+		self.writer = writer
+		self.range_encode = range_encode
+		self.output = output
+		self.buffer = BitBuffer() if output else None
+		pass
+
+	def __call__(self, *args):
+		args = (*args[::-1], 0)
+		log, epoch = args[:2]
+		if epoch % self.freq != 0:
+			return
+		
+		bpp_sum = 0
+		bpp_min = (1<<32)-1
+		bpp_max = 0
+		dim = 0
+		count_files = 0
+		self.model.reset_metrics()
+
+		for sample, info in zip(self.samples, self.info):
+			filename = str(info[-1].numpy())
+			cur_dim = info[-4].numpy()
+			tree_start = cur_dim > dim
+			tree_end = dim == cur_dim
+			dim = cur_dim
+			flags = info[0]
+
+			if tree_start:
+				count_files += 1
+				self.probs = tf.zeros((1, 0, self.model.bins), dtype=self.model.dtype)
+				self.flags = flags
+				points = float(info[-2].shape[-2])
+				bit_count = 0
+				if self.output:
+					buffer = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin')
+					self.buffer.open(buffer, 'wb')
+			else:
+				self.flags = tf.concat([self.flags, flags], axis=-1)
+			
+			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
+			self.probs, code = self.model.predict_on_batch((sample[0], self.probs, self.flags, info[-4], tree_end))
+			
+			if self.output:
+				for c in code:
+					self.buffer.write(c, 8, soft_flush=True)
+			bit_count += len(code)*8.0
+			
+			if tree_end:
+				if self.output:
+					self.buffer.close()
+				bpp = bit_count / points
+				bpp_min = min(bpp_min, bpp)
+				bpp_max = max(bpp_max, bpp)
+				bpp_sum += bpp
+
+		metrics['bpp'] = bpp_sum / count_files
+		metrics['bpp_min'] = bpp_min
+		metrics['bpp_max'] = bpp_max
+		
+		for name, metric in metrics.items():
+			name = 'test_' + name
+			log[name] = metric
+		
+		if self.writer is not None:
+			with self.writer.as_default():
+				for name, metric in metrics.items():
+					name = 'epoch_' + name
+					tf.summary.scalar(name, metric, epoch)
+					tf.summary.text('test_code', code, epoch)
+			self.writer.flush()
+		pass
+
+
 class LogCallback(Callback):
 	"""
 	"""

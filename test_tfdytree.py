@@ -22,6 +22,7 @@ if __name__ == '__main__':
 	X = tf.constant(X[...,i])
 	pos = tf.zeros_like(bbox)[None, ...]
 	nodes = tf.constant(np.ones(len(X), dtype=np.int64))
+	P = []
 	
 	delta = time_delta()
 	next(delta)
@@ -29,7 +30,8 @@ if __name__ == '__main__':
 	while dims:
 		X, nodes, pivots, pos, bbox, flags, dims, uids = dynamictree.encode(X, nodes, pos, bbox, radius)
 		dims = dims.numpy()
-		input(pos.numpy())
+		#input(pivots.numpy())
+		P.append(pos.numpy())
 		#if dims:
 			#for flag, test in zip(flags.numpy(), itest):
 			#	if flag != test:
@@ -38,3 +40,4 @@ if __name__ == '__main__':
 				#buffer.write(flag, 1<<dims, soft_flush=True)
 	print(next(delta))
 	buffer.close()
+	np.vstack(P).astype(np.float32).tofile('data/pos')

@@ -35,8 +35,8 @@ def encode(X, nodes, pos, bbox, radius):
 	flags = tf.one_hot(bits[...,0], 8, dtype=tf.int32)
 	flags = tf.math.unsorted_segment_max(flags, inv, n) * keep
 
-	i = tf.where(flags)
-	pos = tf.gather(pivots, i)
+	i = tf.where(tf.reshape(flags, (-1,)))
+	pos = tf.gather(tf.reshape(pivots,(-1,3)), i)
 
 	flags = bitops.left_shift(flags, tf.range(8))
 	flags = tf.math.reduce_sum(flags, axis=-1, keepdims=True) 
@@ -53,4 +53,4 @@ def encode(X, nodes, pos, bbox, radius):
 	nodes = tf.gather(nodes, i)
 	X = tf.gather(X, i)
 
-	return X, nodes, pivots, pos, bbox, flags, dims, uids
+	return X, nodes, pivots, pos, bbox, flags, uids, dims
