@@ -326,7 +326,7 @@ class DynamicTree(Model):
 		
 		empty_code = tf.constant([''], name='ignore')
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		feature, probs, labels, do_encode = X
+		feature, probs, labels, dim, do_encode = X
 		do_encode = tf.math.reduce_all(do_encode)
 		pred = self(feature, training=False)
 		probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
