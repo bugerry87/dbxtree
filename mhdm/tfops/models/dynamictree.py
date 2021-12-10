@@ -122,6 +122,7 @@ class DynamicTree(Model):
 		xtype='float32',
 		keypoints=0.0,
 		shuffle=0,
+		take=0,
 		**kwargs
 		):
 		"""
@@ -137,6 +138,7 @@ class DynamicTree(Model):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
 			X = tf.reshape(X, (-1, 4))[...,:3]
+			tf.print(filename)
 
 			if keypoints:
 				X = tf.gather(X, spatial.edge_detection(X[...,:], keypoints)[0])
@@ -155,7 +157,14 @@ class DynamicTree(Model):
 			parser = tf.data.Dataset.from_tensor_slices(index)
 
 		if shuffle:
-			parser = parser.shuffle(shuffle)
+			if take:
+				parser = parser.batch(take)
+				parser = parser.shuffle(shuffle)
+				parser = parser.unbatch()
+			else: 
+				parser = parser.shuffle(shuffle)
+		if take:
+			parser = parser.take(take)
 		return parser.map(parse), meta
 	
 	def encoder(self, *args,
@@ -174,9 +183,10 @@ class DynamicTree(Model):
 				dim = tf.constant(3)
 				x = X
 
-				while np.any(dim.numpy()):
+				while np.any(dim):
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dynamictree.encode(x, nodes, pos, bbox, radius)
 					yield flags, uids, pos, pivots, bbox, dim, X, filename
+					print(dim)
 					pos = _pos
 		
 		if parser is None:

@@ -103,12 +103,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--fix_subset',
-		action='store_true',
-		help='Whether the subset should be fixed to the first few samples or (default) not'
-		)
-	
-	main_args.add_argument(
 		'--validation_freq',
 		metavar='INT',
 		type=int,
@@ -141,7 +135,15 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--radius',
+		'--shuffle',
+		metavar='INT',
+		type=int,
+		default=0,
+		help="Size of the shuffle buffer"
+		)
+	
+	main_args.add_argument(
+		'--radius', '-r',
 		metavar='Float',
 		type=float,
 		default=0.003,
@@ -258,11 +260,11 @@ def main(
 	save_best_only=False,
 	stop_patience=-1,
 	steps_per_epoch=0,
-	fix_subset=False,
 	validation_freq=1,
 	validation_steps=0,
 	test_freq=1,
 	test_steps=0,
+	shuffle=0,
 	radius=0.003,
 	keypoints=False,
 	kernels=16,
@@ -324,39 +326,15 @@ def main(
 		keypoints=keypoints,
 		)
 	
-	trainer, train_encoder, train_meta = model.trainer(train_index, **meta_args) if train_index else (None, None, None)
-	validator, val_encoder, val_meta = model.validator(val_index, **meta_args) if val_index else (None, None, None)
-	tester, test_encoder, test_meta = model.tester(test_index, **meta_args) if test_index else (None, None, None)
+	trainer, train_encoder, train_meta = model.trainer(train_index, take=steps_per_epoch, shuffle=shuffle, **meta_args) if train_index else (None, None, None)
+	validator, val_encoder, val_meta = model.validator(val_index, take=validation_steps, **meta_args) if val_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, **meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:
 		msg = "Main: No index file was set!"
 		tflog.error(msg)
 		raise ValueError(msg)
-
-	if train_meta is None:
-		pass
-	elif steps_per_epoch:
-		if fix_subset:
-			trainer = trainer.take(steps_per_epoch)
-	else:
-		steps_per_epoch = train_meta.num_of_files * 16
-	
-	if validation_steps:
-		if fix_subset:
-			validator = validator.take(validation_steps)
-	elif val_meta is not None:
-		validation_steps = val_meta.num_of_files * 16
-	else:
-		validation_steps = 0
-	
-	if test_steps:
-		if fix_subset:
-			tester = tester.take(test_steps)
-	elif test_meta is not None:
-		test_steps = test_meta.num_of_files * 16
-	else:
-		test_steps = 0
 
 	if loss == 'regularized_cosine':
 		loss = RegularizedCosine(msle_smoothing=0.0001)
@@ -377,7 +355,7 @@ def main(
 	
 	if checkpoint:
 		model.load_weights(checkpoint, by_name=checkpoint.endswith('.hdf5'), skip_mismatch=checkpoint.endswith('.hdf5'))
-	model.save_weights(log_model_start)
+		model.save_weights(log_model_start)
 
 	if training_state:
 		with tf.name_scope(optimizer._name):
@@ -391,18 +369,18 @@ def main(
 	tensorboard = TensorBoard(log_dir=log_dir)
 	callbacks = [
 		tensorboard,
-		ModelCheckpoint(
-			log_model,
-			save_best_only=save_best_only,
-			monitor=monitor
-			),
-		SaveOptimizerCallback(
-			model.optimizer,
-			log_optimizer,
-			monitor=monitor,
-			save_best_only=save_best_only,
-			mode='max'
-			),
+		#ModelCheckpoint(
+		#	log_model,
+		#	save_best_only=save_best_only,
+		#	monitor=monitor
+		#	),
+		#SaveOptimizerCallback(
+		#	model.optimizer,
+		#	log_optimizer,
+		#	monitor=monitor,
+		#	save_best_only=save_best_only,
+		#	mode='max'
+		#	),
 		TerminateOnNaN()
 		]
 	
@@ -433,19 +411,16 @@ def main(
 
 	if trainer is not None:
 		history = model.fit(
-			trainer.repeat(),
+			trainer,
 			epochs=epochs,
-			steps_per_epoch=steps_per_epoch,
 			callbacks=callbacks,
 			validation_freq=validation_freq,
 			validation_data=validator,
-			validation_steps=validation_steps,
 			verbose=verbose
 			)
 	elif validator is not None:
 		history = model.evaluate(
 			validator,
-			steps=validation_steps,
 			callbacks=callbacks,
 			verbose=verbose,
 			return_dict=True

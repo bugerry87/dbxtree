@@ -167,7 +167,7 @@ class DynamicTreeCallback(LambdaCallback):
 		self.samples = samples
 		self.info = info
 		self.meta = meta
-		self.steps = steps or meta.num_of_samples
+		self.steps = steps or meta.num_of_files
 		self.freq = freq
 		self.writer = writer
 		self.range_encode = range_encode
@@ -192,7 +192,7 @@ class DynamicTreeCallback(LambdaCallback):
 			filename = str(info[-1].numpy())
 			cur_dim = info[-3].numpy()
 			tree_start = np.any(cur_dim > dim)
-			tree_end = np.any(dim == cur_dim)
+			tree_end = np.all(cur_dim == 0)
 			dim = cur_dim
 			flags = info[0]
 
@@ -209,7 +209,7 @@ class DynamicTreeCallback(LambdaCallback):
 				self.flags = tf.concat([self.flags, flags], axis=-1)
 			
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
-			self.probs, code = self.model.predict_on_batch((sample[0], self.probs, self.flags, info[-3], tree_end))
+			self.probs, code = self.model.predict_on_batch((sample[0], self.probs, self.flags, dim, tree_end))
 			code = code[0]
 
 			if self.output:
@@ -218,13 +218,19 @@ class DynamicTreeCallback(LambdaCallback):
 			bit_count += len(code)*8.0
 			
 			if tree_end:
+				print(len(flags.numpy()))
 				if self.output:
 					self.buffer.close()
 				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
+				if self.steps and self.steps == count_files:
+					break
 
+		if self.output:
+			self.buffer.close()
+		
 		metrics['bpp'] = bpp_sum / count_files
 		metrics['bpp_min'] = bpp_min
 		metrics['bpp_max'] = bpp_max
