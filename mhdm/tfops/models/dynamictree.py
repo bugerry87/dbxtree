@@ -53,8 +53,8 @@ class DynamicTree(Model):
 			if branch in ('uids', 'pos', 'pivots'):
 				self.branches[branch] = utils.Prototype(
 					merge = Conv1D(
-						self.kernels, self.kernel_size, 1, # self.flag_size, self.flag_size,
-						activation='relu',
+						self.kernels, self.flag_size, self.flag_size,
+						#activation='relu',
 						padding='same', #'valid',
 						dtype=self.dtype,
 						name='merge_{}'.format(branch),
@@ -62,7 +62,7 @@ class DynamicTree(Model):
 						),
 					conv = [Conv1D(
 						self.kernels, self.kernel_size, 1,
-						activation='relu',
+						#activation='relu',
 						padding='same',
 						dtype=self.dtype,
 						name='conv_{}_{}'.format(branch, i),
@@ -74,7 +74,7 @@ class DynamicTree(Model):
 		
 		self.dense = [Dense(
 			self.kernels,
-			activation='relu',
+			#activation='relu',
 			#kernel_initializer='random_uniform',
 			dtype=self.dtype,
 			name='dense_{}'.format(i),
@@ -119,6 +119,7 @@ class DynamicTree(Model):
 		return meta
 	
 	def parser(self, index,
+		dim=3,
 		xtype='float32',
 		keypoints=0.0,
 		shuffle=0,
@@ -128,6 +129,7 @@ class DynamicTree(Model):
 		"""
 		"""
 		meta = self.set_meta(index,
+			dim=dim,
 			xtype=xtype,
 			keypoints=keypoints,
 			**kwargs
@@ -138,7 +140,6 @@ class DynamicTree(Model):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
 			X = tf.reshape(X, (-1, 4))[...,:3]
-			tf.print(filename)
 
 			if keypoints:
 				X = tf.gather(X, spatial.edge_detection(X[...,:], keypoints)[0])
@@ -180,13 +181,12 @@ class DynamicTree(Model):
 				bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
 				pos = tf.zeros_like(bbox)[None, None, ...]
 				nodes = tf.ones_like(X[...,0], dtype=tf.int64)
-				dim = tf.constant(3)
+				dim = tf.constant(meta.dim)
 				x = X
 
 				while np.any(dim):
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dynamictree.encode(x, nodes, pos, bbox, radius)
 					yield flags, uids, pos, pivots, bbox, dim, X, filename
-					print(dim)
 					pos = _pos
 		
 		if parser is None:
@@ -206,11 +206,11 @@ class DynamicTree(Model):
 			output_shapes=(
 				tf.TensorShape([None]),
 				tf.TensorShape([None]),
-				tf.TensorShape([None,1,3]),
-				tf.TensorShape([None,8,3]),
-				tf.TensorShape([3]),
+				tf.TensorShape([None, 1, meta.dim]),
+				tf.TensorShape([None, self.flag_size, meta.dim]),
+				tf.TensorShape([meta.dim]),
 				tf.TensorShape([]),
-				tf.TensorShape([None,3]),
+				tf.TensorShape([None, meta.dim]),
 				tf.TensorShape([])
 				)
 			)
@@ -226,14 +226,26 @@ class DynamicTree(Model):
 		@tf.function
 		def features(flags, uids, pos, pivots, *args):
 			if 'pos' in self.branches:
-				meta.features['pos'] = tf.reshape(pos, (-1,3))
+				meta.features['pos'] = tf.reshape(pivots, (-1,meta.dim))
+
+			if 'pivots' in self.branches:
+				kernel = [*range(-self.kernels//2, 0), *range(1, self.kernels//2+1)]
+				pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2, name='concat_pivot_kernel')
+				pivots = pivots - pos
+				pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
+				pivots = tf.exp(-pivots)
+				meta.features['pivots'] = tf.reshape(pivots, (-1,self.kernels))
 
 			if 'uids' in self.branches:
-				uids = bitops.right_shift(uids[...,None], tf.range(63, dtype=uids.dtype))
+				token = bitops.left_shift(tf.range(meta.flag_size, dtype=uids.dtype), meta.dim)
+				uids = bitops.left_shift(uids[...,None], meta.dim)
+				uids = bitops.bitwise_or(uids, token)
+				uids = tf.reshape(uids, (-1,1))
+				uids = bitops.right_shift(uids, tf.range(63, dtype=uids.dtype))
 				uids = bitops.bitwise_and(uids, 1)
 				meta.features['uids'] = tf.cast(uids, self.dtype)
 			
-			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1)
+			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1, name='concat_features')
 			return feature, flags
 		
 		@tf.function
@@ -282,7 +294,6 @@ class DynamicTree(Model):
 				self.branches[k].size = size
 				self.branches[k].offsets = (incr(0), incr(size))
 			feature_size = sum([b.size for b in self.branches.values()])
-			tf.print(feature_size)
 			super(DynamicTree, self).build(tf.TensorShape((None, None, feature_size)))
 	
 	def call(self, inputs, *args):
