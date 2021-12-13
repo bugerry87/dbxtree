@@ -218,7 +218,6 @@ class DynamicTreeCallback(LambdaCallback):
 			bit_count += len(code)*8.0
 			
 			if tree_end:
-				print(len(flags.numpy()))
 				if self.output:
 					self.buffer.close()
 				bpp = bit_count / points

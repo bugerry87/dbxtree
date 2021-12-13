@@ -74,7 +74,7 @@ class DynamicTree(Model):
 		
 		self.dense = [Dense(
 			self.kernels,
-			#activation='relu',
+			activation='relu',
 			#kernel_initializer='random_uniform',
 			dtype=self.dtype,
 			name='dense_{}'.format(i),
