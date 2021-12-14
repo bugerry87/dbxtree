@@ -186,7 +186,7 @@ class DynamicTree(Model):
 
 				if pca is None:
 					i = tf.argsort(bbox)[::-1]
-					x = tf.gather(X, i, batch_dims=1)
+					x = tf.gather(X, i, batch_dims=-1)
 				else:
 					x = X
 
