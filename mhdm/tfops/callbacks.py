@@ -155,7 +155,6 @@ class NbitTreeCallback(LambdaCallback):
 		pass
 
 
-@tf.function
 def range_encode(probs, labels):
 	symbols = tf.reshape(labels, [-1])
 	symbols = tf.cast(symbols, tf.int16)
