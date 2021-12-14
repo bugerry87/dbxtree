@@ -207,7 +207,7 @@ class DynamicTreeCallback(LambdaCallback):
 				if self.output:
 					buffer = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin')
 					self.buffer.open(buffer, 'wb')
-			else:
+			elif not tree_end:
 				self.flags = tf.concat([self.flags, flags], axis=-1)
 			
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
