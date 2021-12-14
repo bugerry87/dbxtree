@@ -74,7 +74,7 @@ class DynamicTree(Model):
 		
 		self.dense = [Dense(
 			self.kernels,
-			#activation='relu',
+			activation='relu',
 			#kernel_initializer='random_uniform',
 			dtype=self.dtype,
 			name='dense_{}'.format(i),
@@ -149,6 +149,7 @@ class DynamicTree(Model):
 				X = X @ pca
 			else:
 				pca = None
+
 				pass
 			return X, pca, filename
 
@@ -182,7 +183,12 @@ class DynamicTree(Model):
 				pos = tf.zeros_like(bbox)[None, None, ...]
 				nodes = tf.ones_like(X[...,0], dtype=tf.int64)
 				dim = tf.constant(meta.dim)
-				x = X
+
+				if pca is None:
+					i = tf.argsort(bbox)[::-1]
+					x = tf.gather(X, i, batch_dims=-1)
+				else:
+					x = X
 
 				while np.any(dim):
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dynamictree.encode(x, nodes, pos, bbox, radius)
