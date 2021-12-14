@@ -13,11 +13,6 @@ from ... import utils
 
 ## Optional
 try:
-	import tensorflow_compression as tfc
-except ModuleNotFoundError:
-	tfc = None
-
-try:
 	import tensorflow_transform as tfx
 except ModuleNotFoundError:
 	tfx = None
@@ -230,7 +225,7 @@ class DynamicTree(Model):
 		"""
 		"""
 		@tf.function
-		def features(flags, uids, pos, pivots, *args):
+		def features(flags, uids, pos, pivots, bbox, dim, *args):
 			if 'pos' in self.branches:
 				meta.features['pos'] = tf.reshape(pivots, (-1,meta.dim))
 
@@ -252,18 +247,14 @@ class DynamicTree(Model):
 				meta.features['uids'] = tf.cast(uids, self.dtype)
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1, name='concat_features')
-			return feature, flags
-		
-		@tf.function
-		def labels(feature, flags):
 			labels = tf.one_hot(flags, meta.bins, dtype=meta.dtype)
-			return feature, labels
+			sample_weight = tf.cast(dim, self.dtype)
+			return feature, labels, sample_weight
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
 		meta.features = dict()
 		trainer = encoder.map(features)
-		trainer = trainer.map(labels)
 		trainer = trainer.batch(1)
 		return trainer, encoder, meta
 	
@@ -321,39 +312,5 @@ class DynamicTree(Model):
 			X = normalize(X)
 		X = self.head(X)
 		return X
-	
-	def predict_step(self, data):
-		"""
-		"""
-		def encode():
-			if tfc is None:
-				tf.get_logger().warn(
-					"Model has no range_encoder and will only return raw probabilities and an empty string. " \
-					"Please install 'tensorflow-compression' to obtain encoded bit-streams."
-					)
-				return empty_code
-			
-			cdf = tf.reshape(probs, (-1, self.bins))
-			symbols = tf.reshape(labels, [-1])
-			symbols = tf.cast(symbols, tf.int16)
-			cdf = tf.math.cumsum(cdf, axis=-1)
-			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='cdf_max')
-			cdf = tf.math.round(cdf * float(1<<16))
-			cdf = tf.cast(cdf, tf.int32)
-			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			code = tfc.range_encode(symbols, cdf, precision=16, debug_level=0)
-			return probs, code[None,...]
-		
-		def predict():
-			empty_code = tf.constant([''], name='ignore')
-			pred = self(feature, training=False) * mask
-			pred = tf.clip_by_value(pred, self.floor, 1.0)
-			_probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
-			return _probs, empty_code
-		
-		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		feature, probs, labels, mask, do_encode = X
-		do_encode = tf.math.reduce_all(do_encode)
-		return tf.cond(do_encode, encode, predict, name='do_encode_cond')
 
 __all__ = [DynamicTree]

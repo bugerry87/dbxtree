@@ -16,6 +16,11 @@ from ..bitops import BitBuffer
 
 ## Optional
 try:
+	import tensorflow_compression as tfc
+except ModuleNotFoundError:
+	tfc = None
+
+try:
 	import py7zr
 except:
 	py7zr = None
@@ -150,6 +155,18 @@ class NbitTreeCallback(LambdaCallback):
 		pass
 
 
+@tf.function
+def range_encode(probs, labels):
+	symbols = tf.reshape(labels, [-1])
+	symbols = tf.cast(symbols, tf.int16)
+	cdf = tf.math.cumsum(probs, axis=-1)
+	cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='cdf_max')
+	cdf = tf.math.round(cdf * float(1<<16))
+	cdf = tf.cast(cdf, tf.int32)
+	cdf = tf.pad(cdf, [(0,0),(1,0)])
+	return tfc.range_encode(symbols, cdf, precision=16, debug_level=1)
+
+
 class DynamicTreeCallback(LambdaCallback):
 	"""
 	"""
@@ -193,14 +210,13 @@ class DynamicTreeCallback(LambdaCallback):
 			cur_dim = info[-3].numpy()
 			tree_start = np.any(cur_dim > dim)
 			tree_end = np.all(cur_dim == 0)
-			dim = cur_dim
+			do_encode = np.any(cur_dim < dim)
 			flags = info[0]
-			mask = tf.range(self.model.bins) < 1<<(1<<dim)
-			mask = tf.cast(mask, self.model.dtype)
+			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
 
 			if tree_start:
 				count_files += 1
-				self.probs = tf.zeros((1, 0, self.model.bins), dtype=self.model.dtype)
+				self.probs = self.model.predict_on_batch(sample[0]) #tf.zeros((0, self.model.bins), dtype=self.model.dtype)
 				self.flags = flags
 				points = float(info[-2].shape[-2])
 				bit_count = 0
@@ -208,17 +224,20 @@ class DynamicTreeCallback(LambdaCallback):
 					buffer = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin')
 					self.buffer.open(buffer, 'wb')
 			elif not tree_end:
-				self.flags = tf.concat([self.flags, flags], axis=-1)
-			
-			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
-			self.probs, code = self.model.predict_on_batch((sample[0], self.probs, self.flags, mask, tree_end))
-			code = code[0]
+				if tfc and do_encode:
+					self.probs = tf.clip_by_value(self.probs, self.model.floor, 1.0)
+					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
+					if self.output:
+						for c in code:
+							self.buffer.write(c, 8, soft_flush=True)
+					bit_count += len(code)*8.0
+					self.probs = self.model.predict_on_batch(sample[0])
+					self.flags = flags
+				else:
+					self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
+					self.flags = tf.concat([self.flags, flags], axis=-1)
+			dim = cur_dim
 
-			if self.output:
-				for c in code:
-					self.buffer.write(c, 8, soft_flush=True)
-			bit_count += len(code)*8.0
-			
 			if tree_end:
 				if self.output:
 					self.buffer.close()
