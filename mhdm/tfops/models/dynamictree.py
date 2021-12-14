@@ -139,13 +139,13 @@ class DynamicTree(Model):
 		def parse(filename):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
-			X = tf.reshape(X, (-1, 4))[...,:3]
+			X = tf.reshape(X, (-1, 4))[...,:meta.dim]
 
 			if keypoints:
 				X = tf.gather(X, spatial.edge_detection(X[...,:], keypoints)[0])
 			
 			if tfx:
-				pca = tfx.pca(X, 3)
+				pca = tfx.pca(X, meta.dim)
 				X = X @ pca
 			else:
 				pca = None
