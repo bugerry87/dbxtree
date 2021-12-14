@@ -195,7 +195,7 @@ class DynamicTreeCallback(LambdaCallback):
 			tree_end = np.all(cur_dim == 0)
 			dim = cur_dim
 			flags = info[0]
-			mask = tf.range(self.model.bins) < (1<<dim)
+			mask = tf.range(self.model.bins) < 1<<(1<<dim)
 			mask = tf.cast(mask, self.model.dtype)
 
 			if tree_start:
