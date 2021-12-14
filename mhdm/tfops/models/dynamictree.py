@@ -337,15 +337,15 @@ class DynamicTree(Model):
 			symbols = tf.reshape(labels, [-1])
 			symbols = tf.cast(symbols, tf.int16)
 			
-			pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='pmax')
-			cdf = tf.math.divide_no_nan(cdf, pmax)
-			cdf = tf.clip_by_value(cdf, self.floor, 1.0)
+			#pmax = tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='pmax')
+			#cdf = tf.math.divide_no_nan(cdf, pmax)
+			#cdf = 
 			cdf = tf.math.cumsum(cdf, axis=-1)
 			cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='cdf_max')
 			cdf = tf.math.round(cdf * float(1<<16))
 			cdf = tf.cast(cdf, tf.int32)
 			cdf = tf.pad(cdf, [(0,0),(1,0)])
-			code = tfc.range_encode(symbols, cdf, precision=16)
+			code = tfc.range_encode(symbols, cdf, precision=16, debug_level=0)
 			return code[None,...]
 		
 		def ignore():
@@ -353,9 +353,10 @@ class DynamicTree(Model):
 		
 		empty_code = tf.constant([''], name='ignore')
 		X, _, _ = data_adapter.unpack_x_y_sample_weight(data)
-		feature, probs, labels, dim, do_encode = X
+		feature, probs, labels, mask, do_encode = X
 		do_encode = tf.math.reduce_all(do_encode)
-		pred = self(feature, training=False)
+		pred = self(feature, training=False) * mask
+		pred = tf.clip_by_value(pred, self.floor, 1.0)
 		probs = tf.concat([probs, pred], axis=-2, name='concat_probs')
 		code = tf.cond(do_encode, encode, ignore, name='do_encode_cond')
 		return probs, code

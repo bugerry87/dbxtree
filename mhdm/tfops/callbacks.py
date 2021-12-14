@@ -195,6 +195,8 @@ class DynamicTreeCallback(LambdaCallback):
 			tree_end = np.all(cur_dim == 0)
 			dim = cur_dim
 			flags = info[0]
+			mask = tf.range(self.model.bins) < (1<<dim)
+			mask = tf.cast(mask, self.model.dtype)
 
 			if tree_start:
 				count_files += 1
@@ -209,7 +211,7 @@ class DynamicTreeCallback(LambdaCallback):
 				self.flags = tf.concat([self.flags, flags], axis=-1)
 			
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
-			self.probs, code = self.model.predict_on_batch((sample[0], self.probs, self.flags, dim, tree_end))
+			self.probs, code = self.model.predict_on_batch((sample[0], self.probs, self.flags, mask, tree_end))
 			code = code[0]
 
 			if self.output:
