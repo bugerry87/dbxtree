@@ -28,7 +28,6 @@ class DynamicTree(Model):
 		branches=('uids', 'pos', 'pivots'),
 		dense=0,
 		activation='softmax',
-		floor=0.0,
 		dtype=tf.float32,
 		name=None,
 		**kwargs
@@ -39,7 +38,6 @@ class DynamicTree(Model):
 		self.heads = max(heads, 1)
 		self.kernels = kernels
 		self.kernel_size = kernel_size
-		self.floor = floor
 		self.branches = dict()
 		self.layer_register = []
 		#branches = set(branches)
@@ -182,6 +180,7 @@ class DynamicTree(Model):
 				if pca is None:
 					i = tf.argsort(bbox)[::-1]
 					x = tf.gather(X, i, batch_dims=-1)
+					bbox = tf.gather(bbox, i)
 				else:
 					x = X
 

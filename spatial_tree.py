@@ -218,10 +218,10 @@ def decode(compressed, uncompressed,
 	radius = np.frombuffer(radius, dtype=np.float32)[0]
 	bbox = flags.read(3*32).to_bytes(3*4, 'big')
 	bbox = np.frombuffer(bbox, dtype=np.float32)
-	mean = flags.read(3*32).to_bytes(3*4, 'big')
-	mean = np.frombuffer(mean, dtype=np.float32)
-	pca = flags.read(9*32).to_bytes(9*4, 'big')
-	pca = np.frombuffer(pca, dtype=np.float32).reshape(3,3)
+	#mean = flags.read(3*32).to_bytes(3*4, 'big')
+	#mean = np.frombuffer(mean, dtype=np.float32)
+	#pca = flags.read(9*32).to_bytes(9*4, 'big')
+	#pca = np.frombuffer(pca, dtype=np.float32).reshape(3,3)
 
 	i = np.argsort(bbox)[::-1]
 	X = []
@@ -230,8 +230,8 @@ def decode(compressed, uncompressed,
 		node = nodes.popleft()
 		nodes.extend(node)
 	
-	X = X@pca
-	X += mean
+	#X = X@pca
+	#X += mean
 
 	fig = viz.create_figure()
 	viz.vertices(X, X[:,2], fig)

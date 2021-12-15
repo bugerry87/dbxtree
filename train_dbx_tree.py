@@ -316,7 +316,6 @@ def main(
 		branches=branches,
 		dense=dense,
 		activation=activation,
-		floor=floor,
 		name=name,
 		**kwargs
 		)
@@ -402,6 +401,7 @@ def main(
 			when=when,
 			writer=writer,
 			range_encode=True,
+			floor=floor,
 			output=log_data
 			)
 		callbacks.append(test_callback)

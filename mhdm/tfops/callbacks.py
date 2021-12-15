@@ -175,6 +175,7 @@ class DynamicTreeCallback(LambdaCallback):
 		when=['on_epoch_end'],
 		writer=None,
 		range_encode=True,
+		floor=0.0,
 		output=None,
 		):
 		"""
@@ -187,6 +188,7 @@ class DynamicTreeCallback(LambdaCallback):
 		self.freq = freq
 		self.writer = writer
 		self.range_encode = range_encode
+		self.floor = floor
 		self.output = output
 		self.buffer = BitBuffer() if output else None
 		pass
@@ -218,23 +220,24 @@ class DynamicTreeCallback(LambdaCallback):
 				self.probs = self.model.predict_on_batch(sample[0]) #tf.zeros((0, self.model.bins), dtype=self.model.dtype)
 				self.flags = flags
 				points = float(info[-2].shape[-2])
+				bbox = tf.math.reduce_max(tf.math.abs(info[-2]), axis=-2).numpy()
 				bit_count = 0
 				if self.output:
-					buffer = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin')
-					self.buffer.open(buffer, 'wb')
-			elif not tree_end:
-				if tfc and do_encode:
-					self.probs = tf.clip_by_value(self.probs, self.model.floor, 1.0)
-					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
-					if self.output:
-						for c in code:
-							self.buffer.write(c, 8, soft_flush=True)
-					bit_count += len(code)*8.0
-					self.probs = self.model.predict_on_batch(sample[0])
-					self.flags = flags
-				else:
-					self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
-					self.flags = tf.concat([self.flags, flags], axis=-1)
+					self.buffer.open(path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin'), 'wb')
+					self.buffer.write(int.from_bytes(np.array(self.meta.radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
+					self.buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
+			elif tfc and do_encode:
+				self.probs = tf.clip_by_value(self.probs, self.floor, 1.0)
+				code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
+				if self.output:
+					for c in code:
+						self.buffer.write(c, 8, soft_flush=True)
+				bit_count += len(code)*8.0
+				self.probs = self.model.predict_on_batch(sample[0])
+				self.flags = flags
+			else:
+				self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
+				self.flags = tf.concat([self.flags, flags], axis=-1)
 			dim = cur_dim
 
 			if tree_end:
