@@ -155,7 +155,7 @@ class NbitTreeCallback(LambdaCallback):
 		pass
 
 
-def range_encode(probs, labels):
+def range_encode(probs, labels, debug_level=1):
 	symbols = tf.reshape(labels, [-1])
 	symbols = tf.cast(symbols, tf.int16)
 	cdf = tf.math.cumsum(probs, axis=-1)
@@ -163,7 +163,17 @@ def range_encode(probs, labels):
 	cdf = tf.math.round(cdf * float(1<<16))
 	cdf = tf.cast(cdf, tf.int32)
 	cdf = tf.pad(cdf, [(0,0),(1,0)])
-	return tfc.range_encode(symbols, cdf, precision=16, debug_level=1)
+	return tfc.range_encode(symbols, cdf, precision=16, debug_level=debug_level)
+
+
+def range_decode(probs, code, shape=None, debug_level=1):
+	shape = shape if shape is not None else tf.constant([probs.shape[0]])
+	cdf = tf.math.cumsum(probs, axis=-1)
+	cdf /= tf.math.reduce_max(cdf, axis=-1, keepdims=True, name='cdf_max')
+	cdf = tf.math.round(cdf * float(1<<16))
+	cdf = tf.cast(cdf, tf.int32)
+	cdf = tf.pad(cdf, [(0,0),(1,0)])
+	return tfc.range_decode(code, shape, cdf, precision=16, debug_level=debug_level)
 
 
 class DynamicTreeCallback(LambdaCallback):
@@ -217,7 +227,7 @@ class DynamicTreeCallback(LambdaCallback):
 
 			if tree_start:
 				count_files += 1
-				self.probs = self.model.predict_on_batch(sample[0]) #tf.zeros((0, self.model.bins), dtype=self.model.dtype)
+				self.probs = self.model.predict_on_batch(sample[0])
 				self.flags = flags
 				points = float(info[-2].shape[-2])
 				bbox = tf.math.reduce_max(tf.math.abs(info[-2]), axis=-2).numpy()

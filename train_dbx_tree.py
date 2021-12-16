@@ -292,9 +292,9 @@ def main(
 	tf.summary.trace_on(graph=True, profiler=False)
 	timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 	log_dir = os.path.join(log_dir, timestamp)
-	log_model = os.path.join(log_dir, "ckpts", "dyntree_{epoch:04d}-{loss:.3f}.hdf5")
-	log_model_start = os.path.join(log_dir, "ckpts", 'dyntree_start.hdf5')
-	log_optimizer = os.path.join(log_dir, "ckpts", "dyntree_{epoch:04d}-{loss:.3f}.train.pkl")
+	log_model = os.path.join(log_dir, "ckpts", "dbx_tree_{epoch:04d}-{loss:.3f}.hdf5")
+	log_model_start = os.path.join(log_dir, "ckpts", 'dbx_tree_start.hdf5')
+	log_optimizer = os.path.join(log_dir, "ckpts", "dbx_tree_{epoch:04d}-{loss:.3f}.train.pkl")
 	log_output = os.path.join(log_dir, timestamp + '.log')
 	log_data = os.path.join(log_dir, 'test')
 	os.makedirs(os.path.join(log_dir, "ckpts"), exist_ok=True)
@@ -354,7 +354,7 @@ def main(
 	
 	if checkpoint:
 		model.load_weights(checkpoint, by_name=checkpoint.endswith('.hdf5'), skip_mismatch=checkpoint.endswith('.hdf5'))
-		model.save_weights(log_model_start)
+	model.save_weights(log_model_start)
 
 	if training_state:
 		with tf.name_scope(optimizer._name):
@@ -368,18 +368,18 @@ def main(
 	tensorboard = TensorBoard(log_dir=log_dir)
 	callbacks = [
 		tensorboard,
-		#ModelCheckpoint(
-		#	log_model,
-		#	save_best_only=save_best_only,
-		#	monitor=monitor
-		#	),
-		#SaveOptimizerCallback(
-		#	model.optimizer,
-		#	log_optimizer,
-		#	monitor=monitor,
-		#	save_best_only=save_best_only,
-		#	mode='max'
-		#	),
+		ModelCheckpoint(
+			log_model,
+			save_best_only=save_best_only,
+			monitor=monitor
+			),
+		SaveOptimizerCallback(
+			model.optimizer,
+			log_optimizer,
+			monitor=monitor,
+			save_best_only=save_best_only,
+			mode='max'
+			),
 		TerminateOnNaN()
 		]
 	
