@@ -243,6 +243,8 @@ class DynamicTree(Model):
 				uids = tf.reshape(uids, (-1,1))
 				uids = bitops.right_shift(uids, tf.range(63, dtype=uids.dtype))
 				uids = bitops.bitwise_and(uids, 1)
+				mask = tf.math.reduce_max(uids, axis=0)
+				uids = mask - uids * -2
 				meta.features['uids'] = tf.cast(uids, self.dtype)
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1, name='concat_features')
