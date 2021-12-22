@@ -48,6 +48,7 @@ class DynamicTree(Model):
 					merge = Conv1D(
 						self.kernels, self.flag_size, self.flag_size,
 						#activation='relu',
+						kernel_initializer='random_uniform',
 						padding='same', #'valid',
 						dtype=self.dtype,
 						name='merge_{}'.format(branch),
@@ -56,6 +57,7 @@ class DynamicTree(Model):
 					conv = [Conv1D(
 						self.kernels, self.kernel_size, 1,
 						#activation='relu',
+						kernel_initializer='random_uniform',
 						padding='same',
 						dtype=self.dtype,
 						name='conv_{}_{}'.format(branch, i),
@@ -67,8 +69,8 @@ class DynamicTree(Model):
 		
 		self.dense = [Dense(
 			self.kernels,
-			activation='relu',
-			#kernel_initializer='random_uniform',
+			#activation='relu',
+			kernel_initializer='random_uniform',
 			dtype=self.dtype,
 			name='dense_{}'.format(i),
 			**kwargs
@@ -77,7 +79,7 @@ class DynamicTree(Model):
 		self.head = Dense(
 			self.bins,
 			activation=activation,
-			#kernel_initializer='random_uniform',
+			kernel_initializer='random_uniform',
 			dtype=self.dtype,
 			name='head',
 			**kwargs
