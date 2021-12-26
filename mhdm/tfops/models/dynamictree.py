@@ -306,13 +306,13 @@ class DynamicTree(Model):
 			x0 = tf.stop_gradient(x)
 			for conv in branch.conv:
 				x = tf.concat([x0, conv(x)], axis=-1)
-				x = normalize(x)
+				#x = normalize(x)
 			X += x
 		x = tf.stop_gradient(X)
 
 		for dense in self.dense:
 			X = tf.concat([x, dense(X)], axis=-1)
-			X = normalize(X)
+			#X = normalize(X)
 		X = self.head(X)
 		return X
 
