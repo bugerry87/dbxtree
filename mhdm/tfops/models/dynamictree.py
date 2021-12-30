@@ -47,7 +47,7 @@ class DynamicTree(Model):
 				self.branches[branch] = utils.Prototype(
 					merge = Conv1D(
 						self.kernels, self.flag_size, self.flag_size,
-						activation='relu',
+						#activation='relu',
 						padding='valid',
 						dtype=self.dtype,
 						name='merge_{}'.format(branch),
@@ -55,7 +55,7 @@ class DynamicTree(Model):
 						),
 					conv = [Conv1D(
 						self.kernels, self.kernel_size, 1,
-						activation='relu',
+						#activation='relu',
 						padding='same',
 						dtype=self.dtype,
 						name='conv_{}_{}'.format(branch, i),
@@ -302,15 +302,13 @@ class DynamicTree(Model):
 			x0 = tf.stop_gradient(x)
 			for conv in branch.conv:
 				x = tf.concat([x0, conv(x)], axis=-1)
-				x = tf.math.log(x + 1.0)
-				#x = normalize(x)
+				x = normalize(x)
 			X += x
 		x = tf.stop_gradient(X)
 
 		for dense in self.dense:
 			X = tf.concat([x, dense(X)], axis=-1)
 			X = tf.math.log(X + 1.0)
-			#X = normalize(X)
 		X = self.head(X)
 		return X
 
