@@ -47,7 +47,7 @@ class DynamicTree(Model):
 				self.branches[branch] = utils.Prototype(
 					merge = Conv1D(
 						self.kernels, self.flag_size, self.flag_size,
-						activation='softsign',
+						#activation='softsign',
 						padding='valid',
 						dtype=self.dtype,
 						name='merge_{}'.format(branch),
@@ -55,7 +55,7 @@ class DynamicTree(Model):
 						),
 					conv = [Conv1D(
 						self.kernels, self.kernel_size, 1,
-						activation='softsign',
+						#activation='softsign',
 						padding='same',
 						dtype=self.dtype,
 						name='conv_{}_{}'.format(branch, i),
