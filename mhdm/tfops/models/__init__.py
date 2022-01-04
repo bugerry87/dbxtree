@@ -4,7 +4,7 @@ import tensorflow as tf
 @tf.function
 def normalize(X):
 	n = tf.stop_gradient(X)
-	n = tf.abs(X)
+	n = tf.abs(n)
 	n = tf.math.reduce_mean(n, axis=-1, keepdims=True)
 	X = tf.math.divide_no_nan(X, n)
 	return X
