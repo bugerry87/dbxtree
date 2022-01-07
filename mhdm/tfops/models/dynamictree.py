@@ -231,7 +231,7 @@ class DynamicTree(Model):
 				pivots = tf.concat([tf.roll(pivots, i, 0) for i in kernel], axis=-2, name='concat_pivot_kernel')
 				pivots = pivots - pos
 				pivots = tf.math.reduce_sum(pivots * pivots, axis=-1)
-				#pivots = tf.exp(-pivots)
+				pivots = tf.exp(-pivots)
 				meta.features['pivots'] = tf.reshape(pivots, (-1,self.kernels))
 
 			if 'uids' in self.branches:
