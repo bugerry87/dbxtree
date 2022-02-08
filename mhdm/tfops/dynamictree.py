@@ -54,3 +54,15 @@ def encode(X, nodes, pos, bbox, radius):
 	X = tf.gather(X, i)
 
 	return X, nodes, pivots, pos, bbox, flags, uids, dims
+
+
+def decode(flags, bbox, radius, X, keep):
+	signs = bitops.right_shift(flags[...,None], tf.range(8))
+	signs = bitops.bitwise_and(signs, 1)
+	offsets = tf.cast(signs[...,None], tokens.dtype) * tokens[None,...] * bbox * tf.cast(bbox > radius, tokens.dtype)
+	i = tf.where(flags == 0)
+	keep = tf.concat([keep, tf.gather(X, i[...,0])], axis=-2)
+	i = tf.where(signs)
+	X = tf.gather(X, i[...,-2]) - tf.gather_nd(offsets, i)
+	X = tf.concat([X, keep], axis=-2)
+	return X, keep, bbox*0.5

@@ -55,7 +55,7 @@ class DynamicTree(Model):
 						),
 					conv = [Conv1D(
 						self.kernels, self.kernel_size, 1,
-						#activation='softsign',
+						#activation='relu',
 						padding='same',
 						dtype=self.dtype,
 						name='conv_{}_{}'.format(branch, i),
