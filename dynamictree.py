@@ -132,7 +132,6 @@ def encode(uncompressed, compressed,
 	):
 	"""
 	"""
-	encode.count = 0
 	buffer = BitBuffer(compressed, 'wb')
 	X = lidar.load(uncompressed, xshape, xtype)[..., :oshape[-1]].astype(np.float32)
 
@@ -171,6 +170,8 @@ def encode(uncompressed, compressed,
 		np.bitwise_or.at(flags, inv, 1<<bits)
 
 		bbox[r] *= 1.0 - big*0.5
+		offset = (1-(X[r]>=0)*2) * bbox[r] * mask[...,None]
+		pos = pos[...,None,:] + offset
 		X[r] += (1-(X[r]>=0)*2) * bbox[r] * mask[...,None]
 		
 		r = r[mask]
