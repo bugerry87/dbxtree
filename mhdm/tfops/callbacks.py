@@ -5,6 +5,7 @@ import pickle
 
 ## Installed
 import numpy as np
+#from scipy.spatial import cKDTree
 import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
@@ -13,6 +14,7 @@ from mhdm.tfops.models.nbittree import NbitTree
 ## Local
 from . import bitops
 from ..bitops import BitBuffer
+#from .. import lidar
 
 ## Optional
 try:
@@ -209,6 +211,7 @@ class DynamicTreeCallback(LambdaCallback):
 		if epoch % self.freq != 0:
 			return
 		
+		d1_psnr = 0
 		bpp_sum = 0
 		bpp_min = (1<<32)-1
 		bpp_max = 0
@@ -260,12 +263,25 @@ class DynamicTreeCallback(LambdaCallback):
 				if self.steps and self.steps == count_files:
 					break
 
+				'''
+				i = tf.argsort(bbox)[::-1]
+				X = tf.gather(info[-2], i, batch_dims=-1).numpy()
+				Y = info[2].numpy()[:,0,:]
+				XYdelta, XYnn = cKDTree(X).query(Y, k=1, n_jobs=4)
+				YXdelta, YXnn = cKDTree(Y).query(X, k=1, n_jobs=4)
+				print(max(XYdelta))
+				XYmse = np.mean(XYdelta**2)
+				YXmse = np.mean(YXdelta**2)
+				d1_psnr += lidar.psnr(XYmse + YXmse, peak=1.0)
+				'''
+
 		if self.output:
 			self.buffer.close()
 		
 		metrics['bpp'] = bpp_sum / count_files
 		metrics['bpp_min'] = bpp_min
 		metrics['bpp_max'] = bpp_max
+		metrics['d1_psnr'] = d1_psnr / count_files
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name
@@ -276,7 +292,6 @@ class DynamicTreeCallback(LambdaCallback):
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
 					tf.summary.scalar(name, metric, epoch)
-					tf.summary.text('test_code', code, epoch)
 			self.writer.flush()
 		pass
 

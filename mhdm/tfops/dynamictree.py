@@ -39,8 +39,7 @@ def encode(X, nodes, pos, bbox, radius):
 	pos = tf.gather(tf.reshape(pivots,(-1,3)), i)
 
 	flags = bitops.left_shift(flags, tf.range(8))
-	flags = tf.math.reduce_sum(flags, axis=-1, keepdims=True) 
-	flags = flags[...,0]
+	flags = tf.math.reduce_sum(flags, axis=-1)
 
 	bbox *= 1.0 - tf.cast(big, tf.float32)*0.5
 	X += (1.0 - tf.cast(sign, tf.float32)*2.0) * bbox * tf.cast(mask, tf.float32)

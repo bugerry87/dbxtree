@@ -21,7 +21,6 @@ class DynamicTree(Model):
 	"""
 	"""
 	def __init__(self,
-		heads = 1,
 		kernels=16,
 		kernel_size=3,
 		convolutions=4,
@@ -35,7 +34,6 @@ class DynamicTree(Model):
 		"""
 		"""
 		super(DynamicTree, self).__init__(name=name, dtype=dtype, **kwargs)
-		self.heads = max(heads, 1)
 		self.kernels = kernels
 		self.kernel_size = kernel_size
 		self.branches = dict()
@@ -183,9 +181,9 @@ class DynamicTree(Model):
 					x = X
 
 				while np.any(dim):
-					x, nodes, pivots, _pos, bbox, flags, uids, dim = dynamictree.encode(x, nodes, pos, bbox, radius)
+					x, nodes, pivots, Y, bbox, flags, uids, dim = dynamictree.encode(x, nodes, pos, bbox, radius)
 					yield flags, uids, pos, pivots, bbox, dim, X, filename
-					pos = _pos
+					pos = Y
 		
 		if parser is None:
 			parser, meta = self.parser(*args, **kwargs)
