@@ -24,7 +24,7 @@ def init_main_args(parents=[]):
 		main_args: The ArgumentParsers.
 	"""
 	main_args = ArgumentParser(
-		description="SpatialTree",
+		description="DBXTree",
 		conflict_handler='resolve',
 		parents=parents
 		)
@@ -63,13 +63,13 @@ def init_main_args(parents=[]):
 def init_encode_args(parents=[], subparser=None):
 	if subparser:
 		encode_args = subparser.add_parser('encode',
-			help='Encode datapoints to a SpatialTree',
+			help='Encode datapoints to a DBXTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		encode_args = ArgumentParser(
-			description='Encode datapoints to a SpatialTree',
+			description='Encode datapoints to a DBXTree',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -106,13 +106,13 @@ def init_encode_args(parents=[], subparser=None):
 def init_decode_args(parents=[], subparser=None):
 	if subparser:
 		decode_args = subparser.add_parser('decode',
-			help='Decode SpatialTree to datapoints',
+			help='Decode DBXTree to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
 	else:
 		decode_args = ArgumentParser(
-			description='Decode SpatialTree to datapoints',
+			description='Decode DBXTree to datapoints',
 			conflict_handler='resolve',
 			parents=parents
 			)
@@ -133,55 +133,53 @@ def encode(uncompressed, compressed,
 	"""
 	"""
 	buffer = BitBuffer(compressed, 'wb')
-	X = lidar.load(uncompressed, xshape, xtype)[..., :oshape[-1]].astype(np.float32)
+	X = lidar.load(uncompressed, xshape, xtype)[..., :oshape[-1]].astype(xtype)
 
 	pca = PCA(n_components=3)
 	pca.fit(X)
 	X -= pca.mean_
+	X = X@np.linalg.inv(pca.components_)
+	print(np.abs(X).max(axis=0))
 
-	bbox = np.abs(X).max(axis=0).astype(np.float32)
-	buffer.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
+	bbox = np.abs(X).max(axis=0).astype(xtype)
+	buffer.write(int.from_bytes(np.array(radius).astype(xtype).tobytes(), 'big'), 32, soft_flush=True)
 	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
-	buffer.write(int.from_bytes(pca.mean_.tobytes(), 'big'), pca.mean_.size * 32, soft_flush=True)
+	buffer.write(int.from_bytes(pca.mean_.astype(xtype).tobytes(), 'big'), pca.mean_.size * 32, soft_flush=True)
 	buffer.write(int.from_bytes(pca.components_.tobytes(), 'big'), pca.components_.size * 32, soft_flush=True)
 
-	bbox = np.repeat(bbox[None,...], len(X), axis=0)
-	r = np.arange(len(X))
+	#r = np.arange(len(X))
 	nodes = np.ones(len(X), dtype=object)
+	dims = 3
 
-	while len(r):
-		u, idx, inv = np.unique(nodes[r], return_index=True, return_inverse=True)
+	while dims:
+		u, idx, inv = np.unique(nodes, return_index=True, return_inverse=True)
 		flags = np.zeros(len(u), dtype=int)
 
-		big = bbox[r] > radius
-		dims = np.sum(big, axis=-1)
-		if np.any(bbox[r].min(axis=0) != bbox[r].max(axis=0)):
-			print(bbox[r].min(axis=0), bbox[r].max(axis=0))
-		keep = flags > 0
-		np.bitwise_or.at(keep, inv, np.any(np.abs(X[r]) > radius, axis=-1))
-		mask = (dims > 0) & keep[inv]
+		big = bbox > radius
+		dims = np.sum(big)
+		keep = np.zeros(len(u), dtype=bool)
+		np.bitwise_or.at(keep, inv, np.any(np.abs(X) > radius, axis=-1))
+		keep = keep[inv]
+		X = X[keep]
+		nodes = nodes[keep]
 
-		i = np.argsort(bbox[r][idx], axis=-1)[...,::-1][inv]
-		sign = X[r[...,None],i] >= 0
+		sign = X >= 0
 		bits = np.packbits(sign, -1, 'little').reshape(-1).astype(int)
 		bits &= (1<<dims) - 1
-		nodes[r] <<= dims
-		nodes[r] |= bits
-		np.bitwise_or.at(flags, inv, 1<<bits)
+		nodes <<= dims
+		nodes |= bits
+		np.bitwise_or.at(flags, inv[keep], 1<<bits)
 
-		bbox[r] *= 1.0 - big*0.5
-		offset = (1-(X[r]>=0)*2) * bbox[r] * mask[...,None]
-		pos = pos[...,None,:] + offset
-		X[r] += (1-(X[r]>=0)*2) * bbox[r] * mask[...,None]
-		
-		r = r[mask]
-		dims = dims[idx]
-		flags = (flags*keep)[dims>0]
-		dims = dims[dims>0]
+		bbox *= 0.5
+		X += (1-sign*2) * bbox * (big > 0)
+		args = np.argsort(nodes)
+		nodes = nodes[args]
+		X = X[args]
 
-		print(len(r))
-		for flag, dim in zip(flags, 1<<dims):
-			buffer.write(flag, dim, soft_flush=True)
+		log(len(X))
+		if dims:
+			for flag in flags:
+				buffer.write(flag, 1<<dims, soft_flush=True)
 		pass
 
 	buffer.close()
@@ -197,40 +195,37 @@ def decode(compressed, uncompressed,
 	buffer = BitBuffer(compressed, 'rb')
 	radius = np.frombuffer(buffer.read(32).to_bytes(4, 'big'), dtype=np.float32)[0]
 	bbox = buffer.read(3*32).to_bytes(3*4, 'big')
-	bbox = np.frombuffer(bbox, dtype=np.float32)[None,...]
+	bbox = np.frombuffer(bbox, dtype=np.float32)
+	mean = buffer.read(3*32).to_bytes(3*4, 'big')
+	mean = np.frombuffer(mean, dtype=np.float32)[None,...]
 	pca = buffer.read(9*32).to_bytes(9*4, 'big')
 	pca = np.frombuffer(pca, dtype=np.float32).reshape(3,3)
 
-	X = np.zeros_like(bbox)
+	X = np.zeros_like(bbox[None,...])
 	X_done = np.zeros((0,bbox.shape[-1]), dtype=X.dtype)
 
 	while True:
 		mask = bbox > radius
-		dims = np.sum(mask, axis=-1)
-		done = dims==0
-		dims = dims[~done]
-		if not len(dims):
+		dims = np.sum(bbox > radius)
+		if not dims:
 			break
-
-		ii = np.argsort(bbox)[::-1]
-		flags = np.hstack([buffer.read(shift) for shift in 1<<dims])
-		done[~done] |= flags == 0
-		flags = np.vstack([flag >> np.arange(8) & 1 for flag in flags])[flags != 0]
-		idx = np.hstack([np.full(max(np.sum(bits),1),i) for i, bits in enumerate(flags)])
-		tokens = np.arange(8) * flags
-		tokens = np.hstack(tokens)[np.hstack(flags) > 0]
-		tokens = np.vstack([(token >> i & 1)*2 - 1 for i, token in zip(ii[~done][idx], tokens)])
 		
-		mask = mask[~done][idx]
-		bbox = bbox[~done][idx] * (1 - mask*0.5)
+		flags = np.hstack([buffer.read(1<<dims) for x in X])
+		done = flags == 0
+		flags = np.vstack([flag >> np.arange(8) & 1 for flag in flags])
+		idx = np.where(flags)
+		tokens = 0.5 - (idx[-1][...,None] >> np.arange(3) & 1)
+		
 		X_done = np.vstack([X_done, X[done]])
-		X = X[~done][idx] - bbox * tokens * mask
+		X = X[idx[0]] - bbox * tokens * mask
+		bbox = bbox * 0.5
 		log(X.shape, X_done.shape)
 		pass
 
 	X = np.vstack([X, X_done]).astype(np.float32)
-	M = np.linalg.inv(pca.reshape(3,3))
-	X = X@M
+	print(X.max(axis=0))
+	X = X@pca
+	X += mean
 	lidar.save(X, uncompressed)
 
 	buffer.close()
