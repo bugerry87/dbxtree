@@ -10,6 +10,7 @@ tokens = bitops.right_shift(tokens[...,None], tf.range(3))
 tokens = bitops.bitwise_and(tokens, 1)
 tokens = 0.5 - tf.cast(tokens, tf.float32)*1.0
 
+
 def encode(X, nodes, pos, bbox, radius):
 	uids, inv = tf.unique(nodes)
 	n = tf.reduce_max(inv)+1

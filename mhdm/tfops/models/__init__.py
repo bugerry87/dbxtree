@@ -10,7 +10,7 @@ def normalize(X):
 
 ## Inhire
 from .nbittree import NbitTree
-from .dynamictree import DynamicTree
+from .dbxtree import DynamicTree
 from .entropymap import EntropyMapper
 
 __all__ = [NbitTree, EntropyMapper, DynamicTree, normalize]

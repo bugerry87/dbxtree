@@ -288,9 +288,9 @@ class BitBuffer():
 	@property
 	def closed(self):
 		"""
-		Returns True if the file is closed but is always False if no file is attached.
+		Returns True if the file is closed but is always True if no file is attached.
 		"""
-		return self.fid.closed if self.fid else False
+		return self.fid.closed if self.fid else True
 	
 	def tell(self):
 		"""
@@ -426,7 +426,7 @@ class BitBuffer():
 		bits = int(bits)
 		n_bits = self.buffer.bit_length() - 8
 		
-		if n_bits < bits and self.fid and not self.closed:
+		if n_bits < bits and not self.closed:
 			n_bytes = max(bits//8, 1)
 			buffer = self.fid.read(self.buf + n_bytes)
 			if not tail_zeros and len(buffer) < n_bytes:

@@ -176,7 +176,7 @@ def encode(uncompressed, compressed,
 		nodes.extend(node)
 	
 	flags.close()
-	np.array(buffer, dtype=np.uint8).tofile('data/flags.bin')
+	#np.array(buffer, dtype=np.uint8).tofile('data/flags.bin')
 	log("Done:", encode.count)
 	pass
 
