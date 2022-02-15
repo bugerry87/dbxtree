@@ -1,7 +1,6 @@
 
 ## Build in
 from argparse import ArgumentParser
-from collections import deque
 
 ## Installed
 import numpy as np

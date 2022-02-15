@@ -8,7 +8,7 @@ from tensorflow.python.keras.engine import data_adapter
 
 ## Local
 from . import normalize
-from .. import bitops, spatial, dynamictree
+from .. import bitops, dbxtree, spatial
 from ... import utils
 
 ## Optional
@@ -183,7 +183,7 @@ class DynamicTree(Model):
 					x = X
 
 				while np.any(dim):
-					x, nodes, pivots, _pos, bbox, flags, uids, dim = dynamictree.encode(x, nodes, pos, bbox, radius)
+					x, nodes, pivots, _pos, bbox, flags, uids, dim = dbxtree.encode(x, nodes, pos, bbox, radius)
 					yield flags, uids, pos, pivots, bbox, dim, X, filename
 					pos = _pos
 		
