@@ -438,9 +438,9 @@ class BitBuffer():
 		
 		if n_bits >= bits:
 			mask = (1<<bits) - 1
-			result = (self.buffer >> n_bits-bits) & mask
-			self.buffer &= (1<<n_bits-bits) - 1
-			self.buffer |= 0xFF << n_bits-bits
+			result = (self.buffer >> n_bits - bits) & mask
+			self.buffer &= (1<<n_bits - bits) - 1
+			self.buffer |= 0xFF << n_bits - bits
 		elif tail_zeros:
 			result = 0
 		else:

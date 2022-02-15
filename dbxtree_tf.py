@@ -2,6 +2,7 @@
 
 ## Build in
 from argparse import ArgumentParser
+from os import path
 
 ## Installed
 import numpy as np
@@ -11,6 +12,7 @@ import tensorflow as tf
 import mhdm.tfops.dbxtree as dbxtree
 from mhdm.bitops import BitBuffer
 from mhdm.utils import log, ifile, time_delta
+import mhdm.lidar as lidar
 
 
 def init_main_args(parents=[]):
@@ -147,11 +149,10 @@ def encode(
 
 		buffer.open(outname, 'wb')
 		buffer.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
-		buffer.write(bbox.shape[-1] * 32, 8, soft_flush=True)
 		buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
 
 		i = np.argsort(bbox)[...,::-1]
-		BB = bbox = tf.constant(bbox[i])
+		bbox = tf.constant(bbox[i])
 		X = tf.constant(X[...,i])
 		pos = tf.zeros_like(bbox)[None, ...]
 		nodes = tf.ones(len(X), dtype=np.int64)
@@ -173,7 +174,60 @@ def encode(
 	log(f"Done in {next(delta_total)}s")
 
 
-def decode():
+def decode(
+	compressed,
+	uncompressed,
+	xtype = 'float32',
+	xshape = (-1,4),
+	oshape = (-1,3),
+	**kwargs
+	):
+	"""
+	"""
+	log("Decoding...")
+	c = 0
+	buffer = BitBuffer()
+	ext = path.splitext(uncompressed)[-1]
+	ext = ext if ext else '.bin'
+	uncompressed = uncompressed.replace(ext, '')
+	files = [f for f in ifile(compressed)]
+	delta_total = time_delta()
+	next(delta_total)
+	for f in files:
+		outname = f"{uncompressed}.{c:05d}.pts{ext}" if len(files) > 1 else f"{uncompressed}.pts{ext}"
+
+		buffer.reset()
+		buffer.open(f, 'rb')
+
+		radius = buffer.read(32)
+		radius = np.frombuffer(radius.to_bytes(4, 'big'), dtype=np.float32)[0]
+		bbox = buffer.read(oshape[-1]*32).to_bytes(oshape[-1]*4, 'big')
+		bbox = np.frombuffer(bbox, dtype=np.float32)
+
+		i = np.argsort(bbox)[...,::-1]
+		bb = tf.constant(bbox[i])
+		r = tf.constant(radius)
+
+		Y = tf.zeros([1,3], dtype=tf.float32)
+		keep = tf.zeros([0,3], dtype=tf.float32)
+		delta = time_delta()
+		next(delta)
+		dims = 3
+		read = 1
+		log(f"{f} -> {outname} ", end="")
+		while dims:
+			flags = np.array([buffer.read(1<<dims) for y in range(read)])
+			read = np.sum(flags[...,None] >> np.arange(1<<dims) & 1)
+			flags = tf.constant(flags)
+			Y, keep, bb = dbxtree.decode(flags, bb, r, Y, keep)
+			bbox = bbox * 0.5
+			dims = np.sum(bbox > radius)
+			log(end=".", flush=True)
+		buffer.close()
+		lidar.save(Y.numpy()[...,i], outname)
+		log(f" {next(delta)}s")
+		c += 1
+	log(f"Done in {next(delta_total)}s")
 	pass
 
 

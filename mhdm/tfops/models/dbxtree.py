@@ -181,11 +181,7 @@ class DynamicTree(Model):
 					x = X
 
 				while np.any(dim):
-<<<<<<< HEAD:mhdm/tfops/models/dynamictree.py
-					x, nodes, pivots, Y, bbox, flags, uids, dim = dynamictree.encode(x, nodes, pos, bbox, radius)
-=======
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dbxtree.encode(x, nodes, pos, bbox, radius)
->>>>>>> e875ad9cfbb4a13967d07d007604ed54ef18ea3c:mhdm/tfops/models/dbxtree.py
 					yield flags, uids, pos, pivots, bbox, dim, X, filename
 					pos = Y
 		
