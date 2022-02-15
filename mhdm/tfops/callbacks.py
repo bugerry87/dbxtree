@@ -152,7 +152,7 @@ class NbitTreeCallback(LambdaCallback):
 				for name, metric in metrics.items():
 					name = 'epoch_' + name
 					tf.summary.scalar(name, metric, epoch)
-					tf.summary.text('test_code', code, epoch)
+					#tf.summary.text('test_code', code, epoch)
 			self.writer.flush()
 		pass
 
@@ -281,7 +281,7 @@ class DynamicTreeCallback(LambdaCallback):
 		metrics['bpp'] = bpp_sum / count_files
 		metrics['bpp_min'] = bpp_min
 		metrics['bpp_max'] = bpp_max
-		metrics['d1_psnr'] = d1_psnr / count_files
+		#metrics['d1_psnr'] = d1_psnr / count_files
 		
 		for name, metric in metrics.items():
 			name = 'test_' + name
