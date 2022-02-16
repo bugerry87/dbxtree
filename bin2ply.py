@@ -23,7 +23,7 @@ def init_main_args(parents=[]):
 		main_args: The ArgumentParsers.
 	"""
 	main_args = ArgumentParser(
-		description="Kitti2PLY",
+		description="Bin2PLY",
 		conflict_handler='resolve',
 		parents=parents
 		)
@@ -32,7 +32,7 @@ def init_main_args(parents=[]):
 		'--input', '-X',
 		metavar='WILDCARD',
 		nargs='+',
-		help='A wildcard to a set of kitti scans'
+		help='A wildcard to a set of Bin scans'
 		)
 	
 	main_args.add_argument(
@@ -40,6 +40,22 @@ def init_main_args(parents=[]):
 		metavar='DIR',
 		default=None,
 		help='A directory for the output data'
+		)
+	
+	main_args.add_argument(
+		'--shape', '-s',
+		metavar='SHAPE',
+		type=int,
+		nargs='+',
+		default=(-1,4),
+		help='Input shape of the data'
+		)
+	
+	main_args.add_argument(
+		'--dtype', '-t',
+		metavar='TYPE',
+		default='float32',
+		help='Input type of the data'
 		)
 	
 	main_args.add_argument(
@@ -68,11 +84,11 @@ def main(args):
 	
 	for f in files:
 		output = path.join(args.output, path.splitext(path.basename(f))[0] + '.ply')
-		X = np.fromfile(f, dtype=np.float32).reshape(-1,4)
+		X = np.fromfile(f, args.dtype).reshape(*args.shape)
 		if not args.insensity:
-			P = pcl.PointCloud(X[:,:-1])
+			P = pcl.PointCloud(X[...,:3])
 		else:
-			P = pcl.PointCloud_PointXYZI(X)
+			P = pcl.PointCloud_PointXYZI(X[...,:4])
 		pcl.save(P, output, binary=args.binary)
 		log("Convert {} to {}".format(f, output))
 
