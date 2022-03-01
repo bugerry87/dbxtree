@@ -211,7 +211,7 @@ def init_main_args(parents=[]):
 		'--floor',
 		metavar='FLOAT',
 		type=float,
-		default=0.0,
+		default=0.0001,
 		help='Probability floor, added to the estimated probabilities'
 		)
 	

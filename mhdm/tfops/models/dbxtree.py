@@ -183,7 +183,7 @@ class DynamicTree(Model):
 				while np.any(dim):
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dbxtree.encode(x, nodes, pos, bbox, radius)
 					yield flags, uids, pos, pivots, bbox, dim, X, filename
-					pos = Y
+					pos = _pos
 		
 		if parser is None:
 			parser, meta = self.parser(*args, **kwargs)
