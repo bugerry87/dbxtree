@@ -87,6 +87,7 @@ def init_encode_args(parents=[], subparser=None):
 		'--xshape',
 		nargs='+',
 		metavar='SHAPE',
+		type=int,
 		default=(-1,4),
 		help='Dimensionality of the input shape'
 		)
@@ -95,6 +96,7 @@ def init_encode_args(parents=[], subparser=None):
 		'--oshape',
 		nargs='+',
 		metavar='SHAPE',
+		type=int,
 		default=(-1,3),
 		help='Dimensionality of the output shape'
 		)
@@ -144,7 +146,7 @@ def encode(
 	next(delta_total)
 	for f in files:
 		outname = f"{compressed}.{c:05d}.dbx.bin" if len(files) > 1 else f"{compressed}.dbx.bin"
-		X = np.fromfile(f, xtype).reshape(*xshape)[...,:oshape[-1]]
+		X = lidar.load(f, xshape, xtype)[...,:oshape[-1]]
 		bbox = np.abs(X).astype(np.float32).max(axis=0)
 
 		buffer.open(outname, 'wb')
