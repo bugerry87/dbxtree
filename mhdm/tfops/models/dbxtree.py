@@ -110,6 +110,7 @@ class DynamicTree(Model):
 	def parser(self, index,
 		dim=3,
 		xtype='float32',
+		xshape=(-1,4),
 		keypoints=0.0,
 		shuffle=0,
 		take=0,
@@ -120,6 +121,7 @@ class DynamicTree(Model):
 		meta = self.set_meta(index,
 			dim=dim,
 			xtype=xtype,
+			xshape=xshape,
 			keypoints=keypoints,
 			**kwargs
 			)
@@ -128,7 +130,7 @@ class DynamicTree(Model):
 		def parse(filename):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
-			X = tf.reshape(X, (-1, 4))[...,:meta.dim]
+			X = tf.reshape(X, xshape)[...,:meta.dim]
 
 			if keypoints:
 				X = tf.gather(X, spatial.edge_detection(X[...,:], keypoints)[0])

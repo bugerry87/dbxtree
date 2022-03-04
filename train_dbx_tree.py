@@ -58,6 +58,22 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--xshape',
+		metavar='SHAPE',
+		type=int,
+		nargs='+',
+		default=(-1, 4),
+		help='Shape of the input data'
+		)
+	
+	main_args.add_argument(
+		'--xtype',
+		metavar='TYPE',
+		default='float32',
+		help='Type of the input data'
+		)
+	
+	main_args.add_argument(
 		'--epochs', '-e',
 		metavar='INT',
 		type=int,
@@ -254,6 +270,8 @@ def main(
 	train_index=None,
 	val_index=None,
 	test_index=None,
+	xshape=(-1,4),
+	xtype='float32',
 	epochs=1,
 	learning_rate=0.001,
 	monitor=None,
@@ -323,6 +341,8 @@ def main(
 	meta_args = dict(
 		radius=radius,
 		keypoints=keypoints,
+		xshape=xshape,
+		xtype=xtype
 		)
 	
 	trainer, train_encoder, train_meta = model.trainer(train_index, take=steps_per_epoch, shuffle=shuffle, **meta_args) if train_index else (None, None, None)
