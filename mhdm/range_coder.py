@@ -146,7 +146,10 @@ class RangeEncoder(RangeCoder):
 			total = cdf[-1]
 		super(RangeEncoder, self).update(int(start), int(end), int(total))
 	
-	def updates(self, symbols, cdfs=None):
+	def updates(self, symbols, cdfs=None, probs=None, floor=0):
+		if probs is not None:
+			cdfs = prob2cdf(probs, self.precision, floor)
+		
 		if cdfs is None:
 			for symbol in symbols:
 				self.update(symbol)
