@@ -6,10 +6,11 @@ from . import bitops
 
 
 def prob2cdf(probs, precision=16, floor=0, dtype=np.uint64):
-	probs = np.array(probs, dtype=float) + floor
+	probs = np.array(probs, dtype=np.float64)
+	np.clip(probs, floor, 1.0, out=probs)
 	shape = [*probs.shape]
 	shape[-1] += 1
-	cdf = np.zeros(shape)
+	cdf = np.zeros(shape, dtype=np.float64)
 	cdf[..., 1:] = probs 
 	cdf /= np.linalg.norm(cdf, ord=1, axis=-1, keepdims=True)
 	cdf = np.cumsum(cdf, axis=-1)
@@ -56,11 +57,11 @@ class RangeCoder():
 		self.range = self.high - self.low + 1
 	
 	def update(self, start, end, total):
-		assert(start < end <= total)
-		assert(self.low < self.high)
-		assert(self.low & self.inner_range == self.low)
-		assert(self.high & self.inner_range == self.high)
-		assert(self.quat_range <= self.range <= self.total_range)
+		assert start < end <= total, (start, end, total)
+		assert self.low < self.high, (self.low, self.high)
+		assert self.low & self.inner_range == self.low, (self.low, self.inner_range)
+		assert self.high & self.inner_range == self.high, (self.high, self.inner_range)
+		assert self.quat_range <= self.range <= self.total_range, (self.quat_range, self.range, self.total_range)
 
 		self.range //= int(total)
 		self.high = self.low + int(end) * self.range - 1
@@ -148,7 +149,7 @@ class RangeEncoder(RangeCoder):
 	
 	def updates(self, symbols, cdfs=None, probs=None, floor=0):
 		if probs is not None:
-			cdfs = prob2cdf(probs, self.precision, floor)
+			cdfs = prob2cdf(probs, self.precision//2, floor)
 		
 		if cdfs is None:
 			for symbol in symbols:

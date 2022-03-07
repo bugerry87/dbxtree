@@ -206,7 +206,7 @@ class DynamicTreeCallback(LambdaCallback):
 			self.buffer = BitBuffer()
 			self.range_encoder = None
 		elif range_encoder == 'python':
-			self.range_encoder = RangeEncoder()
+			self.range_encoder = RangeEncoder(precision=64)
 			self.buffer = None
 		pass
 
@@ -255,15 +255,15 @@ class DynamicTreeCallback(LambdaCallback):
 			elif do_encode:
 				self.probs = tf.clip_by_value(self.probs, self.floor, 1.0)
 				if self.range_encoder is not None:
-					self.range_encoder.updates(self.flags.numpy(), probs=self.probs)
+					self.range_encoder.updates(self.flags.numpy(), probs=np.squeeze(self.probs.numpy()))
 				elif self.buffer is not None and tfc:
 					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
 					if self.output:
 						for c in code:
 							self.buffer.write(c, 8, soft_flush=True)
 					bit_count += len(code)*8.0
-					self.probs = self.model.predict_on_batch(sample[0])
-					self.flags = flags
+				self.probs = self.model.predict_on_batch(sample[0])
+				self.flags = flags
 			else:
 				self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
 				self.flags = tf.concat([self.flags, flags], axis=-1)
@@ -272,6 +272,7 @@ class DynamicTreeCallback(LambdaCallback):
 			if tree_end:
 				if self.range_encoder is not None:
 					self.range_encoder.finalize()
+					bit_count = len(self.range_encoder)
 					self.range_encoder.close()
 				elif self.buffer is not None:
 					self.buffer.close()
