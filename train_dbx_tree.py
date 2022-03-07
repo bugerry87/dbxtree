@@ -263,6 +263,13 @@ def init_main_args(parents=[]):
 		metavar='PATH',
 		help='Resume from a training_state'
 		)
+	
+	main_args.add_argument(
+		'--range_encoder',
+		metavar='CODER',
+		choices=('tfc', 'python', None),
+		help='Chose range coder implementation'
+		)
 	return main_args
 
 
@@ -295,6 +302,7 @@ def main(
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
+	range_encoder='tfc',
 	checkpoint=None,
 	training_state=None,
 	name=None,
@@ -347,7 +355,7 @@ def main(
 	
 	trainer, train_encoder, train_meta = model.trainer(train_index, take=steps_per_epoch, shuffle=shuffle, **meta_args) if train_index else (None, None, None)
 	validator, val_encoder, val_meta = model.validator(val_index, take=validation_steps, **meta_args) if val_index else (None, None, None)
-	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, **meta_args) if test_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, range_encoder=range_encoder, **meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:

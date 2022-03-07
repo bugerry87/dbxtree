@@ -9,7 +9,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
 from mhdm.tfops.models.nbittree import NbitTree
-import mhdm.range_coder as range_coder
+from mhdm.range_coder import RangeEncoder
 
 ## Local
 from . import bitops
@@ -206,7 +206,7 @@ class DynamicTreeCallback(LambdaCallback):
 			self.buffer = BitBuffer()
 			self.range_encoder = None
 		elif range_encoder == 'python':
-			self.range_encoder = range_coder.RangeEncoder()
+			self.range_encoder = RangeEncoder()
 			self.buffer = None
 		pass
 
