@@ -151,6 +151,14 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--max_layers',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Max layers to encode before early stopping'
+		)
+	
+	main_args.add_argument(
 		'--shuffle',
 		metavar='INT',
 		type=int,
@@ -224,6 +232,13 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--range_encoder',
+		metavar='CODER',
+		choices=('tfc', 'python', None),
+		help='Chose range coder implementation'
+		)
+	
+	main_args.add_argument(
 		'--floor',
 		metavar='FLOAT',
 		type=float,
@@ -263,13 +278,6 @@ def init_main_args(parents=[]):
 		metavar='PATH',
 		help='Resume from a training_state'
 		)
-	
-	main_args.add_argument(
-		'--range_encoder',
-		metavar='CODER',
-		choices=('tfc', 'python', None),
-		help='Chose range coder implementation'
-		)
 	return main_args
 
 
@@ -289,6 +297,7 @@ def main(
 	validation_steps=0,
 	test_freq=1,
 	test_steps=0,
+	max_layers=0,
 	shuffle=0,
 	radius=0.003,
 	keypoints=False,
@@ -355,7 +364,7 @@ def main(
 	
 	trainer, train_encoder, train_meta = model.trainer(train_index, take=steps_per_epoch, shuffle=shuffle, **meta_args) if train_index else (None, None, None)
 	validator, val_encoder, val_meta = model.validator(val_index, take=validation_steps, **meta_args) if val_index else (None, None, None)
-	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, **meta_args) if test_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, max_layers=max_layers, **meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:

@@ -162,6 +162,7 @@ class DynamicTree(Model):
 	
 	def encoder(self, *args,
 		radius=0.015,
+		max_layers=0,
 		parser=None,
 		meta=None,
 		**kwargs
@@ -182,14 +183,17 @@ class DynamicTree(Model):
 				else:
 					x = X
 
-				while np.any(dim):
+				layer = 0
+				while np.any(dim) and max_layers == 0 or max_layers > layer:
+					layer += 1
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dbxtree.encode(x, nodes, pos, bbox, radius)
-					yield flags, uids, pos, pivots, bbox, dim, X, filename
+					yield flags, uids, pos, pivots, bbox, dim, layer, X, filename
 					pos = _pos
 		
 		if parser is None:
 			parser, meta = self.parser(*args, **kwargs)
 		meta.radius = radius
+		meta.max_layers = max_layers
 		encoder = tf.data.Dataset.from_generator(encode,
 			output_types=(
 				tf.int32,
@@ -197,6 +201,7 @@ class DynamicTree(Model):
 				tf.float32,
 				tf.float32,
 				tf.float32,
+				tf.int32,
 				tf.int32,
 				tf.float32,
 				tf.string
@@ -207,6 +212,7 @@ class DynamicTree(Model):
 				tf.TensorShape([None, 1, meta.dim]),
 				tf.TensorShape([None, self.flag_size, meta.dim]),
 				tf.TensorShape([meta.dim]),
+				tf.TensorShape([]),
 				tf.TensorShape([]),
 				tf.TensorShape([None, meta.dim]),
 				tf.TensorShape([])

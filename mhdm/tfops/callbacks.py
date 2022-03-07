@@ -221,16 +221,15 @@ class DynamicTreeCallback(LambdaCallback):
 		bpp_max = 0
 		dim = 0
 		count_files = 0
-		tree_depth = 0
 		self.model.reset_metrics()
 
 		for sample, info in zip(self.samples, self.info):
 			filename = str(info[-1].numpy())
-			cur_dim = info[-3].numpy()
-			tree_start = np.any(cur_dim > dim)
-			tree_depth = 0 if tree_start else tree_depth + 1 
-			tree_end = np.all(cur_dim == 0)
-			do_encode = np.any(cur_dim < dim)
+			layer = info[-3].numpy()
+			cur_dim = info[-4].numpy()
+			tree_start = layer == 1
+			tree_end = cur_dim == 0 and self.model.meta.max_layers == 0 or self.model.meta.max_layers == layer
+			do_encode = cur_dim < dim or tree_end
 			flags = info[0]
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
 
