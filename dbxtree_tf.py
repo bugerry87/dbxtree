@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python3
 
 ## Build in
 from argparse import ArgumentParser

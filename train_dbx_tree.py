@@ -58,6 +58,22 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--xshape',
+		metavar='SHAPE',
+		type=int,
+		nargs='+',
+		default=(-1, 4),
+		help='Shape of the input data'
+		)
+	
+	main_args.add_argument(
+		'--xtype',
+		metavar='TYPE',
+		default='float32',
+		help='Type of the input data'
+		)
+	
+	main_args.add_argument(
 		'--epochs', '-e',
 		metavar='INT',
 		type=int,
@@ -247,6 +263,13 @@ def init_main_args(parents=[]):
 		metavar='PATH',
 		help='Resume from a training_state'
 		)
+	
+	main_args.add_argument(
+		'--range_encoder',
+		metavar='CODER',
+		choices=('tfc', 'python', None),
+		help='Chose range coder implementation'
+		)
 	return main_args
 
 
@@ -254,6 +277,8 @@ def main(
 	train_index=None,
 	val_index=None,
 	test_index=None,
+	xshape=(-1,4),
+	xtype='float32',
 	epochs=1,
 	learning_rate=0.001,
 	monitor=None,
@@ -277,6 +302,7 @@ def main(
 	log_dir='logs',
 	verbose=2,
 	cpu=False,
+	range_encoder='tfc',
 	checkpoint=None,
 	training_state=None,
 	name=None,
@@ -323,11 +349,13 @@ def main(
 	meta_args = dict(
 		radius=radius,
 		keypoints=keypoints,
+		xshape=xshape,
+		xtype=xtype
 		)
 	
 	trainer, train_encoder, train_meta = model.trainer(train_index, take=steps_per_epoch, shuffle=shuffle, **meta_args) if train_index else (None, None, None)
 	validator, val_encoder, val_meta = model.validator(val_index, take=validation_steps, **meta_args) if val_index else (None, None, None)
-	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, **meta_args) if test_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, range_encoder=range_encoder, **meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:

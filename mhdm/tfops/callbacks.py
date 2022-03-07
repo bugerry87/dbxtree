@@ -9,6 +9,7 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LambdaCallback
 
 from mhdm.tfops.models.nbittree import NbitTree
+from mhdm.range_coder import RangeEncoder
 
 ## Local
 from . import bitops
@@ -184,7 +185,7 @@ class DynamicTreeCallback(LambdaCallback):
 		steps=0,
 		when=['on_epoch_end'],
 		writer=None,
-		range_encode=True,
+		range_encoder='tfc',
 		floor=0.0,
 		output=None,
 		):
@@ -197,10 +198,16 @@ class DynamicTreeCallback(LambdaCallback):
 		self.steps = steps or meta.num_of_files
 		self.freq = freq
 		self.writer = writer
-		self.range_encode = range_encode
 		self.floor = floor
 		self.output = output
-		self.buffer = BitBuffer() if output else None
+		if output is None:
+			pass
+		elif range_encoder == 'tfc':
+			self.buffer = BitBuffer()
+			self.range_encoder = None
+		elif range_encoder == 'python':
+			self.range_encoder = RangeEncoder()
+			self.buffer = None
 		pass
 
 	def __call__(self, *args):
@@ -209,7 +216,6 @@ class DynamicTreeCallback(LambdaCallback):
 		if epoch % self.freq != 0:
 			return
 		
-		d1_psnr = 0
 		bpp_sum = 0
 		bpp_min = (1<<32)-1
 		bpp_max = 0
@@ -235,26 +241,39 @@ class DynamicTreeCallback(LambdaCallback):
 				points = float(info[-2].shape[-2])
 				bbox = tf.math.reduce_max(tf.math.abs(info[-2]), axis=-2).numpy()
 				bit_count = 0
-				if self.output:
-					self.buffer.open(path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin'), 'wb')
+				filename = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin')
+
+				if self.range_encoder is not None:
+					self.range_encoder.open(filename)
+					self.buffer = self.range_encoder.output
+				elif self.buffer is not None:
+					self.buffer.open(filename, 'wb')
+				
+				if self.buffer is not None:
 					self.buffer.write(int.from_bytes(np.array(self.meta.radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
 					self.buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
-			elif tfc and do_encode:
+			elif do_encode:
 				self.probs = tf.clip_by_value(self.probs, self.floor, 1.0)
-				code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
-				if self.output:
-					for c in code:
-						self.buffer.write(c, 8, soft_flush=True)
-				bit_count += len(code)*8.0
-				self.probs = self.model.predict_on_batch(sample[0])
-				self.flags = flags
+				if self.range_encoder is not None:
+					self.range_encoder.updates(self.flags.numpy(), probs=self.probs)
+				elif self.buffer is not None and tfc:
+					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
+					if self.output:
+						for c in code:
+							self.buffer.write(c, 8, soft_flush=True)
+					bit_count += len(code)*8.0
+					self.probs = self.model.predict_on_batch(sample[0])
+					self.flags = flags
 			else:
 				self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
 				self.flags = tf.concat([self.flags, flags], axis=-1)
 			dim = cur_dim
 
 			if tree_end:
-				if self.output:
+				if self.range_encoder is not None:
+					self.range_encoder.finalize()
+					self.range_encoder.close()
+				elif self.buffer is not None:
 					self.buffer.close()
 				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
@@ -263,7 +282,10 @@ class DynamicTreeCallback(LambdaCallback):
 				if self.steps and self.steps == count_files:
 					break
 
-		if self.output:
+		if self.range_encoder is not None:
+			self.range_encoder.finalize()
+			self.range_encoder.close()
+		elif self.buffer is not None:
 			self.buffer.close()
 		
 		metrics['bpp'] = bpp_sum / count_files

@@ -110,7 +110,7 @@ class DynamicTree(Model):
 	def parser(self, index,
 		dim=3,
 		xtype='float32',
-		xshape=(-1, 4),
+		xshape=(-1,4),
 		keypoints=0.0,
 		shuffle=0,
 		take=0,
