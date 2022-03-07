@@ -140,7 +140,7 @@ def encode(uncompressed, compressed,
 	X = X@np.linalg.inv(pca.components_)
 	print(np.abs(X).max(axis=0))
 
-	bbox = np.abs(X).max(axis=0).astype(xtype)
+	bbox = np.abs(X).max(axis=0).astype(xtype)[None,...]
 	buffer.write(int.from_bytes(np.array(radius).astype(xtype).tobytes(), 'big'), 32, soft_flush=True)
 	buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
 	buffer.write(int.from_bytes(pca.mean_.astype(xtype).tobytes(), 'big'), pca.mean_.size * 32, soft_flush=True)
@@ -149,17 +149,19 @@ def encode(uncompressed, compressed,
 	nodes = np.ones(len(X), dtype=object)
 	dims = 3
 
-	while dims:
+	while np.any(dims):
 		u, idx, inv = np.unique(nodes, return_index=True, return_inverse=True)
 		flags = np.zeros(len(u), dtype=int)
+		bbox = bbox[inv]
 
 		big = bbox > radius
-		dims = np.sum(big)
+		dims = np.sum(big, axis=-1)
 		keep = np.zeros(len(u), dtype=bool)
 		np.bitwise_or.at(keep, inv, np.any(np.abs(X) > radius, axis=-1))
 		keep = keep[inv]
 		X = X[keep]
 		nodes = nodes[keep]
+		dims = dims[keep]
 
 		sign = X >= 0
 		bits = np.packbits(sign, -1, 'little').reshape(-1).astype(int)
@@ -168,17 +170,18 @@ def encode(uncompressed, compressed,
 		nodes |= bits
 		np.bitwise_or.at(flags, inv[keep], 1<<bits)
 
-		bbox *= 0.5
-		X += (1-sign*2) * bbox * (big > 0)
+		bbox = X.mean(axis=-2) - (0.5-sign) * bbox
+		X -= bbox * (big > 0)
 		args = np.argsort(nodes)
 		nodes = nodes[args]
-		flags = flags[args]
+		#flags = flags[args]
+		dims = dims[args]
 		X = X[args]
 
-		log(len(X))
-		if dims:
-			for flag in flags:
-				buffer.write(flag, 1<<dims, soft_flush=True)
+		log(bbox, len(X))
+		for dim, flag in zip(dims, flags):
+			if dim:
+				buffer.write(flag, 1<<dim, soft_flush=True)
 		pass
 
 	buffer.close()
