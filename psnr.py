@@ -58,7 +58,7 @@ def init_main_args(parents=[]):
 		'--acc', '-a',
 		metavar='FLOAT',
 		type=float,
-		default=0.02,
+		default=0.03,
 		help='The accuracy threshold (default=0.03m)'
 		)
 	
@@ -148,8 +148,6 @@ def main(args):
 		knn = args.knn if args.knn > 3 else 1
 		XYdelta, XYnn = Xtree.query(Y, k=knn, n_jobs=args.jobs)
 		YXdelta, YXnn = Ytree.query(X, k=knn, n_jobs=args.jobs)
-
-		print(Xpoints, len(XYnn), Ypoints, len(YXnn))
 		
 		if args.knn <= 1:
 			XYmse = np.mean(XYdelta**2)
@@ -157,8 +155,8 @@ def main(args):
 		elif args.knn <= 3:
 			XYvn = vec_normals(X)
 			YXvn = vec_normals(Y)
-			XYmse = np.sum(((X[XYnn] - Y) * YXvn)**2, axis=-1).mean()**2
-			YXmse = np.sum(((Y[YXnn] - X) * XYvn)**2, axis=-1).mean()**2
+			XYmse = np.sum(((X[XYnn] - Y) * YXvn)**2, axis=-1).mean()
+			YXmse = np.sum(((Y[YXnn] - X) * XYvn)**2, axis=-1).mean()
 		else:
 			print("Estimate eigen normals XY")
 			XYvn = eigen_normals(X[XYnn])
@@ -170,21 +168,21 @@ def main(args):
 			YXdelta = YXdelta[range(len(YXdelta)),yx]
 			XYnn = XYnn[range(len(XYnn)),xy]
 			YXnn = YXnn[range(len(YXnn)),yx]
-			XYmse = np.sum(((X[XYnn] - Y) * YXvn)**2, axis=-1).mean()**2
-			YXmse = np.sum(((Y[YXnn] - X) * XYvn)**2, axis=-1).mean()**2
+			XYmse = np.sum(((X[XYnn] - Y) * XYvn)**2, axis=-1).mean()
+			YXmse = np.sum(((Y[YXnn] - X) * YXvn)**2, axis=-1).mean()
 		
-		XYpeak = XYdelta.max()
-		YXpeak = YXdelta.max()
-		XYpsnr = lidar.psnr(XYmse, peak=args.peak or XYpeak**2)
-		YXpsnr = lidar.psnr(YXmse, peak=args.peak or YXpeak**2)
+		Xpeak = X.max(axis=0).prod()
+		Ypeak = Y.max(axis=0).prod()
+		XYpsnr = lidar.psnr(XYmse, peak=args.peak or Xpeak)
+		YXpsnr = lidar.psnr(YXmse, peak=args.peak or Ypeak)
 		XYacc = np.sum(XYdelta <= args.acc) * 100.0 / Ypoints
 		YXacc = np.sum(YXdelta <= args.acc) * 100.0 / Xpoints
-		sym_psnr = lidar.psnr(XYmse + YXmse, peak=args.peak or XYpeak**2)
+		sym_psnr = lidar.psnr(XYmse + YXmse, peak=args.peak or Xpeak + Ypeak)
 		XYcd = np.mean(XYdelta)
 		YXcd = np.mean(YXdelta)
 		sym_cd = XYcd + YXcd
 
-		entry = (Xpoints, Ypoints, XYpsnr, YXpsnr, XYacc, YXacc, XYpeak, YXpeak, XYmse**0.5, YXmse**0.5, XYcd, YXcd, sym_cd, sym_psnr)
+		entry = (Xpoints, Ypoints, XYpsnr, YXpsnr, XYacc, YXacc, Xpeak**0.5, Ypeak**0.5, XYmse, YXmse, XYcd, YXcd, sym_cd, sym_psnr)
 		report.append(entry)
 		log(("{}:"
 			"\n            {:^10}   {:^10}"
@@ -192,7 +190,7 @@ def main(args):
 			"\n  psnr:     {:10.2f}dB {:10.2f}dB"
 			"\n  acc:      {:10.2f}%  {:10.2f}%"
 			"\n  peak:     {:10.4f}m  {:10.4f}m"
-			"\n  me:       {:10.4f}m  {:10.4f}m"
+			"\n  mse:      {:10.4f}m  {:10.4f}m"
 			"\n  cd:       {:10.4f}m  {:10.4f}m"
 			"\n  sym cd:   {:10.4f}m"
 			"\n  sym psnr: {:10.2f}dB"

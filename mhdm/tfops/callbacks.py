@@ -201,12 +201,16 @@ class DynamicTreeCallback(LambdaCallback):
 		self.floor = floor
 		self.output = output
 		if output is None:
-			pass
+			self.range_encoder = None
+			self.buffer = None
 		elif range_encoder == 'tfc':
 			self.buffer = BitBuffer()
 			self.range_encoder = None
 		elif range_encoder == 'python':
 			self.range_encoder = RangeEncoder(precision=64)
+			self.buffer = None
+		else:
+			self.range_encoder = None
 			self.buffer = None
 		pass
 

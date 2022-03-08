@@ -234,6 +234,7 @@ def init_main_args(parents=[]):
 	main_args.add_argument(
 		'--range_encoder',
 		metavar='CODER',
+		default='tfc',
 		choices=('tfc', 'python', None),
 		help='Chose range coder implementation'
 		)
