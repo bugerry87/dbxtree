@@ -173,12 +173,13 @@ def encode(
 		dims = 3
 		layer = 0
 		log(f"{f} -> {outname} ", end="")
-		while dims is not 0 and (max_layers == 0 or max_layers < layer):
+		cflags = 0
+		while dims and (max_layers == 0 or max_layers > layer):
 			layer += 1
 			X, nodes, pivots, pos, bbox, flags, uids, dims = dbxtree.encode(X, nodes, pos, bbox, radius)
 			dims = dims.numpy()
-			log(end=".", flush=True)
 			if dims:
+				log(end=".", flush=True)
 				for flag in flags.numpy():
 					buffer.write(flag, 1<<dims, soft_flush=True)
 		buffer.close()
