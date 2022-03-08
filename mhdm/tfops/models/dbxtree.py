@@ -184,7 +184,7 @@ class DynamicTree(Model):
 					x = X
 
 				layer = 0
-				while np.any(dim) and max_layers == 0 or max_layers > layer:
+				while np.any(dim) and (max_layers == 0 or max_layers > layer):
 					layer += 1
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dbxtree.encode(x, nodes, pos, bbox, radius)
 					yield flags, uids, pos, pivots, bbox, dim, layer, X, filename
