@@ -233,7 +233,7 @@ class DynamicTreeCallback(LambdaCallback):
 			cur_dim = info[-4].numpy()
 			tree_start = layer == 1
 			tree_end = cur_dim == 0 and (self.model.meta.max_layers == 0 or self.model.meta.max_layers == layer)
-			do_encode = cur_dim < dim or self.model.meta.max_layers == layer
+			do_encode = cur_dim < dim or tree_end
 			flags = info[0]
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
 
@@ -260,7 +260,7 @@ class DynamicTreeCallback(LambdaCallback):
 				if self.range_encoder is not None:
 					self.range_encoder.updates(self.flags.numpy(), probs=np.squeeze(self.probs.numpy()))
 				elif self.buffer is not None and tfc:
-					code = range_encode(self.probs[0,...,:1<<(1<<cur_dim)], self.flags).numpy()
+					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
 					if self.output:
 						for c in code:
 							self.buffer.write(c, 8, soft_flush=True)
