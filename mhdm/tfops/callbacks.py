@@ -258,6 +258,9 @@ class DynamicTreeCallback(LambdaCallback):
 					self.buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
 			
 			if do_encode:
+				if dim and early_stop:
+					self.probs = self.model.predict_on_batch(sample[0])
+					self.flags = flags
 				self.probs = tf.clip_by_value(self.probs, self.floor, 1.0)
 				if self.range_encoder is not None:
 					self.range_encoder.updates(self.flags.numpy(), probs=np.squeeze(self.probs.numpy()))

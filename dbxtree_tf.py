@@ -225,6 +225,7 @@ def decode(
 		keep = tf.zeros([0,3], dtype=tf.float32)
 		delta = time_delta()
 		next(delta)
+		count_flags = 0
 		dims = 3
 		layer = 0
 		read = 1
@@ -232,6 +233,7 @@ def decode(
 		while dims and (max_layers == 0 or max_layers > layer):
 			layer += 1
 			flags = np.array([buffer.read(1<<dims) for y in range(read)])
+			count_flags += len(flags)
 			read = np.sum(flags[...,None] >> np.arange(1<<dims) & 1)
 			flags = tf.constant(flags)
 			Y, keep, bb = dbxtree.decode(flags, bb, r, Y, keep)
@@ -241,6 +243,7 @@ def decode(
 		buffer.close()
 		lidar.save(Y.numpy()[...,i], outname)
 		log(f" {next(delta)}s")
+		print(count_flags)
 		c += 1
 	log(f"Done in {next(delta_total)}s")
 	pass
