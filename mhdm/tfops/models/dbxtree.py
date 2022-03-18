@@ -187,6 +187,8 @@ class DynamicTree(Model):
 					a = tf.random.uniform([1], -np.math.pi, np.math.pi, dtype=x.dtype)[0]
 					M = tf.reshape([tf.cos(a),-tf.sin(a),0,tf.sin(a),tf.cos(a),0,0,0,1], (-1,3))
 					x = x@M
+					# Jitter
+					x -= tf.reduce_mean(x, axis=-2, keepdims=True) + tf.random.normal([1,3], dtype=x.dtype)
 
 				layer = 0
 				while np.any(dim) and (max_layers == 0 or max_layers > layer):
