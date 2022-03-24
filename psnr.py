@@ -71,6 +71,13 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
+		'--unit',
+		metavar='STR',
+		default='m',
+		help='The unit of the point cloud (default=m)'
+		)
+	
+	main_args.add_argument(
 		'--verbose', '-v',
 		action='store_true'
 		)
@@ -152,11 +159,15 @@ def main(args):
 		if args.knn <= 1:
 			XYmse = np.mean(XYdelta**2)
 			YXmse = np.mean(YXdelta**2)
+			Xpeak = XYdelta.max()**2
+			Ypeak = YXdelta.max()**2
 		elif args.knn <= 3:
 			XYvn = vec_normals(X)
 			YXvn = vec_normals(Y)
 			XYmse = np.sum(((X[XYnn] - Y) * YXvn)**2, axis=-1).mean()
 			YXmse = np.sum(((Y[YXnn] - X) * XYvn)**2, axis=-1).mean()
+			Xpeak = XYdelta.max()**2
+			Ypeak = YXdelta.max()**2
 		else:
 			print("Estimate eigen normals XY")
 			XYvn = eigen_normals(X[XYnn])
@@ -164,6 +175,8 @@ def main(args):
 			YXvn = eigen_normals(Y[YXnn])
 			xy = np.argmin(XYdelta, axis=-1)
 			yx = np.argmin(YXdelta, axis=-1)
+			Xpeak = XYdelta.max()**2
+			Ypeak = YXdelta.max()**2
 			XYdelta = XYdelta[range(len(XYdelta)),xy]
 			YXdelta = YXdelta[range(len(YXdelta)),yx]
 			XYnn = XYnn[range(len(XYnn)),xy]
@@ -171,24 +184,34 @@ def main(args):
 			XYmse = np.sum(((X[XYnn] - Y) * XYvn)**2, axis=-1).mean()
 			YXmse = np.sum(((Y[YXnn] - X) * YXvn)**2, axis=-1).mean()
 		
-		Xpeak = X.max(axis=0).prod()
-		Ypeak = Y.max(axis=0).prod()
 		XYpsnr = lidar.psnr(XYmse, peak=args.peak or Xpeak)
 		YXpsnr = lidar.psnr(YXmse, peak=args.peak or Ypeak)
 		XYacc = np.sum(XYdelta <= args.acc) * 100.0 / Ypoints
 		YXacc = np.sum(YXdelta <= args.acc) * 100.0 / Xpoints
-		sym_psnr = lidar.psnr(XYmse + YXmse, peak=args.peak or Xpeak + Ypeak)
+		sym_psnr = lidar.psnr((XYmse + YXmse) / 2, peak=args.peak or (Xpeak + Ypeak) / 2)
 		XYcd = np.mean(XYdelta)
 		YXcd = np.mean(YXdelta)
-		sym_cd = XYcd + YXcd
+		sym_cd = (XYcd + YXcd) / 2
 
-		entry = (Xpoints, Ypoints, XYpsnr, YXpsnr, XYacc, YXacc, Xpeak**0.5, Ypeak**0.5, XYmse, YXmse, XYcd, YXcd, sym_cd, sym_psnr)
+		entry = (
+			Xpoints, Ypoints, 
+			XYpsnr, YXpsnr,
+			XYacc, YXacc,
+			XYdelta.min(), YXdelta.min(),
+			XYdelta.max(), YXdelta.max(),
+			Xpeak**0.5, Ypeak**0.5,
+			XYmse, YXmse,
+			XYcd, YXcd,
+			sym_cd,
+			sym_psnr)
 		report.append(entry)
 		log(("{}:"
 			"\n            {:^10}   {:^10}"
 			"\n  points:   {:>10}   {:>10}"
 			"\n  psnr:     {:10.2f}dB {:10.2f}dB"
 			"\n  acc:      {:10.2f}%  {:10.2f}%"
+			"\n  min:      {:10.4f}m  {:10.4f}m"
+			"\n  max:      {:10.4f}m  {:10.4f}m"
 			"\n  peak:     {:10.4f}m  {:10.4f}m"
 			"\n  mse:      {:10.4f}m  {:10.4f}m"
 			"\n  cd:       {:10.4f}m  {:10.4f}m"
@@ -198,25 +221,14 @@ def main(args):
 		del Xtree
 		del Ytree
 	
-	means = np.asarray(report, float).mean(axis=0)
-	log(("MEANS:"
-		"\n            {:^10}   {:^10}"
-		"\n  points:   {:10.0f}   {:10.0f}"
-		"\n  psnr:     {:10.2f}dB {:10.2f}dB"
-		"\n  acc:      {:10.2f}%  {:10.2f}%"
-		"\n  peak:     {:10.4f}m  {:10.4f}m"
-		"\n  me:       {:10.4f}m  {:10.4f}m"
-		"\n  cd:       {:10.4f}m  {:10.4f}m"
-		"\n  sym cd:   {:10.4f}m"
-		"\n  sym psnr: {:10.2f}dB"
-		).format('XY', 'YX', *means))
-	
 	mins = np.asarray(report, float).min(axis=0)
 	log(("MIN:"
 		"\n            {:^10}   {:^10}"
 		"\n  points:   {:10.0f}   {:10.0f}"
 		"\n  psnr:     {:10.2f}dB {:10.2f}dB"
 		"\n  acc:      {:10.2f}%  {:10.2f}%"
+		"\n  min:      {:10.2f}m  {:10.2f}m"
+		"\n  max:      {:10.2f}m  {:10.2f}m"
 		"\n  peak:     {:10.4f}m  {:10.4f}m"
 		"\n  me:       {:10.4f}m  {:10.4f}m"
 		"\n  cd:       {:10.4f}m  {:10.4f}m"
@@ -225,17 +237,34 @@ def main(args):
 		).format('XY', 'YX', *mins))
 	
 	maxs = np.asarray(report, float).max(axis=0)
-	log(("Max:"
+	log(("MAX:"
 		"\n            {:^10}   {:^10}"
 		"\n  points:   {:10.0f}   {:10.0f}"
 		"\n  psnr:     {:10.2f}dB {:10.2f}dB"
 		"\n  acc:      {:10.2f}%  {:10.2f}%"
+		"\n  min:      {:10.2f}m  {:10.2f}m"
+		"\n  max:      {:10.2f}m  {:10.2f}m"
 		"\n  peak:     {:10.4f}m  {:10.4f}m"
 		"\n  me:       {:10.4f}m  {:10.4f}m"
 		"\n  cd:       {:10.4f}m  {:10.4f}m"
 		"\n  sym cd:   {:10.4f}m"
 		"\n  sym psnr: {:10.2f}dB"
 		).format('XY', 'YX', *maxs))
+	
+	means = np.asarray(report, float).mean(axis=0)
+	log(("MEANS:"
+		"\n            {:^10}   {:^10}"
+		"\n  points:   {:10.0f}   {:10.0f}"
+		"\n  psnr:     {:10.2f}dB {:10.2f}dB"
+		"\n  acc:      {:10.2f}%  {:10.2f}%"
+		"\n  min:      {:10.2f}m  {:10.2f}m"
+		"\n  max:      {:10.2f}m  {:10.2f}m"
+		"\n  peak:     {:10.4f}m  {:10.4f}m"
+		"\n  me:       {:10.4f}m  {:10.4f}m"
+		"\n  cd:       {:10.4f}m  {:10.4f}m"
+		"\n  sym cd:   {:10.4f}m"
+		"\n  sym psnr: {:10.2f}dB"
+		).format('XY', 'YX', *means))
 	pass
 
 
