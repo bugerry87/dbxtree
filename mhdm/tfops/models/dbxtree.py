@@ -111,7 +111,6 @@ class DynamicTree(Model):
 		dim=3,
 		xtype='float32',
 		xshape=(-1,4),
-		keypoints=0.0,
 		shuffle=0,
 		take=0,
 		**kwargs
@@ -122,7 +121,6 @@ class DynamicTree(Model):
 			dim=dim,
 			xtype=xtype,
 			xshape=xshape,
-			keypoints=keypoints,
 			**kwargs
 			)
 		
@@ -131,18 +129,7 @@ class DynamicTree(Model):
 			X = tf.io.read_file(filename)
 			X = tf.io.decode_raw(X, xtype)
 			X = tf.reshape(X, xshape)[...,:meta.dim]
-
-			if keypoints:
-				X = tf.gather(X, spatial.edge_detection(X[...,:], keypoints)[0])
-			
-			if tfx:
-				pca = tfx.pca(X, meta.dim)
-				X = X @ pca
-			else:
-				pca = None
-
-				pass
-			return X, pca, filename
+			return X, filename
 
 		if isinstance(index, str) and index.endswith('.txt'):
 			parser = tf.data.TextLineDataset(index)
@@ -163,6 +150,9 @@ class DynamicTree(Model):
 	def encoder(self, *args,
 		radius=0.015,
 		max_layers=0,
+		keypoints=0.0,
+		use_pca = False,
+		augmentation = False,
 		parser=None,
 		meta=None,
 		**kwargs
@@ -170,21 +160,38 @@ class DynamicTree(Model):
 		"""
 		"""
 		def encode():
-			for X, pca, filename in parser:
+			for X, filename in parser:
 				bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
 				pos = tf.zeros_like(bbox)[None, None, ...]
 				nodes = tf.ones_like(X[...,0], dtype=tf.int64)
 				dim = tf.constant(meta.dim)
+				x = X
 
-				if pca is None:
-					i = tf.argsort(bbox)[::-1]
-					x = tf.gather(X, i, batch_dims=-1)
-					bbox = tf.gather(bbox, i)
+				if use_pca and tfx:
+					pca = tfx.pca(x, meta.dim)
+					x = x @ pca
 				else:
-					x = X
+					pca = None
+					i = tf.argsort(bbox)[::-1]
+					x = tf.gather(x, i, batch_dims=-1)
+					bbox = tf.gather(bbox, i)
+				
+				if keypoints:
+					x = tf.gather(x, spatial.edge_detection(X[...,:], keypoints)[0])
+				
+				if augmentation:
+					# Random Quantization
+					scale = tf.random.uniform([1], 10, 1000, dtype=x.dtype)
+					x = tf.math.round(x * scale) / scale
+					# Random Rotation
+					a = tf.random.uniform([1], -np.math.pi, np.math.pi, dtype=x.dtype)[0]
+					M = tf.reshape([tf.cos(a),-tf.sin(a),0,tf.sin(a),tf.cos(a),0,0,0,1], (-1,3))
+					x = x@M
+					# Jitter
+					x -= tf.reduce_mean(x, axis=-2, keepdims=True) + tf.random.normal([1,3], dtype=x.dtype)
 
 				layer = 0
-				while np.any(dim) and max_layers == 0 or max_layers > layer:
+				while np.any(dim) and (max_layers == 0 or max_layers > layer):
 					layer += 1
 					x, nodes, pivots, _pos, bbox, flags, uids, dim = dbxtree.encode(x, nodes, pos, bbox, radius)
 					yield flags, uids, pos, pivots, bbox, dim, layer, X, filename
@@ -194,6 +201,9 @@ class DynamicTree(Model):
 			parser, meta = self.parser(*args, **kwargs)
 		meta.radius = radius
 		meta.max_layers = max_layers
+		meta.keypoints = keypoints
+		meta.use_pca = use_pca
+		meta.augmentation = augmentation
 		encoder = tf.data.Dataset.from_generator(encode,
 			output_types=(
 				tf.int32,

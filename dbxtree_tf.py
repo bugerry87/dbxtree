@@ -49,11 +49,20 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--radius', '-r',
-		metavar='FLOAT',
-		type=float,
-		default=0.03,
-		help='Accepted radius of error'
+		'--oshape',
+		nargs='+',
+		metavar='SHAPE',
+		type=int,
+		default=(-1,3),
+		help='Dimensionality of the output shape'
+		)
+	
+	main_args.add_argument(
+		'--max_layers',
+		metavar='INT',
+		type=int,
+		default=0,
+		help='Max number of layers to encode before early stop'
 		)
 	
 	main_args.set_defaults(
@@ -77,6 +86,14 @@ def init_encode_args(parents=[], subparser=None):
 			)
 	
 	encode_args.add_argument(
+		'--radius', '-r',
+		metavar='FLOAT',
+		type=float,
+		default=0.03,
+		help='Accepted radius of error'
+		)
+	
+	encode_args.add_argument(
 		'--xtype', '-t',
 		metavar='TYPE',
 		default='float32',
@@ -90,15 +107,6 @@ def init_encode_args(parents=[], subparser=None):
 		type=int,
 		default=(-1,4),
 		help='Dimensionality of the input shape'
-		)
-	
-	encode_args.add_argument(
-		'--oshape',
-		nargs='+',
-		metavar='SHAPE',
-		type=int,
-		default=(-1,3),
-		help='Dimensionality of the output shape'
 		)
 	
 	encode_args.set_defaults(
@@ -134,6 +142,7 @@ def encode(
 	xtype = 'float32',
 	xshape = (-1,4),
 	oshape = (-1,3),
+	max_layers = 0,
 	**kwargs
 	):
 	"""
@@ -162,12 +171,15 @@ def encode(
 		delta = time_delta()
 		next(delta)
 		dims = 3
+		layer = 0
 		log(f"{f} -> {outname} ", end="")
-		while dims:
+		cflags = 0
+		while dims and (max_layers == 0 or max_layers > layer):
+			layer += 1
 			X, nodes, pivots, pos, bbox, flags, uids, dims = dbxtree.encode(X, nodes, pos, bbox, radius)
 			dims = dims.numpy()
-			log(end=".", flush=True)
 			if dims:
+				log(end=".", flush=True)
 				for flag in flags.numpy():
 					buffer.write(flag, 1<<dims, soft_flush=True)
 		buffer.close()
@@ -179,8 +191,7 @@ def encode(
 def decode(
 	compressed,
 	uncompressed,
-	xtype = 'float32',
-	xshape = (-1,4),
+	max_layers = 0,
 	oshape = (-1,3),
 	**kwargs
 	):
@@ -215,9 +226,11 @@ def decode(
 		delta = time_delta()
 		next(delta)
 		dims = 3
+		layer = 0
 		read = 1
 		log(f"{f} -> {outname} ", end="")
-		while dims:
+		while dims and (max_layers == 0 or max_layers > layer):
+			layer += 1
 			flags = np.array([buffer.read(1<<dims) for y in range(read)])
 			read = np.sum(flags[...,None] >> np.arange(1<<dims) & 1)
 			flags = tf.constant(flags)

@@ -363,9 +363,18 @@ def main(
 		xtype=xtype
 		)
 	
-	trainer, train_encoder, train_meta = model.trainer(train_index, take=steps_per_epoch, shuffle=shuffle, **meta_args) if train_index else (None, None, None)
-	validator, val_encoder, val_meta = model.validator(val_index, take=validation_steps, **meta_args) if val_index else (None, None, None)
-	tester, test_encoder, test_meta = model.tester(test_index, take=test_steps, max_layers=max_layers, **meta_args) if test_index else (None, None, None)
+	trainer, train_encoder, train_meta = model.trainer(train_index, 
+		take=steps_per_epoch,
+		shuffle=shuffle,
+		augmentation=True,
+		**meta_args) if train_index else (None, None, None)
+	validator, val_encoder, val_meta = model.validator(val_index,
+		take=validation_steps,
+		**meta_args) if val_index else (None, None, None)
+	tester, test_encoder, test_meta = model.tester(test_index,
+		take=test_steps,
+		max_layers=max_layers,
+		**meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
 
 	if master_meta is None:

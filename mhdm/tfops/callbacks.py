@@ -232,7 +232,8 @@ class DynamicTreeCallback(LambdaCallback):
 			layer = info[-3].numpy()
 			cur_dim = info[-4].numpy()
 			tree_start = layer == 1
-			tree_end = cur_dim == 0 and self.model.meta.max_layers == 0 or self.model.meta.max_layers == layer
+			early_stop = self.model.meta.max_layers != 0 and self.model.meta.max_layers == layer
+			tree_end = cur_dim == 0 or early_stop
 			do_encode = cur_dim < dim or tree_end
 			flags = info[0]
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
@@ -255,19 +256,23 @@ class DynamicTreeCallback(LambdaCallback):
 				if self.buffer is not None:
 					self.buffer.write(int.from_bytes(np.array(self.meta.radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
 					self.buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
-			elif do_encode:
+			
+			if do_encode:
+				if dim and early_stop:
+					self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
+					self.flags = tf.concat([self.flags, flags], axis=-1)
 				self.probs = tf.clip_by_value(self.probs, self.floor, 1.0)
 				if self.range_encoder is not None:
 					self.range_encoder.updates(self.flags.numpy(), probs=np.squeeze(self.probs.numpy()))
 				elif self.buffer is not None and tfc:
 					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
-					if self.output:
-						for c in code:
-							self.buffer.write(c, 8, soft_flush=True)
+					for c in code:
+						self.buffer.write(c, 8, soft_flush=True)
 					bit_count += len(code)*8.0
-				self.probs = self.model.predict_on_batch(sample[0])
-				self.flags = flags
-			else:
+				if not tree_end:
+					self.probs = self.model.predict_on_batch(sample[0])
+					self.flags = flags
+			elif not tree_start:
 				self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
 				self.flags = tf.concat([self.flags, flags], axis=-1)
 			dim = cur_dim
