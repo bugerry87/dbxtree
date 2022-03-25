@@ -181,7 +181,7 @@ class DynamicTree(Model):
 				
 				if augmentation:
 					# Random Quantization
-					x *= tf.random.uniform([1], 1000, 1500, dtype=x.dtype)
+					x *= tf.random.uniform([1], 1000, 1200, dtype=x.dtype)
 					x = tf.math.round(x) * tf.random.uniform([1], 0.0005, 0.001, dtype=x.dtype)
 					# Random Rotation
 					a = tf.random.uniform([1], -np.math.pi, np.math.pi, dtype=x.dtype)[0]
