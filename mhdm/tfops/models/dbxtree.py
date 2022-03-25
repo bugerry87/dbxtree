@@ -181,12 +181,14 @@ class DynamicTree(Model):
 				
 				if augmentation:
 					# Random Quantization
-					x *= tf.random.uniform([1], 1000, 1200, dtype=x.dtype)
-					x = tf.math.round(x) * tf.random.uniform([1], 0.0005, 0.001, dtype=x.dtype)
+					scale = tf.random.uniform([1], 10, 1000, dtype=x.dtype)
+					x = tf.math.round(x * scale) / scale
 					# Random Rotation
 					a = tf.random.uniform([1], -np.math.pi, np.math.pi, dtype=x.dtype)[0]
 					M = tf.reshape([tf.cos(a),-tf.sin(a),0,tf.sin(a),tf.cos(a),0,0,0,1], (-1,3))
 					x = x@M
+					# Jitter
+					x -= tf.reduce_mean(x, axis=-2, keepdims=True) + tf.random.normal([1,3], dtype=x.dtype)
 
 				layer = 0
 				while np.any(dim) and (max_layers == 0 or max_layers > layer):
