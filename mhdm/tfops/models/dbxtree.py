@@ -161,11 +161,31 @@ class DynamicTree(Model):
 		"""
 		def encode():
 			for X, filename in parser:
-				bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
+				x = X
 				pos = tf.zeros_like(bbox)[None, None, ...]
 				nodes = tf.ones_like(X[...,0], dtype=tf.int64)
 				dim = tf.constant(meta.dim)
-				x = X
+				
+				if keypoints:
+					x = tf.gather(x, spatial.edge_detection(x[...,:], keypoints)[0])
+				
+				if augmentation:
+					# Random Quantization
+					scale = tf.random.uniform([1], 10, 1000, dtype=x.dtype)
+					x = tf.math.round(x * scale) / scale
+					# Random Rotation
+					if not use_pca:
+						a = tf.random.uniform([1], -np.math.pi, np.math.pi, dtype=x.dtype)[0]
+						M = tf.reshape([tf.cos(a),-tf.sin(a),0,tf.sin(a),tf.cos(a),0,0,0,1], (-1,3))
+						x = x@M
+					# Jitter
+					#x -= tf.reduce_mean(x, axis=-2, keepdims=True) + tf.random.normal([1,3], dtype=x.dtype)
+				
+				offset = tf.math.reduce_min(x, axis=-2, keepdims=True)
+				offset += tf.math.reduce_max(x, axis=-2, keepdims=True)
+				offset *= 0.5
+				x -= offset
+				bbox = tf.math.reduce_max(tf.math.abs(x), axis=-2)
 
 				if use_pca and tfx:
 					pca = tfx.pca(x, meta.dim)
@@ -175,20 +195,6 @@ class DynamicTree(Model):
 					i = tf.argsort(bbox)[::-1]
 					x = tf.gather(x, i, batch_dims=-1)
 					bbox = tf.gather(bbox, i)
-				
-				if keypoints:
-					x = tf.gather(x, spatial.edge_detection(X[...,:], keypoints)[0])
-				
-				if augmentation:
-					# Random Quantization
-					scale = tf.random.uniform([1], 10, 1000, dtype=x.dtype)
-					x = tf.math.round(x * scale) / scale
-					# Random Rotation
-					a = tf.random.uniform([1], -np.math.pi, np.math.pi, dtype=x.dtype)[0]
-					M = tf.reshape([tf.cos(a),-tf.sin(a),0,tf.sin(a),tf.cos(a),0,0,0,1], (-1,3))
-					x = x@M
-					# Jitter
-					x -= tf.reduce_mean(x, axis=-2, keepdims=True) + tf.random.normal([1,3], dtype=x.dtype)
 
 				layer = 0
 				while np.any(dim) and (max_layers == 0 or max_layers > layer):
