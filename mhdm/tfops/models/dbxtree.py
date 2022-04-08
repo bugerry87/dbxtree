@@ -162,9 +162,6 @@ class DynamicTree(Model):
 		def encode():
 			for X, filename in parser:
 				x = X
-				pos = tf.zeros_like(bbox)[None, None, ...]
-				nodes = tf.ones_like(X[...,0], dtype=tf.int64)
-				dim = tf.constant(meta.dim)
 				
 				if keypoints:
 					x = tf.gather(x, spatial.edge_detection(x[...,:], keypoints)[0])
@@ -186,6 +183,9 @@ class DynamicTree(Model):
 				offset *= 0.5
 				x -= offset
 				bbox = tf.math.reduce_max(tf.math.abs(x), axis=-2)
+				pos = tf.zeros_like(bbox)[None, None, ...]
+				nodes = tf.ones_like(x[...,0], dtype=tf.int64)
+				dim = tf.constant(meta.dim)
 
 				if use_pca and tfx:
 					pca = tfx.pca(x, meta.dim)
