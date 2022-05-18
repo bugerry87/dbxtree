@@ -80,6 +80,30 @@ plt.show()
 
 #-----------------------
 
+uids_bpp = np.loadtxt('data/training/run-r3.0_k128_uids_test-tag-epoch_bpp.csv', delimiter=',', skiprows=1)
+pivots_bpp = np.loadtxt('data/training/run-r3.0_k128_pivots_test-tag-epoch_bpp.csv', delimiter=',', skiprows=1)
+pos_bpp = np.loadtxt('data/training/run-r3.0_k128_pos_test-tag-epoch_bpp.csv', delimiter=',', skiprows=1)
+all_bpp = np.loadtxt('data/training/run-r3.0_k128_all_fixed_test-tag-epoch_bpp.csv', delimiter=',', skiprows=1)
+
+plt.figure(figsize=(5,4))
+plt.title('Feature Evaluation')
+
+t, x, y = uids_bpp.T
+plt.plot(x+1, y, label='NIDs')
+t, x, y = pos_bpp.T
+plt.plot(x+1, y, label='Position')
+t, x, y = pivots_bpp.T
+plt.plot(x+1, y, label='Trestles')
+t, x, y = all_bpp.T
+plt.plot(x+1, y, label='All')
+plt.ylabel('bpp')
+plt.xlabel('epochs')
+plt.legend(loc='upper right')
+plt.tight_layout()
+plt.show()
+
+#-----------------------
+
 dbx = pd.read_csv('data/training/DBXTreeEarlyStop_KITTI.csv', header=0)
 mpge = pd.read_csv('data/training/MPEGbaselineKITTI.csv', header=0)
 draco = pd.read_csv('data/training/DracoBaselineKITTI.csv', header=0)
