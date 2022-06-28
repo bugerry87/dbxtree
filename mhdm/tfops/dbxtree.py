@@ -31,7 +31,8 @@ def encode(X, nodes, pos, bbox, radius):
 	nodes = bitops.left_shift(nodes, tf.cast(dims, nodes.dtype))
 	nodes = bitops.bitwise_or(nodes, tf.cast(bits, nodes.dtype))
 	
-	pivots = pos - bbox * tokens[None,...]
+	big = tf.cast(big, tf.float32)
+	pivots = pos - bbox * big * tokens[None,...]
 
 	flags = tf.one_hot(bits[...,0], 8, dtype=tf.int32)
 	flags = tf.math.unsorted_segment_max(flags, inv, n) * keep
@@ -42,7 +43,7 @@ def encode(X, nodes, pos, bbox, radius):
 	flags = bitops.left_shift(flags, tf.range(8))
 	flags = tf.math.reduce_sum(flags, axis=-1)
 
-	bbox *= 1.0 - tf.cast(big, tf.float32)*0.5
+	bbox *= 1.0 - big * 0.5
 	X += (1.0 - tf.cast(sign, tf.float32)*2.0) * bbox * tf.cast(mask, tf.float32)
 
 	idx = tf.where(mask)[...,0]
