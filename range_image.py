@@ -3,7 +3,7 @@ import mhdm.lidar as lidar
 from PIL import Image as im
 #import mhdm.viz as viz
 
-X = np.fromfile('data/kitti_20110926_0005/0000000000.bin', np.float32).reshape(-1, 4)
+X = np.fromfile('/mnt/d/GANDM/data/kitti_20110926_0005/0000000000.bin', np.float32).reshape(-1, 4)
 edges = (X[:-1,1] < 0) & (X[1:,1] >= 0)
 row = np.concatenate(([0], np.cumsum(edges).astype(int)))
 counts = np.unique(row, return_counts = True)[-1]
@@ -23,21 +23,21 @@ N = np.round(N)
 
 azimuth = azimuth - col
 azi_max = np.abs(azimuth).max()
-azimuth = np.round(127 * azimuth / azi_max).astype(np.int8)
+azimuth = np.round((2**15-1) * azimuth / azi_max).astype(np.int16)
 azimuth.tofile('/mnt/d/GANDM/data/azimuth.bin')
 
 v_min = v.min()
 v_max = v.max()
 altitude = row.max() * (1 - (v - v_min) / (v_max - v_min)) - row
 alt_max = np.abs(altitude).max()
-altitude = np.round(127 * altitude / alt_max).astype(np.int8)
+altitude = np.round((2**15-1) * altitude / alt_max).astype(np.int16)
 
 altitude.tofile('/mnt/d/GANDM/data/altitude.bin')
 
 D = N[...,1][(row,col)] * d_max / 255
 d = D - d
 delta_max = np.abs(d).max()
-d = np.round(127 * d / delta_max).astype(np.int8)
+d = np.round((2**15-1) * d / delta_max).astype(np.int16)
 d.tofile('/mnt/d/GANDM/data/depth.bin')
 
 I = im.fromarray(N.astype(np.uint8))
@@ -45,15 +45,16 @@ I.save('/mnt/d/GANDM/data/range_image.png')
 
 # re const
 
-uvd[...,0] = (azimuth.astype(np.float32) * azi_max / 127 + col) * 2 * np.pi / (n_cols - 1) - np.pi
-uvd[...,1] = (1 - (altitude.astype(np.float32) * alt_max / 127 + row) / row.max()) * (v_max - v_min) + v_min
-uvd[...,2] = D - d.astype(np.float32) * delta_max / 127
+uvd[...,0] = (azimuth.astype(np.float32) * azi_max / (2**15-1) + col) * 2 * np.pi / (n_cols - 1) - np.pi
+uvd[...,1] = (1 - (altitude.astype(np.float32) * alt_max / (2**15-1) + row) / row.max()) * (v_max - v_min) + v_min
+uvd[...,2] = D - d.astype(np.float32) * delta_max / (2**15-1)
 
 xyz = lidar.uvd2xyz(uvd).astype(np.float32)
 xyz.tofile('/mnt/d/GANDM/data/range_image_xyz.bin')
 
-X = lidar.uvd2xyz(lidar.xyz2uvd(X[...,:3]))
-print(np.sqrt(((X - xyz)**2).sum(-1)).mean())
+x = lidar.uvd2xyz(lidar.xyz2uvd(X[...,:3])).astype(np.float32)
+x.tofile('/mnt/d/GANDM/data/range_image_gt.bin')
+print(np.sqrt(((x - xyz)**2).sum(-1)).mean())
 
 #fig = viz.create_figure()
 #viz.vertices(xyz, 'r', fig)
