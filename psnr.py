@@ -153,30 +153,23 @@ def main(args):
 		Ytree = cKDTree(Y)
 
 		knn = args.knn if args.knn > 3 else 1
+		peak = args.peak or Xtree.query(X, k=2, n_jobs=args.jobs)[0].max()**2
 		XYdelta, XYnn = Xtree.query(Y, k=knn, n_jobs=args.jobs)
 		YXdelta, YXnn = Ytree.query(X, k=knn, n_jobs=args.jobs)
 		
 		if args.knn <= 1:
 			XYmse = np.mean(XYdelta**2)
 			YXmse = np.mean(YXdelta**2)
-			Xpeak = XYdelta.max()**2
-			Ypeak = YXdelta.max()**2
 		elif args.knn <= 3:
 			XYvn = vec_normals(X)
 			YXvn = vec_normals(Y)
 			XYmse = np.sum(((X[XYnn] - Y) * YXvn)**2, axis=-1).mean()
 			YXmse = np.sum(((Y[YXnn] - X) * XYvn)**2, axis=-1).mean()
-			Xpeak = XYdelta.max()**2
-			Ypeak = YXdelta.max()**2
 		else:
-			print("Estimate eigen normals XY")
 			XYvn = eigen_normals(X[XYnn])
-			print("Estimate eigen normals YX")
 			YXvn = eigen_normals(Y[YXnn])
 			xy = np.argmin(XYdelta, axis=-1)
 			yx = np.argmin(YXdelta, axis=-1)
-			Xpeak = XYdelta.max()**2
-			Ypeak = YXdelta.max()**2
 			XYdelta = XYdelta[range(len(XYdelta)),xy]
 			YXdelta = YXdelta[range(len(YXdelta)),yx]
 			XYnn = XYnn[range(len(XYnn)),xy]
@@ -184,11 +177,11 @@ def main(args):
 			XYmse = np.sum(((X[XYnn] - Y) * XYvn)**2, axis=-1).mean()
 			YXmse = np.sum(((Y[YXnn] - X) * YXvn)**2, axis=-1).mean()
 		
-		XYpsnr = lidar.psnr(XYmse, peak=args.peak or Xpeak)
-		YXpsnr = lidar.psnr(YXmse, peak=args.peak or Ypeak)
+		XYpsnr = lidar.psnr(XYmse, peak=peak)
+		YXpsnr = lidar.psnr(YXmse, peak=peak)
 		XYacc = np.sum(XYdelta <= args.acc) * 100.0 / Ypoints
 		YXacc = np.sum(YXdelta <= args.acc) * 100.0 / Xpoints
-		sym_psnr = lidar.psnr((XYmse + YXmse) / 2, peak=args.peak or (Xpeak + Ypeak) / 2)
+		sym_psnr = lidar.psnr((XYmse + YXmse) / 2, peak=peak)
 		XYcd = np.mean(XYdelta)
 		YXcd = np.mean(YXdelta)
 		sym_cd = (XYcd + YXcd) / 2
@@ -199,11 +192,12 @@ def main(args):
 			XYacc, YXacc,
 			XYdelta.min(), YXdelta.min(),
 			XYdelta.max(), YXdelta.max(),
-			Xpeak**0.5, Ypeak**0.5,
 			XYmse, YXmse,
 			XYcd, YXcd,
+			peak**0.5,
 			sym_cd,
-			sym_psnr)
+			sym_psnr
+			)
 		report.append(entry)
 		log(("{}:"
 			"\n            {:^10}   {:^10}"
@@ -212,9 +206,9 @@ def main(args):
 			"\n  acc:      {:10.2f}%  {:10.2f}%"
 			"\n  min:      {:10.4f}m  {:10.4f}m"
 			"\n  max:      {:10.4f}m  {:10.4f}m"
-			"\n  peak:     {:10.4f}m  {:10.4f}m"
 			"\n  mse:      {:10.4f}m  {:10.4f}m"
 			"\n  cd:       {:10.4f}m  {:10.4f}m"
+			"\n  peak:     {:10.4f}m"
 			"\n  sym cd:   {:10.4f}m"
 			"\n  sym psnr: {:10.2f}dB"
 			).format(in_file, 'XY', 'YX', *entry))
@@ -229,9 +223,9 @@ def main(args):
 		"\n  acc:      {:10.2f}%  {:10.2f}%"
 		"\n  min:      {:10.2f}m  {:10.2f}m"
 		"\n  max:      {:10.2f}m  {:10.2f}m"
-		"\n  peak:     {:10.4f}m  {:10.4f}m"
 		"\n  me:       {:10.4f}m  {:10.4f}m"
 		"\n  cd:       {:10.4f}m  {:10.4f}m"
+		"\n  peak:     {:10.4f}m "
 		"\n  sym cd:   {:10.4f}m"
 		"\n  sym psnr: {:10.2f}dB"
 		).format('XY', 'YX', *mins))
@@ -244,9 +238,9 @@ def main(args):
 		"\n  acc:      {:10.2f}%  {:10.2f}%"
 		"\n  min:      {:10.2f}m  {:10.2f}m"
 		"\n  max:      {:10.2f}m  {:10.2f}m"
-		"\n  peak:     {:10.4f}m  {:10.4f}m"
 		"\n  me:       {:10.4f}m  {:10.4f}m"
 		"\n  cd:       {:10.4f}m  {:10.4f}m"
+		"\n  peak:     {:10.4f}m"
 		"\n  sym cd:   {:10.4f}m"
 		"\n  sym psnr: {:10.2f}dB"
 		).format('XY', 'YX', *maxs))
@@ -259,9 +253,9 @@ def main(args):
 		"\n  acc:      {:10.2f}%  {:10.2f}%"
 		"\n  min:      {:10.2f}m  {:10.2f}m"
 		"\n  max:      {:10.2f}m  {:10.2f}m"
-		"\n  peak:     {:10.4f}m  {:10.4f}m"
 		"\n  me:       {:10.4f}m  {:10.4f}m"
 		"\n  cd:       {:10.4f}m  {:10.4f}m"
+		"\n  peak:     {:10.4f}m"
 		"\n  sym cd:   {:10.4f}m"
 		"\n  sym psnr: {:10.2f}dB"
 		).format('XY', 'YX', *means))
