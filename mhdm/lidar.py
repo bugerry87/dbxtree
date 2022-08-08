@@ -42,11 +42,11 @@ def snr(A, B=None, noise=1.0):
 
 def xyz2uvd(X, norm=False, z_off=0.0, d_off=0.0, mode='sphere'):
 	x, y, z = X.T
-	pi = np.where(x > 0.0, np.pi, -np.pi)
 	uvd = np.empty(X.shape)
 	with np.errstate(divide='ignore', over='ignore'):
-		uvd[:,0] = np.arctan(x / y) + (y < 0) * pi
 		uvd[:,2] = np.linalg.norm(X, axis=-1)
+		uvd[:,0] = np.arctan2(x, y)
+
 		if mode == 'sphere':
 			uvd[:,1] = np.arcsin((z + z_off) / (uvd[:,2] + d_off))
 		elif mode == 'cone':
@@ -65,8 +65,9 @@ def xyz2uvd(X, norm=False, z_off=0.0, d_off=0.0, mode='sphere'):
 def uvd2xyz(U, z_off=0.0, d_off=0.0, mode='sphere'):
 	u, v, d = U.T
 	xyz = np.empty(U.shape)
-	xyz[:,0] = np.sin(u) * (d + z_off) 
-	xyz[:,1] = np.cos(u) * (d + z_off) 
+	c = np.cos(v) * (d + z_off) 
+	xyz[:,0] = np.sin(u) * c
+	xyz[:,1] = np.cos(u) * c
 	if mode == 'sphere':
 		xyz[:,2] = np.sin(v) * (d + d_off) - z_off
 	elif mode == 'cone':
