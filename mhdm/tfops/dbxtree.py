@@ -64,6 +64,9 @@ def encode2(X, nodes, pos, bbox, radius, means=0, batch_dims=0):
 	bbox = tf.gather_nd(bbox, i, batch_dims)
 	radius = tf.gather_nd(radius, i, batch_dims+1)
 	pos = tf.gather_nd(pos, i, batch_dims+1)
+	
+	means = tf.gather_nd(means, i, batch_dims+1)
+	means = tf.gather_nd(means, inv, batch_dims)
 
 	bbox = tf.gather_nd(bbox, inv, batch_dims)
 	i = tf.gather_nd(i, inv, batch_dims)
@@ -86,13 +89,13 @@ def encode2(X, nodes, pos, bbox, radius, means=0, batch_dims=0):
 	nodes = bitops.bitwise_or(nodes, tf.cast(bits, nodes.dtype))
 	
 	big = tf.cast(big, tf.float32)
-	pivots = pos - (bbox + means) * big * tokens[None,...]
+	candidates = pos - (bbox + means) * big * tokens[None,...]
 
 	flags = tf.one_hot(bits[...,0], 8, dtype=tf.int32)
 	flags = tf.math.unsorted_segment_max(flags, inv, n) * keep
 
 	i = tf.where(tf.reshape(flags, (-1,)))
-	pos = tf.gather_nd(tf.reshape(pivots,(-1,3)), i, batch_dims)
+	pos = tf.gather_nd(tf.reshape(candidates,(-1,3)), i, batch_dims)
 
 	flags = bitops.left_shift(flags, tf.range(8))
 	flags = tf.math.reduce_sum(flags, axis=-1)
@@ -115,7 +118,7 @@ def encode2(X, nodes, pos, bbox, radius, means=0, batch_dims=0):
 	means = tf.math.unsorted_segment_mean(X, inv, n)
 	bbox = tf.math.unsorted_segment_max(bbox, inv, n)
 
-	return X, nodes, pivots, pos, bbox, flags, uids, dims, means
+	return X, nodes, pos, candidates, bbox, flags, uids, dims, means
 
 def encode3(X, nodes, pos, bbox, radius, means=0, batch_dims=0):
 	uids, inv = tf.unique(nodes)
