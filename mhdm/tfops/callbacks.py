@@ -314,6 +314,143 @@ class DynamicTreeCallback(LambdaCallback):
 		pass
 
 
+class DynamicTree2Callback(LambdaCallback):
+	"""
+	"""
+	def __init__(self, samples, info, meta,
+		freq=1,
+		steps=0,
+		when=['on_epoch_end'],
+		writer=None,
+		range_encoder='tfc',
+		floor=0.0,
+		output=None,
+		):
+		"""
+		"""
+		super(DynamicTree2Callback, self).__init__(**{w:self for w in when})
+		self.samples = samples
+		self.info = info
+		self.meta = meta
+		self.steps = steps or meta.num_of_files
+		self.freq = freq
+		self.writer = writer
+		self.floor = floor
+		self.output = output
+		if output is None:
+			self.range_encoder = None
+			self.buffer = None
+		elif range_encoder == 'tfc':
+			self.buffer = BitBuffer()
+			self.range_encoder = None
+		elif range_encoder == 'python':
+			self.range_encoder = RangeEncoder(precision=64)
+			self.buffer = None
+		else:
+			self.range_encoder = None
+			self.buffer = None
+		pass
+
+	def __call__(self, *args):
+		args = (*args[::-1], 0)
+		log, epoch = args[:2]
+		if epoch % self.freq != 0:
+			return
+		
+		bpp_sum = 0
+		bpp_min = (1<<32)-1
+		bpp_max = 0
+		dim = 0
+		count_files = 0
+		self.model.reset_metrics()
+
+		for sample, info in zip(self.samples, self.info):
+			filename = str(info[-1].numpy())
+			layer = info[-3].numpy()
+			cur_dim = info[-4].numpy()
+			tree_start = layer == 1
+			early_stop = self.model.meta.max_layers != 0 and self.model.meta.max_layers == layer
+			tree_end = cur_dim == 0 or early_stop
+			do_encode = cur_dim < dim or tree_end
+			flags = info[0]
+			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
+
+			if tree_start:
+				count_files += 1
+				self.probs = self.model.predict_on_batch(sample[0])
+				self.flags = flags
+				points = float(info[-2].shape[-2])
+				bbox = tf.math.reduce_max(tf.math.abs(info[-2]), axis=-2).numpy()
+				bit_count = 0
+				filename = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin')
+
+				if self.range_encoder is not None:
+					self.range_encoder.open(filename)
+					self.buffer = self.range_encoder.output
+				elif self.buffer is not None:
+					self.buffer.open(filename, 'wb')
+				
+				if self.buffer is not None:
+					self.buffer.write(int.from_bytes(np.array(self.meta.radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
+					self.buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
+			
+			if do_encode:
+				if dim and early_stop:
+					self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
+					self.flags = tf.concat([self.flags, flags], axis=-1)
+				self.probs = tf.clip_by_value(self.probs, self.floor, 1.0)
+				if self.range_encoder is not None:
+					self.range_encoder.updates(self.flags.numpy(), probs=np.squeeze(self.probs.numpy()))
+				elif self.buffer is not None and tfc:
+					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
+					for c in code:
+						self.buffer.write(c, 8, soft_flush=True)
+					bit_count += len(code)*8.0
+				if not tree_end:
+					self.probs = self.model.predict_on_batch(sample[0])
+					self.flags = flags
+			elif not tree_start:
+				self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
+				self.flags = tf.concat([self.flags, flags], axis=-1)
+			dim = cur_dim
+
+			if tree_end:
+				if self.range_encoder is not None:
+					self.range_encoder.finalize()
+					bit_count = len(self.range_encoder)
+					self.range_encoder.close()
+				elif self.buffer is not None:
+					self.buffer.close()
+				bpp = bit_count / points
+				bpp_min = min(bpp_min, bpp)
+				bpp_max = max(bpp_max, bpp)
+				bpp_sum += bpp
+				if self.steps and self.steps == count_files:
+					break
+
+		if self.range_encoder is not None:
+			self.range_encoder.finalize()
+			self.range_encoder.close()
+		elif self.buffer is not None:
+			self.buffer.close()
+		
+		metrics['bpp'] = bpp_sum / count_files
+		metrics['bpp_min'] = bpp_min
+		metrics['bpp_max'] = bpp_max
+		
+		for name, metric in metrics.items():
+			name = 'test_' + name
+			log[name] = metric
+		
+		if self.writer is not None:
+			with self.writer.as_default():
+				for name, metric in metrics.items():
+					name = 'epoch_' + name
+					tf.summary.scalar(name, metric, epoch)
+			self.writer.flush()
+		pass
+
+
 class LogCallback(Callback):
 	"""
 	"""
