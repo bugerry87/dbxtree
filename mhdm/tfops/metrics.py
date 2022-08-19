@@ -59,8 +59,33 @@ def focal_loss(y_true, y_pred, from_logits=False, label_smoothing=0, gamma=5.0):
 	return tf.math.reduce_mean(loss)
 
 
-def combinate(y_true, y_pred, loss_funcs, loss_kwargs, loss_weights):
-	loss = tf.math.reduce_sum([loss(y_true, y_pred, **kwargs) * weight for loss, kwargs, weight in zip(loss_funcs, loss_kwargs, loss_weights)], axis=0)
+def combinate(y_true, y_pred, loss_funcs):
+	def parse(loss_funcs):
+		for loss_func in loss_funcs:
+			if hasattr(loss_func, 'slices'):
+				gt = y_true[...,loss_func.slices]
+				est = y_pred[...,loss_func.slices]
+			else:
+				gt = y_true
+				est = y_pred
+			
+			if hasattr(loss_func, 'weights'):
+				weights = loss_func.weights
+			else:
+				weights = 1
+			
+			if hasattr(loss_func, 'kwargs'):
+				kwargs = loss_func.kwargs
+			else:
+				kwargs = {}
+
+			if hasattr(loss_func, 'loss'):
+				yield loss_func.loss(gt, est, **loss_func.kwargs) * weights
+			else:
+				yield loss_func(gt, est)
+		pass
+
+	loss = tf.math.reduce_sum(parse(loss_funcs), axis=0)
 	return loss
 
 
@@ -118,7 +143,7 @@ class FocalLoss(LossFunctionWrapper):
 class CombinedLoss(LossFunctionWrapper):
 	"""
 	"""
-	def __init__(self, loss_funcs, loss_kwargs, loss_weights,
+	def __init__(self, loss_funcs,
 		name='combined_loss',
 		**kwargs
 		):
@@ -128,8 +153,6 @@ class CombinedLoss(LossFunctionWrapper):
 			combinate,
 			name=name,
 			loss_funcs = loss_funcs,
-			loss_kwargs = loss_kwargs,
-			loss_weights = loss_weights,
 			**kwargs
 			)
 		pass
