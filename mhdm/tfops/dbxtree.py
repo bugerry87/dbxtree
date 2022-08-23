@@ -3,7 +3,10 @@
 import tensorflow as tf
 
 ## Local
-from . import bitops
+if __name__ != '__main__':
+	from . import bitops
+else:
+	import bitops
 
 tokens = tf.range(8)
 tokens = bitops.right_shift(tokens[...,None], tf.range(3))
@@ -55,24 +58,23 @@ def encode(X, nodes, pos, bbox, radius):
 	X = tf.gather(X, i)
 	return X, nodes, pivots, pos, bbox, flags, uids, dims
 
-def encode2(X, nodes, pos, bbox, radius, means=0, batch_dims=0):
+def encode2(X, nodes, pos, bbox, radius, means=0):
 	uids, inv = tf.unique(nodes)
 	n = tf.math.reduce_max(inv)+1
 	intervals = bbox / radius
 	i = tf.argsort(intervals, axis=-1, direction='DESCENDING')
-	bbox = tf.gather_nd(bbox, i, batch_dims)
-	radius = tf.gather_nd(radius, i, batch_dims+1)
-	pos = tf.gather_nd(pos, i, batch_dims+1)
-	
-	means = tf.gather_nd(means, i, batch_dims+1)
-	means = tf.gather_nd(means, inv, batch_dims)
+	bbox = tf.gather(bbox, i, batch_dims=1)
+	radius = tf.gather(radius, i, batch_dims=1)
+	pos = tf.gather(pos, i, batch_dims=1)
+	means = tf.gather(means, i, batch_dims=1)
 
-	bbox = tf.gather_nd(bbox, inv, batch_dims)
-	i = tf.gather_nd(i, inv, batch_dims)
-	X = tf.gather_nd(X, i, batch_dims+1)
+	means = tf.gather(means, inv)
+	bbox = tf.gather(bbox, inv)
+	i = tf.gather(i, inv)
+	X = tf.gather(X, i, batch_dims=1)
 
 	big = tf.cast(bbox > radius, tf.int32)
-	dims = tf.math.reduce_sum(big, axis=-1)
+	dims = tf.math.reduce_sum(big, axis=-1, keepdims=True)
 	keep = tf.math.reduce_any(tf.math.abs(X) - means > radius, axis=-1, keepdims=True)
 	keep = tf.cast(keep, tf.int32)
 	keep = tf.math.unsorted_segment_max(keep, inv, n)
@@ -86,15 +88,16 @@ def encode2(X, nodes, pos, bbox, radius, means=0, batch_dims=0):
 	nodes = nodes[...,None]
 	nodes = bitops.left_shift(nodes, tf.cast(dims, nodes.dtype))
 	nodes = bitops.bitwise_or(nodes, tf.cast(bits, nodes.dtype))
+	nodes = nodes[...,0]
 	
 	big = tf.cast(big, tf.float32)
-	candidates = pos - (bbox + means) * big * tokens[None,...]
+	candidates = pos[...,None,:] - ((bbox + means) * big)[...,None,:] * tokens[None,...]
 
 	flags = tf.one_hot(bits[...,0], 8, dtype=tf.int32)
 	flags = tf.math.unsorted_segment_max(flags, inv, n) * keep
 
-	i = tf.where(tf.reshape(flags, (-1,)))
-	pos = tf.gather_nd(tf.reshape(candidates,(-1,3)), i, batch_dims)
+	i = tf.where(tf.reshape(flags, (-1,)))[...,0]
+	pos = tf.gather(tf.reshape(candidates,(-1,3)), i)
 
 	flags = bitops.left_shift(flags, tf.range(8))
 	flags = tf.math.reduce_sum(flags, axis=-1)
@@ -103,17 +106,18 @@ def encode2(X, nodes, pos, bbox, radius, means=0, batch_dims=0):
 	bbox += means * big
 	X += (1.0 - tf.cast(sign, tf.float32)*2.0) * bbox * tf.cast(mask, tf.float32)
 
-	i = tf.where(mask)[...,0]
-	X = tf.gather_nd(X, i, batch_dims)
-	nodes = tf.gather_nd(nodes, i, batch_dims)[...,0]
-	bbox = tf.gather_nd(bbox, i, batch_dims)[...,0]
-	inv = tf.gather_nd(inv, i, batch_dims)[...,0]
+	i = tf.where(mask[...,0])[...,0]
+	X = tf.gather(X, i)
+	nodes = tf.gather(nodes, i)
+	bbox = tf.gather(bbox, i)
+	inv = tf.gather(inv, i)
 
 	i = tf.argsort(nodes)
-	X = tf.gather_nd(X, i, batch_dims)
-	nodes = tf.gather_nd(nodes, i, batch_dims)
-	bbox = tf.gather_nd(bbox, i, batch_dims)
-	inv = tf.gather_nd(inv, i, batch_dims)
+	X = tf.gather(X, i)
+	nodes = tf.gather(nodes, i)
+	bbox = tf.gather(bbox, i)
+	
+	inv = tf.gather(inv, i)
 	means = tf.math.unsorted_segment_mean(X, inv, n)
 	bbox = tf.math.unsorted_segment_max(bbox, inv, n)
 	return X, nodes, pos, candidates, bbox, flags, uids, dims, means
@@ -142,3 +146,16 @@ def decode2(flags, bbox, radius, X, keep, means=0, batch_dims=0):
 	X = tf.gather_nd(X, i[...,-2], batch_dims) - tf.gather_nd(offsets, i)
 	X = tf.concat([X, keep], axis=-2)
 	return X, keep, bbox*0.5
+
+
+if __name__ == '__main__':
+	import numpy as np
+	X = np.fromfile('../../data/0000000000.bin', dtype=np.float32).reshape(-1, 4)[:,:3]
+	bbox0 = np.max(np.abs(X), axis=0)
+	radius = np.zeros([1,3], dtype=np.float32) + 0.0015
+	means = np.zeros([1,3], dtype=np.float32)
+	nodes = np.zeros_like(X[:,0], dtype=np.int64)
+	pos = np.zeros([1,3], dtype=np.float32)
+	bbox = bbox0[None,...]
+	X, nodes, pos, candidates, bbox, flags, uids, dims, means = encode2(X, nodes, pos, bbox, radius, means)
+	print(X, nodes, pos, candidates, bbox, flags, uids, dims, means)
