@@ -79,7 +79,7 @@ plt.tight_layout()
 plt.show()
 
 #-----------------------
-
+'''
 uids_bpp = np.loadtxt('data/training/run-r3.0_k128_uids_test-tag-epoch_bpp.csv', delimiter=',', skiprows=1)
 pivots_bpp = np.loadtxt('data/training/run-r3.0_k128_pivots_test-tag-epoch_bpp.csv', delimiter=',', skiprows=1)
 pos_bpp = np.loadtxt('data/training/run-r3.0_k128_pos_test-tag-epoch_bpp.csv', delimiter=',', skiprows=1)
@@ -101,7 +101,7 @@ plt.xlabel('epochs')
 plt.legend(loc='upper right')
 plt.tight_layout()
 plt.show()
-
+'''
 #-----------------------
 
 dbx = pd.read_csv('data/training/DBXTreeEarlyStop_KITTI.csv', header=0)
@@ -112,13 +112,13 @@ plt.figure(figsize=(5,4))
 plt.title('KITTI raw 2011_09_26_drive_0005')
 
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.3cm', marker='.')
+plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='.')
 
 x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.6cm', marker='v')
+plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='v')
 
 x, y = dbx.query('Precision == "r0010"').loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='DBX r=1.0cm', marker='x')
+plt.plot(x, y, label=r'DBX $\tau$=1.0cm', marker='x')
 
 x, y = mpge.loc[:,['bpp','rmsF-p2point']].values.T
 plt.plot(x, y, label='MPEG G-PCC', marker='^')
@@ -141,13 +141,13 @@ plt.figure(figsize=(5,4))
 plt.title('KITTI raw 2011_09_26_drive_0005')
 
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.3cm', marker='.')
+plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='.')
 
 x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.6cm', marker='v')
+plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='v')
 
 x, y = dbx.query('Precision == "r0010"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='DBX r=1.0cm', marker='x')
+plt.plot(x, y, label=r'DBX $\tau$=1.0cm', marker='x')
 
 x, y = mpge.loc[:,['bpp','rmsFPSNR-p2point']].values.T
 plt.plot(x, y, label='MPEG G-PCC', marker='^')
@@ -170,13 +170,13 @@ plt.figure(figsize=(5,4))
 plt.title('KITTI raw 2011_09_26_drive_0005')
 
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='DBX r=0.3cm', marker='.')
+plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='.')
 
 x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='DBX r=0.6cm', marker='v')
+plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='v')
 
 x, y = dbx.query('Precision == "r0010"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='DBX r=1.0cm', marker='x')
+plt.plot(x, y, label=r'DBX $\tau$=1.0cm', marker='x')
 
 x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 plt.plot(x, y, label='MPEG G-PCC', marker='^')
@@ -203,13 +203,13 @@ plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
 
 x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.1cm', marker='.')
+plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
 
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.3cm', marker='v')
+plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='v')
 
 x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.6cm', marker='x')
+plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='x')
 
 x, y = mpge.loc[:,['bpp','rmsF-p2point']].values.T
 plt.plot(x, y/1000, label='MPEG G-PCC', marker='^')
@@ -230,13 +230,13 @@ plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
 
 x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.1cm', marker='.')
+plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
 
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='DBX r=0.3cm', marker='v')
+plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='v')
 
 #x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
-#plt.plot(x, y, label='DBX r=0.6cm', marker='x')
+#plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='x')
 
 x, y = mpge.loc[:,['bpp','rmsFPSNR-p2point']].values.T
 plt.plot(x, y, label='MPEG G-PCC', marker='^')
@@ -259,13 +259,13 @@ plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
 
 x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='DBX r=0.1cm', marker='.')
+plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
 
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='DBX r=0.3cm', marker='v')
+plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='v')
 
 #x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-#plt.plot(x, y, label='DBX r=0.6cm', marker='x')
+#plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='x')
 
 x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 plt.plot(x, y, label='MPEG G-PCC', marker='^')
