@@ -67,15 +67,18 @@ def encode2(X, nodes, pos, bbox, radius, means=0):
 	radius = tf.gather(radius, i, batch_dims=1)
 	pos = tf.gather(pos, i, batch_dims=1)
 	means = tf.gather(means, i, batch_dims=1)
-
-	means = tf.gather(means, inv)
-	bbox = tf.gather(bbox, inv)
 	i = tf.gather(i, inv)
 	X = tf.gather(X, i, batch_dims=1)
 
 	big = tf.cast(bbox > radius, tf.int32)
+	bbox = bbox[...,None,:] * tokens[None,...] + means[...,None,:]
+	bbox *= tf.cast(big[...,None,:], tf.float32)
+	candidates = pos[...,None,:] - bbox
+
+	big = tf.gather(big, inv)
+	means = tf.gather(means, inv)
 	dims = tf.math.reduce_sum(big, axis=-1, keepdims=True)
-	keep = tf.math.reduce_any(tf.math.abs(X) - means > radius, axis=-1, keepdims=True)
+	keep = tf.math.reduce_any(tf.math.abs(X) - means, inv > radius, axis=-1, keepdims=True)
 	keep = tf.cast(keep, tf.int32)
 	keep = tf.math.unsorted_segment_max(keep, inv, n)
 	mask = tf.gather(keep, inv)
@@ -89,25 +92,21 @@ def encode2(X, nodes, pos, bbox, radius, means=0):
 	nodes = bitops.left_shift(nodes, tf.cast(dims, nodes.dtype))
 	nodes = bitops.bitwise_or(nodes, tf.cast(bits, nodes.dtype))
 	nodes = nodes[...,0]
-	
-	big = tf.cast(big, tf.float32)
-	candidates = pos[...,None,:] - ((bbox + means) * big)[...,None,:] * tokens[None,...]
 
 	flags = tf.one_hot(bits[...,0], 8, dtype=tf.int32)
 	flags = tf.math.unsorted_segment_max(flags, inv, n) * keep
 
 	i = tf.where(tf.reshape(flags, (-1,)))[...,0]
 	pos = tf.gather(tf.reshape(candidates,(-1,3)), i)
+	bbox = tf.gather(tf.reshape(bbox,(-1,3)), i)
 
 	flags = bitops.left_shift(flags, tf.range(8))
 	flags = tf.math.reduce_sum(flags, axis=-1)
 
-	bbox *= 1.0 - big * 0.5
-	bbox += means * big
-	X += (1.0 - tf.cast(sign, tf.float32)*2.0) * bbox * tf.cast(mask, tf.float32)
-
 	i = tf.where(mask[...,0])[...,0]
 	X = tf.gather(X, i)
+	X += bbox
+	
 	nodes = tf.gather(nodes, i)
 	bbox = tf.gather(bbox, i)
 	inv = tf.gather(inv, i)
@@ -119,7 +118,6 @@ def encode2(X, nodes, pos, bbox, radius, means=0):
 	
 	inv = tf.gather(inv, i)
 	means = tf.math.unsorted_segment_mean(X, inv, n)
-	bbox = tf.math.unsorted_segment_max(bbox, inv, n)
 	return X, nodes, pos, candidates, bbox, flags, uids, dims, means
 
 def decode(flags, bbox, radius, X, keep):
