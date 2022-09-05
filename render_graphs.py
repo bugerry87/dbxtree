@@ -111,6 +111,12 @@ draco = pd.read_csv('data/training/DracoBaselineKITTI.csv', header=0)
 plt.figure(figsize=(5,4))
 plt.title('KITTI raw 2011_09_26_drive_0005')
 
+x, y = draco.loc[:,['bpp','rmsF-p2point']].values.T
+plt.plot(x, y, label='DRACO', marker='o')
+
+x, y = mpge.loc[:,['bpp','rmsF-p2point']].values.T
+plt.plot(x, y, label='MPEG G-PCC', marker='^')
+
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsF-p2point']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='.')
 
@@ -119,12 +125,6 @@ plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='v')
 
 x, y = dbx.query('Precision == "r0010"').loc[:,['bpp','rmsF-p2point']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=1.0cm', marker='x')
-
-x, y = mpge.loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='MPEG G-PCC', marker='^')
-
-x, y = draco.loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y, label='DRACO', marker='o')
 
 plt.grid(True)
 plt.xlim((0,15))
@@ -140,6 +140,12 @@ plt.show()
 plt.figure(figsize=(5,4))
 plt.title('KITTI raw 2011_09_26_drive_0005')
 
+x, y = draco.loc[:,['bpp','rmsFPSNR-p2point']].values.T
+plt.plot(x, y, label='DRACO', marker='o')
+
+x, y = mpge.loc[:,['bpp','rmsFPSNR-p2point']].values.T
+plt.plot(x, y, label='MPEG G-PCC', marker='^')
+
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='.')
 
@@ -148,12 +154,6 @@ plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='v')
 
 x, y = dbx.query('Precision == "r0010"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=1.0cm', marker='x')
-
-x, y = mpge.loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='MPEG G-PCC', marker='^')
-
-x, y = draco.loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='DRACO', marker='o')
 
 plt.grid(True)
 plt.xlim((0,15))
@@ -169,6 +169,12 @@ plt.show()
 plt.figure(figsize=(5,4))
 plt.title('KITTI raw 2011_09_26_drive_0005')
 
+x, y = draco.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+plt.plot(x, y, label='DRACO', marker='o')
+
+x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+plt.plot(x, y, label='MPEG G-PCC', marker='^')
+
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='.')
 
@@ -177,12 +183,6 @@ plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='v')
 
 x, y = dbx.query('Precision == "r0010"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=1.0cm', marker='x')
-
-x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='MPEG G-PCC', marker='^')
-
-x, y = draco.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='DRACO', marker='o')
 
 plt.grid(True)
 plt.xlim((0,15))
@@ -202,6 +202,12 @@ sparse = pd.read_csv('data/training/SparseVoxelsFORD.csv', header=0)
 plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
 
+x, y = mpge.loc[:,['bpp','rmsF-p2point']].values.T
+plt.plot(x, y/1000, label='MPEG G-PCC', marker='^')
+
+x, y = sparse.loc[:,['bpp','rmsF-p2point']].values.T
+plt.plot(x, y/1000, label='SparsePCGC', marker='o')
+
 x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsF-p2point']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
 
@@ -210,12 +216,6 @@ plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='v')
 
 x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsF-p2point']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='x')
-
-x, y = mpge.loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y/1000, label='MPEG G-PCC', marker='^')
-
-x, y = sparse.loc[:,['bpp','rmsF-p2point']].values.T
-plt.plot(x, y/1000, label='SparsePCGC', marker='o')
 
 plt.grid(True)
 #plt.xlim((0,15))
@@ -229,6 +229,12 @@ plt.show()
 plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
 
+x, y = mpge.loc[:,['bpp','rmsFPSNR-p2point']].values.T
+plt.plot(x, y, label='MPEG G-PCC', marker='^')
+
+x, y = sparse.loc[:,['bpp','rmsFPSNR-p2point']].values.T
+plt.plot(x, y, label='SparsePCGC', marker='o')
+
 x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
 
@@ -237,12 +243,6 @@ plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='v')
 
 #x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsFPSNR-p2point']].values.T
 #plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='x')
-
-x, y = mpge.loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='MPEG G-PCC', marker='^')
-
-x, y = sparse.loc[:,['bpp','rmsFPSNR-p2point']].values.T
-plt.plot(x, y, label='SparsePCGC', marker='o')
 
 plt.grid(True)
 #plt.xlim((0,15))
@@ -258,6 +258,12 @@ plt.show()
 plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
 
+x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+plt.plot(x, y, label='MPEG G-PCC', marker='^')
+
+x, y = sparse.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+plt.plot(x, y, label='SparsePCGC', marker='o')
+
 x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
 
@@ -266,12 +272,6 @@ plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='v')
 
 #x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 #plt.plot(x, y, label=r'DBX $\tau$=0.6cm', marker='x')
-
-x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='MPEG G-PCC', marker='^')
-
-x, y = sparse.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label='SparsePCGC', marker='o')
 
 plt.grid(True)
 #plt.xlim((0,15))
