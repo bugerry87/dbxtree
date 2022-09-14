@@ -156,7 +156,7 @@ def encode(
 	for f in files:
 		outname = f"{compressed}.{c:05d}.dbx.bin" if len(files) > 1 else f"{compressed}.dbx.bin"
 		X = lidar.load(f, xshape, xtype)[...,:oshape[-1]]
-		bbox = np.abs(X).astype(np.float32).max(axis=0)
+		bbox = np.abs(X).astype(np.float32).max(axis=0) + radius * 0.5
 
 		buffer.open(outname, 'wb')
 		buffer.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)

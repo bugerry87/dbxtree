@@ -6,7 +6,6 @@ import os.path as path
 
 ## Installed
 import numpy as np
-#import matplotlib.pyplot as plt
 from scipy.spatial import cKDTree, Delaunay
 
 ## Local
@@ -153,9 +152,9 @@ def main(args):
 		Ytree = cKDTree(Y)
 
 		knn = args.knn if args.knn > 3 else 1
-		peak = args.peak or Xtree.query(X, k=2, n_jobs=args.jobs)[0].max()**2
-		XYdelta, XYnn = Xtree.query(Y, k=knn, n_jobs=args.jobs)
-		YXdelta, YXnn = Ytree.query(X, k=knn, n_jobs=args.jobs)
+		peak = args.peak**2 or Ytree.query(Y, k=2, workers=args.jobs)[0].max()**2
+		XYdelta, XYnn = Xtree.query(Y, k=knn, workers=args.jobs)
+		YXdelta, YXnn = Ytree.query(X, k=knn, workers=args.jobs)
 		
 		if args.knn <= 1:
 			XYmse = np.mean(XYdelta**2)
