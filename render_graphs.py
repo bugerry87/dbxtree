@@ -107,6 +107,7 @@ plt.show()
 dbx = pd.read_csv('data/training/DBXTreeEarlyStop_KITTI.csv', header=0)
 mpge = pd.read_csv('data/training/MPEGbaselineKITTI.csv', header=0)
 draco = pd.read_csv('data/training/DracoBaselineKITTI.csv', header=0)
+voxel = pd.read_csv('data/training/VoxelContextNet.csv', header=0)
 
 plt.figure(figsize=(5,4))
 plt.title('KITTI raw 2011_09_26_drive_0005')
@@ -175,6 +176,9 @@ plt.plot(x, y, label='DRACO', marker='o')
 x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 plt.plot(x, y, label='MPEG G-PCC', marker='^')
 
+x, y = voxel.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+plt.plot(x, y, label='VoxelContextNet', marker='+')
+
 x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='.')
 
@@ -198,6 +202,7 @@ plt.show()
 dbx = pd.read_csv('data/training/DBXTreeEarlyStop_FORD.csv', header=0)
 mpge = pd.read_csv('data/training/MPEGbaselineFORD.csv', header=0)
 sparse = pd.read_csv('data/training/SparseVoxelsFORD.csv', header=0)
+voxel = pd.read_csv('data/training/VoxelContextNetFORD.csv', header=0)
 
 plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
@@ -258,16 +263,19 @@ plt.show()
 plt.figure(figsize=(5,4))
 plt.title('Ford (subset)')
 
-x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+x, y = mpge.loc[:,['bpp','rmsFPSNR-p2plane_52']].values.T
 plt.plot(x, y, label='MPEG G-PCC', marker='^')
 
-x, y = sparse.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+x, y = sparse.loc[:,['bpp','rmsFPSNR-p2plane_52']].values.T
 plt.plot(x, y, label='SparsePCGC', marker='o')
 
-x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
-plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
+x, y = voxel.loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+plt.plot(x, y, label='VoxelContextNet', marker='+')
 
-x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+#x, y = dbx.query('Precision == "r0001"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
+#plt.plot(x, y, label=r'DBX $\tau$=0.1cm', marker='.')
+
+x, y = dbx.query('Precision == "r0003"').loc[:,['bpp','rmsFPSNR-p2plane_52']].values.T
 plt.plot(x, y, label=r'DBX $\tau$=0.3cm', marker='v')
 
 #x, y = dbx.query('Precision == "r0006"').loc[:,['bpp','rmsFPSNR-p2plane']].values.T
@@ -277,7 +285,7 @@ plt.grid(True)
 #plt.xlim((0,15))
 #plt.ylim((45,80))
 plt.xlabel('bpp (input)')
-plt.ylabel('P2Plane-PSNR (p=18m)')
+plt.ylabel('P2Plane-PSNR (p=52m)')
 plt.legend(loc='lower right')
 plt.tight_layout()
 plt.show()
