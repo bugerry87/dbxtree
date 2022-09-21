@@ -167,27 +167,26 @@ def encode(
 		buffer.write(int.from_bytes(offset.astype(np.float32).tobytes(), 'big'), offset.shape[-1] * 32, soft_flush=True)
 
 		bbox = tf.constant(bbox)[None,...]
-		bb = bbox
-		X = tf.constant(X)
-		pos = tf.zeros_like(bbox)
 		nodes = tf.ones(len(X), dtype=np.int64)
-		radius = tf.constant([radius, radius, radius])[None,...]
+		inv = tf.zeros_like(nodes)
+		radius = tf.constant(radius)
 		means = tf.zeros_like(bbox)
+		X = tf.constant(X)
 		
 		delta = time_delta()
 		next(delta)
 		dims = 3
 		layer = 0
 		log(f"{f} -> {outname} ", end="")
-		while dims and (max_layers == 0 or max_layers > layer):
+		while np.max(dims) and (max_layers == 0 or max_layers > layer):
 			layer += 1
-			X, nodes, pos, candidates, bb, flags, uids, dims = dbxtree.encode(X, nodes, pos, bb, radius, means)[:-1]
-			means = pos / bbox * bb * 0.5
+			X, nodes, bbox, flags, dims = dbxtree.encode(X, nodes, inv, bbox, radius, means)[:-1]
+			means = tf.zeros_like(bbox)
 			dims = dims.numpy()
-			if dims:
+			if dims.max():
 				log(end=".", flush=True)
-				for flag in flags.numpy():
-					buffer.write(flag, 1<<dims, soft_flush=True)
+				for flag, dim in zip(flags.numpy(), dims):
+					buffer.write(flag, 1<<dim, soft_flush=True)
 		buffer.close()
 		log(f" {next(delta)}s")
 		c += 1
