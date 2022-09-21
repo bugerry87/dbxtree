@@ -170,7 +170,7 @@ def encode(
 		nodes = tf.ones(len(X), dtype=np.int64)
 		inv = tf.zeros_like(nodes)
 		radius = tf.constant(radius)
-		means = tf.zeros_like(bbox)
+		means = tf.math.reduce_mean(X, axis=-1, keepdims=True)
 		X = tf.constant(X)
 		
 		delta = time_delta()
@@ -178,15 +178,18 @@ def encode(
 		dims = 3
 		layer = 0
 		log(f"{f} -> {outname} ", end="")
-		while np.max(dims) and (max_layers == 0 or max_layers > layer):
+		while max_layers == 0 or max_layers > layer:
 			layer += 1
-			X, nodes, bbox, flags, dims = dbxtree.encode(X, nodes, inv, bbox, radius, means)[:-1]
-			means = tf.zeros_like(bbox)
+			X, nodes, inv, bbox, flags, dims, means = dbxtree.encode(X, nodes, inv, bbox, radius, means)
+
 			dims = dims.numpy()
-			if dims.max():
+			flags = flags.numpy()
+			if dims.max() and flags.max():
 				log(end=".", flush=True)
-				for flag, dim in zip(flags.numpy(), dims):
+				for flag, dim in zip(flags, dims):
 					buffer.write(flag, 1<<dim, soft_flush=True)
+			else:
+				break
 		buffer.close()
 		log(f" {next(delta)}s")
 		c += 1

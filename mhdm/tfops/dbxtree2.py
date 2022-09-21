@@ -15,17 +15,10 @@ tokens = 0.5 - tf.cast(tokens, tf.float32)*1.0
 
 def encode(X, nodes, inv, bbox, radius, means=0):
 	n = tf.math.reduce_max(inv) + 1
-	intervals = bbox / radius
-	i = tf.argsort(intervals, axis=-1, direction='DESCENDING')
-	bbox = tf.gather(bbox, i, batch_dims=1)
-	means = tf.gather(means, i, batch_dims=1)
-	i = tf.gather(i, inv)
-	X = tf.gather(X, i, batch_dims=1)
-
-	big = tf.cast(bbox > radius, X.dtype)
-	means = tf.gather(means, inv)
+	big = tf.cast(bbox > radius, nodes.dtype)
 	dims = tf.math.reduce_sum(big, axis=-1, keepdims=True)
-	keep = tf.math.reduce_any(tf.math.abs(X) - means > radius, axis=-1, keepdims=True)
+	means = tf.gather(means, inv)
+	keep = tf.math.reduce_any(tf.math.abs(X - means) > radius, axis=-1, keepdims=True)
 	keep = tf.cast(keep, X.dtype)
 	keep = tf.math.unsorted_segment_max(keep, inv, n)
 	mask = tf.gather(keep, inv)
@@ -33,18 +26,16 @@ def encode(X, nodes, inv, bbox, radius, means=0):
 	sign = tf.cast(X >= means, X.dtype)
 	bbox = tf.gather(bbox, inv)
 	big = tf.gather(big, inv)
-	bbox = (bbox * (1.0 - sign * 2.0) * big * mask + means) * 0.5
+	bbox = (bbox * (1.0 - sign * 2.0) * tf.cast(big, X.dtype) * mask - means) * 0.5
 	X += bbox
 
-	sign = tf.cast(sign, nodes.dtype)
-	dims = tf.cast(dims, nodes.dtype)
-	dims = tf.gather(dims, inv)
-	bits = bitops.left_shift(sign, tf.range(3, dtype=tf.int64))
+	sign = tf.cast(sign, nodes.dtype) * big
+	shifts = tf.cumsum(big, exclusive=True, axis=-1)
+	bits = bitops.left_shift(sign, shifts)
 	bits = tf.math.reduce_sum(bits, axis=-1, keepdims=True)
-	bits = bitops.bitwise_and(bits, bitops.left_shift(1,dims)-1)
 	
 	nodes = nodes[...,None]
-	nodes = bitops.left_shift(nodes, dims)
+	nodes = bitops.left_shift(nodes, 3)
 	nodes = bitops.bitwise_or(nodes, bits)
 	nodes = nodes[...,0]
 
@@ -59,12 +50,12 @@ def encode(X, nodes, inv, bbox, radius, means=0):
 	nodes = tf.gather(nodes, i)
 	bbox = tf.gather(bbox, i)
 	X = tf.gather(X, i)
-	inv = tf.unique(nodes)[-1]
-	n = tf.math.reduce_max(inv) + 1
+	uids, inv = tf.unique(nodes)
+	n = tf.math.maximum(tf.math.reduce_max(inv) + 1, 0)
 	
 	bbox = tf.math.unsorted_segment_max(tf.abs(bbox), inv, n)
 	means = tf.math.unsorted_segment_mean(X, inv, n)
-	return X, nodes, bbox, flags, dims, means
+	return X, nodes, inv, bbox, flags, dims, means
 
 def decode(flags, bbox, radius, X, keep, means=0, batch_dims=0):
 	signs = bitops.right_shift(flags[...,None], tf.range(flags.shape[-1]))
