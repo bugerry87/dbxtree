@@ -9,7 +9,7 @@ import numpy as np
 import tensorflow as tf
 
 ## Local
-import mhdm.tfops.dbxtree as dbxtree
+import mhdm.tfops.dbxtree2 as dbxtree
 from mhdm.bitops import BitBuffer
 from mhdm.utils import log, ifile, time_delta
 import mhdm.lidar as lidar
@@ -166,11 +166,13 @@ def encode(
 		buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
 		buffer.write(int.from_bytes(offset.astype(np.float32).tobytes(), 'big'), offset.shape[-1] * 32, soft_flush=True)
 
-		i = np.argsort(bbox)[...,::-1]
-		bbox = tf.constant(bbox[i])
-		X = tf.constant(X[...,i])
-		pos = tf.zeros_like(bbox)[None, ...]
+		bbox = tf.constant(bbox)[None,...]
+		bb = bbox
+		X = tf.constant(X)
+		pos = tf.zeros_like(bbox)
 		nodes = tf.ones(len(X), dtype=np.int64)
+		radius = tf.constant([radius, radius, radius])[None,...]
+		means = tf.zeros_like(bbox)
 		
 		delta = time_delta()
 		next(delta)
@@ -179,7 +181,8 @@ def encode(
 		log(f"{f} -> {outname} ", end="")
 		while dims and (max_layers == 0 or max_layers > layer):
 			layer += 1
-			X, nodes, pivots, pos, bbox, flags, uids, dims = dbxtree.encode(X, nodes, pos, bbox, radius)
+			X, nodes, pos, candidates, bb, flags, uids, dims = dbxtree.encode(X, nodes, pos, bb, radius, means)[:-1]
+			means = pos / bbox * bb * 0.5
 			dims = dims.numpy()
 			if dims:
 				log(end=".", flush=True)
@@ -238,11 +241,10 @@ def decode(
 			flags = np.array([buffer.read(1<<dims) for y in range(read)])
 			read = np.sum(flags[...,None] >> np.arange(1<<dims) & 1)
 			flags = tf.constant(flags)
-			Y, keep, bb = dbxtree.decode_fix(flags, bb, r, Y, keep, layer)
+			Y, keep, bb = dbxtree.decode(flags, bb, r, Y, keep, means)
 			layer += 1
 			dims = np.sum(bb > radius)
 			log(end=".", flush=True)
-		Y *= bbox[i]
 		Y += offset
 		buffer.close()
 		lidar.save(Y.numpy()[...,i], outname)

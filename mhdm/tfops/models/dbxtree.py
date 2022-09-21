@@ -178,8 +178,7 @@ class DynamicTree(Model):
 				
 				offset = tf.math.reduce_min(X, axis=-2, keepdims=True)
 				offset += tf.math.reduce_max(X, axis=-2, keepdims=True)
-				offset *= 0.5
-				X -= offset
+				X -= offset * 0.5
 				bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
 				pos = tf.zeros_like(bbox)[None, None, ...]
 				nodes = tf.ones_like(X[...,0], dtype=tf.int64)
