@@ -173,12 +173,11 @@ class DynamicTree(Model):
 						a = tf.random.uniform([1], -np.math.pi, np.math.pi, dtype=X.dtype)[0]
 						M = tf.reshape([tf.cos(a),-tf.sin(a),0,tf.sin(a),tf.cos(a),0,0,0,1], (-1,3))
 						X = X@M
-					# Jitter
-					#x -= tf.reduce_mean(x, axis=-2, keepdims=True) + tf.random.normal([1,3], dtype=x.dtype)
 				
 				offset = tf.math.reduce_min(X, axis=-2, keepdims=True)
 				offset += tf.math.reduce_max(X, axis=-2, keepdims=True)
 				X -= offset * 0.5
+				
 				bbox = tf.math.reduce_max(tf.math.abs(X), axis=-2)
 				pos = tf.zeros_like(bbox)[None, None, ...]
 				nodes = tf.ones_like(X[...,0], dtype=tf.int64)
@@ -262,13 +261,13 @@ class DynamicTree(Model):
 				uids = bitops.right_shift(uids, tf.range(63, dtype=uids.dtype))
 				uids = bitops.bitwise_and(uids, 1)
 				mask = tf.math.reduce_max(uids, axis=0)
-				uids = mask - uids * -2
+				uids = mask - uids * 2
 				meta.features['uids'] = tf.cast(uids, self.dtype)
 			
 			feature = tf.concat([meta.features[k] for k in self.branches], axis=-1, name='concat_features')
 			labels = tf.one_hot(flags, meta.bins, dtype=meta.dtype)
-			sample_weight = tf.cast(dim, self.dtype)
-			return feature, labels, sample_weight
+			#sample_weight = tf.cast(dim, self.dtype)
+			return feature, labels #, sample_weight
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)

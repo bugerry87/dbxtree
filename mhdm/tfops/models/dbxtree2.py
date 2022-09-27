@@ -8,7 +8,7 @@ from tensorflow.python.keras.engine import data_adapter
 
 ## Local
 from . import normalize, batching
-from .. import bitops, dbxtree, spatial
+from .. import bitops, dbxtree2 as dbxtree, spatial
 from ... import utils, lidar
 
 ## Optional
@@ -71,13 +71,13 @@ class DynamicTree2(Model):
 			) for i in range(post_conv)]
 		
 		self.flags = [
-			Dense(
+			*(Dense(
 				self.kernels,
 				activation='relu',
 				dtype=self.dtype,
 				name='dense_flags_{}'.format(i),
 				**kwargs
-			),
+			) for i in range(dense)),
 			Dense(
 				2,
 				activation='softmax',
@@ -222,15 +222,14 @@ class DynamicTree2(Model):
 				pos = bbox[...,None,:] * tf.constant((0, 1, 0))
 				dim = tf.zeros_like(bbox) + meta.dim
 				means = tf.math.unsorted_segment_mean(U, nodes, vmax)
-				#radius = tf.repeat([radius], vmax, axis=0)
-				radius = tf.constant(radius)
+				radius = tf.constant(radius)[None,...]
 				u = U
 
 				layer = 0
 				while np.any(dim) and (max_layers == 0 or max_layers > layer):
 					layer += 1
-					u, nodes, _pos, candidates, bbox, flags, uids, dim, means = dbxtree.encode2(u, nodes, pos, bbox, radius, means)
-					yield flags, uids, pos, candidates, means, bbox, dim, layer, U, filename
+					u, nodes, inv, _pos, bbox, flags, dims, means, uids = dbxtree.encode(u, nodes, inv, bbox, radius, means, pos)
+					yield flags, means, uids, pos, bbox, dims, layer, U, filename
 					pos = _pos
 					pass
 				pass
@@ -248,7 +247,6 @@ class DynamicTree2(Model):
 				tf.float32,
 				tf.float32,
 				tf.float32,
-				tf.float32,
 				tf.int32,
 				tf.int32,
 				tf.float32,
@@ -257,8 +255,7 @@ class DynamicTree2(Model):
 			output_shapes=(
 				tf.TensorShape([None]),
 				tf.TensorShape([None]),
-				tf.TensorShape([None, 1, meta.dim]),
-				tf.TensorShape([None, self.flag_size, meta.dim]),
+				tf.TensorShape([None, meta.dim]),
 				tf.TensorShape([None, meta.dim]),
 				tf.TensorShape([None, meta.dim]),
 				tf.TensorShape([None]),
@@ -278,29 +275,31 @@ class DynamicTree2(Model):
 		"""
 		"""
 		@tf.function
-		def features(flags, uids, org, pos, bbox, dim, *args):
+		def features(flags, means, uids, pos, bbox, dims, *args):
+			token = bitops.left_shift(tf.range(meta.flag_size, dtype=uids.dtype), meta.dim)
+			pos = tf.repeat(pos[...,None,:], meta.flag_size, axis=-2)
 
 			if 'org' in self.branches:
-				meta.features['org'] = tf.repeat(org, meta.flag_size, axis=-2)
-			
-			if 'pos':
+				meta.features['org'] = tf.reshape(pos, (-1, meta.dim))
+
+			if 'pos' in self.branches:
+				pos = pos + tf.cast(token, pos.dtype) * bbox[...,None,:]
 				meta.features['pos'] = tf.reshape(pos, (-1, meta.dim))
 
 			if 'uids' in self.branches:
-				token = bitops.left_shift(tf.range(meta.flag_size, dtype=uids.dtype), meta.dim)
 				uids = bitops.left_shift(uids[...,None], meta.dim)
 				uids = bitops.bitwise_or(uids, token)
 				uids = tf.reshape(uids, (-1,1))
 				uids = bitops.right_shift(uids, tf.range(63, dtype=uids.dtype))
 				uids = bitops.bitwise_and(uids, 1)
 				mask = tf.math.reduce_max(uids, axis=0)
-				uids = mask - uids * -2
+				uids = mask - uids * 2
 				meta.features['uids'] = tf.cast(uids, self.dtype)
 			
-			feature = tf.concat([*(meta.features[k] for k in self.branches), tf.ones_like(flags[...,0,None], self.dtype)], axis=-1)
+			feature = tf.concat([*(meta.features[k] for k in self.branches), tf.ones_like(dims, self.dtype)], axis=-1)
 			labels = tf.one_hot(flags, meta.bins, dtype=meta.dtype)
-			sample_weight = tf.cast(dim, self.dtype)
-			return feature, labels, sample_weight
+			#sample_weight = tf.cast(dim, self.dtype)
+			return feature, labels #, sample_weight
 	
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)

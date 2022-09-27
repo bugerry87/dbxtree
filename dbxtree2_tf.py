@@ -170,7 +170,8 @@ def encode(
 		nodes = tf.ones(len(X), dtype=np.int64)
 		inv = tf.zeros_like(nodes)
 		radius = tf.constant(radius)
-		means = tf.math.reduce_mean(X, axis=-1, keepdims=True)
+		means = tf.zeros_like(bbox)
+		pos = tf.zeros_like(bbox)
 		X = tf.constant(X)
 		
 		delta = time_delta()
@@ -180,8 +181,10 @@ def encode(
 		log(f"{f} -> {outname} ", end="")
 		while max_layers == 0 or max_layers > layer:
 			layer += 1
-			X, nodes, inv, bbox, flags, dims, means = dbxtree.encode(X, nodes, inv, bbox, radius, means)
-
+			X, nodes, inv, bbox, flags, dims, means, pos, uids = dbxtree.encode(X, nodes, inv, bbox, radius, means, pos)
+			means = means[...,None]
+			means = tf.concat([means, (0.5 - tf.random.uniform(means.shape)) * bbox[...,None]], axis=-1)
+			means = tf.math.reduce_mean(means, axis=-1)
 			dims = dims.numpy()
 			flags = flags.numpy()
 			if dims.max() and flags.max():
@@ -194,7 +197,6 @@ def encode(
 		log(f" {next(delta)}s")
 		c += 1
 	log(f"Done in {next(delta_total)}s")
-
 
 def decode(
 	compressed,
@@ -227,29 +229,30 @@ def decode(
 		offset = buffer.read(oshape[-1]*32).to_bytes(oshape[-1]*4, 'big')
 		offset = np.frombuffer(offset, dtype=np.float32)
 
-		i = np.argsort(bbox)[...,::-1]
-		bb = tf.constant(bbox[i])
+		bbox = tf.constant(bbox)[None,...]
+		means = tf.zeros_like(bbox)
 		r = tf.constant(radius)
+		tf.random.set_seed(0)
 
 		Y = tf.zeros([1,3], dtype=tf.float32)
 		keep = tf.zeros([0,3], dtype=tf.float32)
+		dims = [3]
+		layer = 0
+
 		delta = time_delta()
 		next(delta)
-		dims = 3
-		layer = 0
-		read = 1
 		log(f"{f} -> {outname} ", end="")
-		while dims and (max_layers == 0 or max_layers > layer):
-			flags = np.array([buffer.read(1<<dims) for y in range(read)])
-			read = np.sum(flags[...,None] >> np.arange(1<<dims) & 1)
-			flags = tf.constant(flags)
-			Y, keep, bb = dbxtree.decode(flags, bb, r, Y, keep, means)
+		while np.any(dims) and (max_layers == 0 or max_layers > layer):
 			layer += 1
-			dims = np.sum(bb > radius)
+			flags = np.array([buffer.read(1<<dim) for dim in dims])
+			flags = tf.constant(flags)
+			Y, keep, bbox = dbxtree.decode(flags, bbox, r, Y, keep, means)
+			means = bbox * 0.25 *(0.5 - tf.random.uniform(bbox.shape))
+			dims = np.sum(bbox.numpy() > radius, axis=-1)
+			print(len(means))
 			log(end=".", flush=True)
-		Y += offset
 		buffer.close()
-		lidar.save(Y.numpy()[...,i], outname)
+		lidar.save(Y.numpy() + offset, outname)
 		log(f" {next(delta)}s")
 		c += 1
 	log(f"Done in {next(delta_total)}s")

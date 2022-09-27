@@ -3,31 +3,31 @@
 import tensorflow as tf
 
 ## Local
-if __name__ != '__main__':
-	from . import bitops
-else:
-	import bitops
+from . import bitops
 
-tokens = tf.range(8)
-tokens = bitops.right_shift(tokens[...,None], tf.range(3))
-tokens = bitops.bitwise_and(tokens, 1)
-tokens = 0.5 - tf.cast(tokens, tf.float32)*1.0
-
-def encode(X, nodes, inv, bbox, radius, means=0):
+def encode(X, nodes, inv, bbox, radius, means=None, pos=None):
 	n = tf.math.reduce_max(inv) + 1
+	
 	big = tf.cast(bbox > radius, nodes.dtype)
 	dims = tf.math.reduce_sum(big, axis=-1, keepdims=True)
-	means = tf.gather(means, inv)
-	keep = tf.math.reduce_any(tf.math.abs(X - means) > radius, axis=-1, keepdims=True)
+	means = tf.gather(means, inv) if means is not None else 0
+	pos = tf.gather(pos, inv) if pos is not None else 0
+	X -= means
+	pos += means
+	keep = tf.math.reduce_any(tf.math.abs(X) > radius, axis=-1, keepdims=True)
 	keep = tf.cast(keep, X.dtype)
 	keep = tf.math.unsorted_segment_max(keep, inv, n)
 	mask = tf.gather(keep, inv)
 
-	sign = tf.cast(X >= means, X.dtype)
+	sign = tf.cast(X >= 0, X.dtype)
 	bbox = tf.gather(bbox, inv)
 	big = tf.gather(big, inv)
-	bbox = (bbox * (1.0 - sign * 2.0) * tf.cast(big, X.dtype) * mask - means) * 0.5
+	bbox *= 0.5 - sign
+	bbox += means * 0.5
+	bbox *= tf.cast(big, X.dtype) * mask
 	X += bbox
+	pos -= bbox
+	bbox = tf.abs(bbox)
 
 	sign = tf.cast(sign, nodes.dtype) * big
 	shifts = tf.cumsum(big, exclusive=True, axis=-1)
@@ -50,36 +50,35 @@ def encode(X, nodes, inv, bbox, radius, means=0):
 	nodes = tf.gather(nodes, i)
 	bbox = tf.gather(bbox, i)
 	X = tf.gather(X, i)
+	pos = tf.gather(pos, i)
 	uids, inv = tf.unique(nodes)
 	n = tf.math.maximum(tf.math.reduce_max(inv) + 1, 0)
 	
-	bbox = tf.math.unsorted_segment_max(tf.abs(bbox), inv, n)
+	bbox = tf.math.unsorted_segment_max(bbox, inv, n)
 	means = tf.math.unsorted_segment_mean(X, inv, n)
-	return X, nodes, inv, bbox, flags, dims, means
+	pos = tf.math.unsorted_segment_mean(pos, inv, n)
+	return X, nodes, inv, bbox, flags, dims, means, pos, uids
 
-def decode(flags, bbox, radius, X, keep, means=0, batch_dims=0):
-	signs = bitops.right_shift(flags[...,None], tf.range(flags.shape[-1]))
-	signs = bitops.bitwise_and(signs, 1)
-	intervals = bbox / radius
-	i = tf.argsort(intervals, axis=-1, direction='DESCENDING')
-	X = tf.gather_nd(X, i, batch_dims+1)
-	offsets = tf.cast(signs[...,None], tokens.dtype) * tokens[None,...] * (bbox + means) * tf.cast(bbox > radius, tokens.dtype)
-	i = tf.where(flags == 0)
-	keep = tf.concat([keep, tf.gather(X, i[...,0])], axis=-2)
-	i = tf.where(signs)
-	X = tf.gather_nd(X, i[...,-2], batch_dims) - tf.gather_nd(offsets, i)
+def decode(flags, bbox, radius, X, keep, means=None):
+	i = tf.where(flags == 0)[...,0]
+	keep = tf.concat([keep, tf.gather(X, i)], axis=-2)
+
+	bits = bitops.right_shift(flags[...,None], tf.range(8))
+	i = tf.where(bitops.bitwise_and(bits, 1))
+	dims = tf.cast(bbox > radius, bits.dtype)
+	dims = tf.gather(dims, i[...,0])
+	bbox = tf.gather(bbox, i[...,0])
+	means = tf.gather(means, i[...,0]) if means is not None else 0
+
+	bits = tf.cast(i[...,-1], bits.dtype)
+	bits = bitops.right_shift(bits[...,None], tf.range(3))
+	bits = bitops.bitwise_and(bits, 1)
+	bits = tf.gather(bits, tf.cumsum(dims, axis=-1, exclusive=True), batch_dims=1)
+	bbox *= 0.5 - tf.cast(bits, bbox.dtype)
+	bbox += means * 0.5
+	bbox *= tf.cast(dims, bbox.dtype)
+	
+	X = tf.gather(X, i[...,0]) + means - bbox
 	X = tf.concat([X, keep], axis=-2)
-	return X, keep, bbox*0.5
-
-
-if __name__ == '__main__':
-	import numpy as np
-	X = np.fromfile('../../data/0000000000.bin', dtype=np.float32).reshape(-1, 4)[:,:3]
-	bbox0 = np.max(np.abs(X), axis=0)
-	radius = np.zeros([1,3], dtype=np.float32) + 0.0015
-	means = np.zeros([1,3], dtype=np.float32)
-	nodes = np.zeros_like(X[:,0], dtype=np.int64)
-	pos = np.zeros([1,3], dtype=np.float32)
-	bbox = bbox0[None,...]
-	X, nodes, pos, candidates, bbox, flags, uids, dims, means = encode(X, nodes, pos, bbox, radius, means)
-	print(X, nodes, pos, candidates, bbox, flags, uids, dims, means)
+	bbox = tf.abs(bbox)
+	return X, keep, bbox
