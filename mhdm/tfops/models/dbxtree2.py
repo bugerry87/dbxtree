@@ -205,7 +205,7 @@ class DynamicTree2(Model):
 					X = X@M
 
 				v = bitops.bitwise_and(X[...,:-1,1] < 0, X[...,1:,1] >= 0)
-				v = tf.cast(v, tf.int32)
+				v = tf.cast(v, tf.int64)
 				v = tf.cumsum(v, axis=-1)[...,None]
 				d = tf.norm(X, axis=-1, keepdims=True)
 				u = tf.atan2(X[...,1], X[...,0])[...,None]
@@ -217,16 +217,17 @@ class DynamicTree2(Model):
 				absU = tf.math.abs(U)
 				vmax = tf.math.reduce_max(v) + 1
 
-				nodes = tf.cast(v, dtype=tf.int64)
-				bbox = tf.math.unsorted_segment_max(absU, nodes, vmax)
-				pos = bbox[...,None,:] * tf.constant((0, 1, 0))
-				dim = tf.zeros_like(bbox) + meta.dim
-				means = tf.math.unsorted_segment_mean(U, nodes, vmax)
-				radius = tf.constant(radius)[None,...]
+				nodes = v
+				inv = v
+				pos = tf.range(vmax, delta=U.dtype)[...,None] * (0.0, 1.0, 0.0)
+				bbox = tf.math.unsorted_segment_max(absU, nodes, vmax) * (1.0, 0.0, 1.0)
+				dims = tf.math.reduce_sum(bbox, axis=-1)
+				means = tf.zeros_like(bbox)
+				radius = tf.constant(radius)
 				u = U
 
 				layer = 0
-				while np.any(dim) and (max_layers == 0 or max_layers > layer):
+				while np.any(dims) and (max_layers == 0 or max_layers > layer):
 					layer += 1
 					u, nodes, inv, _pos, bbox, flags, dims, means, uids = dbxtree.encode(u, nodes, inv, bbox, radius, means, pos)
 					yield flags, means, uids, pos, bbox, dims, layer, U, filename

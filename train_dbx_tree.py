@@ -298,7 +298,7 @@ def main(
 	validation_steps=0,
 	test_freq=1,
 	test_steps=0,
-	max_layers=0,
+	max_layers=17,
 	shuffle=0,
 	radius=0.003,
 	keypoints=False,
@@ -376,6 +376,7 @@ def main(
 		max_layers=max_layers,
 		**meta_args) if test_index else (None, None, None)
 	master_meta = train_meta or val_meta or test_meta
+	steps_per_epoch = steps_per_epoch if steps_per_epoch * max_layers else master_meta.num_of_files * max_layers
 
 	if master_meta is None:
 		msg = "Main: No index file was set!"
@@ -458,8 +459,9 @@ def main(
 
 	if trainer is not None:
 		history = model.fit(
-			trainer,
+			trainer.repeat(),
 			epochs=epochs,
+			steps_per_epoch = steps_per_epoch
 			callbacks=callbacks,
 			validation_freq=validation_freq,
 			validation_data=validator,
