@@ -461,7 +461,7 @@ def main(
 		history = model.fit(
 			trainer.repeat(),
 			epochs=epochs,
-			steps_per_epoch = steps_per_epoch
+			steps_per_epoch = steps_per_epoch,
 			callbacks=callbacks,
 			validation_freq=validation_freq,
 			validation_data=validator,
