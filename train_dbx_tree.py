@@ -154,7 +154,7 @@ def init_main_args(parents=[]):
 		'--max_layers',
 		metavar='INT',
 		type=int,
-		default=0,
+		default=17,
 		help='Max layers to encode before early stopping'
 		)
 	
