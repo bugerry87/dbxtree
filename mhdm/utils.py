@@ -109,3 +109,6 @@ class Prototype():
 
 	def __bool__(self):
 		return True
+	
+	def __iter__(self):
+		return iter(self.__dict__)

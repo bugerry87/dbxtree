@@ -1,59 +1,17 @@
 
 ## Installed
 import tensorflow as tf
-from tensorflow.keras.losses import categorical_crossentropy, cosine_similarity, MSLE
+from tensorflow.keras.layers import Reshape
 from tensorflow.python.keras.losses import LossFunctionWrapper
 
 
-def regularized_crossentropy(y_true, y_pred, 
+def focal_loss(y_true, y_pred,
 	from_logits=False,
 	label_smoothing=0,
-	msle_smoothing=1.0,
-	slices=None,
-	reshape=None
+	gamma=5.0
 	):
 	"""
 	"""
-	if slices is not None:
-		y_true = y_true[...,slices[0]:slices[1]]
-		y_pred = y_pred[...,slices[0]:slices[1]]
-	
-	if reshape is not None:
-		y_true = tf.reshape(y_true, (-1, *reshape))
-		y_pred = tf.reshape(y_pred, (-1, *reshape))
-
-	cc = categorical_crossentropy(y_true, y_pred, from_logits, label_smoothing)
-	msle = MSLE(y_true, y_pred)
-	loss = cc + msle * msle_smoothing
-	if reshape is not None:
-		loss = tf.math.reduce_sum(loss, axis=-1)[None,...]
-	return loss
-
-
-def regularized_cosine(y_true, y_pred,
-	msle_smoothing=1.0,
-	slices=None,
-	reshape=None
-	):
-	"""
-	"""
-	if slices is not None:
-		y_true = y_true[...,slices[0]:slices[1]]
-		y_pred = y_pred[...,slices[0]:slices[1]]
-	
-	if reshape is not None:
-		y_true = tf.reshape(y_true, (-1, *reshape))
-		y_pred = tf.reshape(y_pred, (-1, *reshape))
-
-	cs = cosine_similarity(y_true, y_pred)
-	msle = MSLE(y_true, y_pred)
-	loss =  cs + msle * msle_smoothing + 1.0
-	if reshape is not None:
-		loss = tf.math.reduce_sum(loss, axis=-1)[None,...]
-	return loss
-
-
-def focal_loss(y_true, y_pred, from_logits=False, label_smoothing=0, gamma=5.0):
 	pt = (1.0 - y_true) - y_pred * (1.0 - y_true * 2.0)
 	loss = -(1 - pt) ** gamma * tf.math.log(pt)
 	return tf.math.reduce_mean(loss)
@@ -61,66 +19,30 @@ def focal_loss(y_true, y_pred, from_logits=False, label_smoothing=0, gamma=5.0):
 
 def combinate(y_true, y_pred, loss_funcs):
 	def parse(loss_funcs):
+		gt = y_true
+		est =y_pred
+
 		for loss_func in loss_funcs:
-			if hasattr(loss_func, 'slices'):
-				gt = y_true[...,loss_func.slices]
-				est = y_pred[...,loss_func.slices]
-			else:
-				gt = y_true
-				est = y_pred
+			if 'slices' in loss_func:
+				gt = gt[...,loss_func.slices]
+				est = est[...,loss_func.slices]
 			
-			if hasattr(loss_func, 'weights'):
-				weights = loss_func.weights
-			else:
-				weights = 1
+			if 'reshape' in loss_func:
+				reshape = Reshape(loss_func.reshape)
+				gt =  reshape(gt)
+				est = reshape(est)
 			
-			if hasattr(loss_func, 'kwargs'):
-				kwargs = loss_func.kwargs
-			else:
-				kwargs = {}
+			weights = loss_func.weights if 'weights' in loss_func else 1.0
+			kwargs = loss_func.kwargs if 'kwargs' in loss_func else dict()
 
-			if hasattr(loss_func, 'loss'):
-				yield loss_func.loss(gt, est, **loss_func.kwargs) * weights
+			if 'loss' in loss_func:
+				yield loss_func.loss(gt, est, **kwargs) * weights
 			else:
-				yield loss_func(gt, est)
+				yield loss_func(gt, est, **kwargs) * weights
 		pass
 
-	loss = tf.math.reduce_sum(parse(loss_funcs), axis=0)
+	loss = tf.math.reduce_sum([*parse(loss_funcs)])
 	return loss
-
-
-class RegularizedCrossentropy(LossFunctionWrapper):
-	"""
-	"""
-	def __init__(self,
-		name='regularized_crossentropy',
-		**kwargs
-		):
-		"""
-		"""
-		super(RegularizedCrossentropy, self).__init__(
-			regularized_crossentropy,
-			name=name,
-			**kwargs
-			)
-		pass
-
-
-class RegularizedCosine(LossFunctionWrapper):
-	"""
-	"""
-	def __init__(self,
-		name='regularized_cosine',
-		**kwargs
-		):
-		"""
-		"""
-		super(RegularizedCosine, self).__init__(
-			regularized_cosine,
-			name=name,
-			**kwargs
-			)
-		pass
 
 
 class FocalLoss(LossFunctionWrapper):

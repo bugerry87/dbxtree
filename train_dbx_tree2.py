@@ -11,11 +11,13 @@ import pickle
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, TerminateOnNaN
+from tensorflow.keras.losses import MeanSquaredLogarithmicError as MSLE, BinaryCrossentropy as BC
 
 ## Local
-from mhdm.tfops.models import DynamicTree
-from mhdm.tfops.metrics import FocalLoss, RegularizedCrossentropy, RegularizedCosine
+from mhdm.tfops.models import DynamicTree2 as DynamicTree
+from mhdm.tfops.metrics import FocalLoss, CombinedLoss
 from mhdm.tfops.callbacks import DynamicTreeCallback, SaveOptimizerCallback, LogCallback
+from mhdm import utils
 
 
 def init_main_args(parents=[]):
@@ -38,6 +40,7 @@ def init_main_args(parents=[]):
 		'--train_index', '-X',
 		metavar='PATH',
 		nargs='*',
+		default='data/train_index.txt',
 		help='A index file to training data'
 		)
 	
@@ -175,27 +178,19 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--keypoints',
-		metavar='Float',
-		type=float,
-		default=0.0,
-		help="A threshold for the keypoint detector (default=disabled)"
-		)
-	
-	main_args.add_argument(
 		'--convolutions', '-C',
 		metavar='INT',
 		type=int,
-		default=0,
+		default=1,
 		help='Number of convolutions'
 		)
 	
 	main_args.add_argument(
-		'--branches',
+		'--features',
 		metavar='STR',
 		nargs='+',
-		choices=('uids', 'pos', 'pivots'),
-		default=('uids', 'pos', 'pivots'),
+		choices=('org', 'pos', 'uids'),
+		default=('org', 'pos', 'uids'),
 		help='Sort the bits according their probabilities (default=None)'
 		)
 	
@@ -203,7 +198,7 @@ def init_main_args(parents=[]):
 		'--dense', '-D',
 		metavar='INT',
 		type=int,
-		default=0,
+		default=1,
 		help='Number of dense layers'
 		)
 	
@@ -211,7 +206,7 @@ def init_main_args(parents=[]):
 		'--kernels', '-k',
 		metavar='INT',
 		type=int,
-		default=16,
+		default=4,
 		help='num of kernel units'
 		)
 	
@@ -293,10 +288,9 @@ def main(
 	max_layers=17,
 	shuffle=0,
 	radius=0.003,
-	keypoints=False,
-	kernels=16,
+	kernels=4,
 	convolutions=2,
-	branches=('uids', 'pos', 'pivots'),
+	features=('org', 'pos', 'uids'),
 	dense=0,
 	activation='softmax',
 	floor=0.0,
@@ -338,18 +332,17 @@ def main(
 		tflog.warn("Unrecognized Kwargs:\n" + "\n".join(['\t{} = {}'.format(k,v) for k,v in kwargs.items()]))
 	
 	model = DynamicTree(
+		features=features,
 		kernels=kernels,
-		convolutions=convolutions,
-		branches=branches,
+		pre_conv=convolutions,
+		post_conv=convolutions,
 		dense=dense,
-		activation=activation,
 		name=name,
 		**kwargs
 		)
 	
 	meta_args = dict(
 		radius=radius,
-		keypoints=keypoints,
 		xshape=xshape,
 		xtype=xtype
 		)
@@ -373,8 +366,24 @@ def main(
 		msg = "Main: No index file was set!"
 		tflog.error(msg)
 		raise ValueError(msg)
+	
+	loss = CombinedLoss([
+		utils.Prototype(
+			loss=BC(),
+			slices=slice(0, model.flag_size)
+		),
+		utils.Prototype(
+			loss = FocalLoss(),
+			slices = slice(model.flag_size, model.flag_size + model.bins)
+		)
+	])
 
-	loss = FocalLoss(gamma=5.0)
+	if loss == 'regularized_cosine':
+		loss = RegularizedCosine(msle_smoothing=0.0001)
+	elif loss == 'regularized_crossentropy':
+		loss = RegularizedCrossentropy(msle_smoothing=0.0001)
+	elif loss == 'focal_loss':
+		loss = FocalLoss(gamma=5.0)
 	
 	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 	model.compile(
@@ -383,7 +392,7 @@ def main(
 		metrics=['accuracy'],
 		sample_weight_mode='temporal'
 		)
-	model.build(meta=master_meta)
+	model.build()
 	model.summary(print_fn=tflog.info)
 	
 	if checkpoint:

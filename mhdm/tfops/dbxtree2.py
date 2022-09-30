@@ -32,14 +32,12 @@ def encode(X, nodes, inv, bbox, radius, means=None, pos=None):
 	sign = tf.cast(sign, nodes.dtype) * big
 	shifts = tf.cumsum(big, exclusive=True, axis=-1)
 	bits = bitops.left_shift(sign, shifts)
-	bits = tf.math.reduce_sum(bits, axis=-1, keepdims=True)
+	bits = tf.math.reduce_sum(bits, axis=-1)
 	
-	nodes = nodes[...,None]
 	nodes = bitops.left_shift(nodes, 3)
-	nodes = bitops.bitwise_or(nodes, bits)
-	nodes = nodes[...,0]
+	nodes += bits
 
-	flags = tf.one_hot(bits[...,0], 8, dtype=tf.int32)
+	flags = tf.one_hot(bits, 8, dtype=tf.int32)
 	flags = tf.math.unsorted_segment_max(flags, inv, n) * tf.cast(keep, flags.dtype)
 	flags = bitops.left_shift(flags, tf.range(8))
 	flags = tf.math.reduce_sum(flags, axis=-1)

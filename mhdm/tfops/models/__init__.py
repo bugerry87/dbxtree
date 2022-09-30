@@ -21,6 +21,7 @@ def batching(db, window_size, batch_size=1):
 ## Inhire
 from .nbittree import NbitTree
 from .dbxtree import DynamicTree
+from .dbxtree2 import DynamicTree2
 from .entropymap import EntropyMapper
 
-__all__ = [NbitTree, EntropyMapper, DynamicTree, normalize]
+__all__ = [NbitTree, EntropyMapper, DynamicTree, DynamicTree2, normalize]
