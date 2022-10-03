@@ -6,9 +6,8 @@ from tensorflow.python.keras.losses import LossFunctionWrapper
 
 
 def focal_loss(y_true, y_pred,
-	from_logits=False,
-	label_smoothing=0,
-	gamma=5.0
+	gamma=5.0,
+	**kwargs
 	):
 	"""
 	"""
