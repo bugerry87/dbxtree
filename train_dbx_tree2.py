@@ -377,13 +377,6 @@ def main(
 			slices = slice(model.flag_size, model.flag_size + model.bins)
 		)
 	])
-
-	if loss == 'regularized_cosine':
-		loss = RegularizedCosine(msle_smoothing=0.0001)
-	elif loss == 'regularized_crossentropy':
-		loss = RegularizedCrossentropy(msle_smoothing=0.0001)
-	elif loss == 'focal_loss':
-		loss = FocalLoss(gamma=5.0)
 	
 	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 	model.compile(

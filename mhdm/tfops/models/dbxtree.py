@@ -273,6 +273,7 @@ class DynamicTree(Model):
 			encoder, meta = self.encoder(*args, **kwargs)
 		meta.features = dict()
 		trainer = encoder.map(features)
+		trainer = trainer.prefetch(8)
 		trainer = trainer.batch(1)
 		return trainer, encoder, meta
 	

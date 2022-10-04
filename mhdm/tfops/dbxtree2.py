@@ -5,6 +5,7 @@ import tensorflow as tf
 ## Local
 from . import bitops
 
+@tf.function(experimental_relax_shapes=True)
 def encode(X, nodes, inv, bbox, radius, means=None, pos=None):
 	n = tf.math.reduce_max(inv) + 1
 	

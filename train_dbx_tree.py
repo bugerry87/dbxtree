@@ -14,7 +14,7 @@ from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStoppi
 
 ## Local
 from mhdm.tfops.models import DynamicTree
-from mhdm.tfops.metrics import FocalLoss, RegularizedCrossentropy, RegularizedCosine
+from mhdm.tfops.metrics import FocalLoss
 from mhdm.tfops.callbacks import DynamicTreeCallback, SaveOptimizerCallback, LogCallback
 
 
@@ -38,6 +38,7 @@ def init_main_args(parents=[]):
 		'--train_index', '-X',
 		metavar='PATH',
 		nargs='*',
+		default='data/train_index.txt',
 		help='A index file to training data'
 		)
 	
@@ -211,7 +212,7 @@ def init_main_args(parents=[]):
 		'--kernels', '-k',
 		metavar='INT',
 		type=int,
-		default=16,
+		default=4,
 		help='num of kernel units'
 		)
 	
@@ -290,7 +291,7 @@ def main(
 	validation_steps=0,
 	test_freq=1,
 	test_steps=0,
-	max_layers=17,
+	max_layers=0,
 	shuffle=0,
 	radius=0.003,
 	keypoints=False,

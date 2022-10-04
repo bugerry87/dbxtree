@@ -6,26 +6,25 @@ from tensorflow.python.keras.losses import LossFunctionWrapper
 
 
 def focal_loss(y_true, y_pred,
-	from_logits=False,
 	label_smoothing=0,
 	gamma=5.0
 	):
 	"""
 	"""
 	pt = (1.0 - y_true) - y_pred * (1.0 - y_true * 2.0)
-	loss = -(1 - pt) ** gamma * tf.math.log(pt)
-	return tf.math.reduce_mean(loss)
+	loss = tf.math.reduce_mean(-(1 - pt) ** gamma * tf.math.log(pt))
+	return loss
 
 
 def combinate(y_true, y_pred, loss_funcs):
 	def parse(loss_funcs):
-		gt = y_true
-		est =y_pred
-
 		for loss_func in loss_funcs:
 			if 'slices' in loss_func:
-				gt = gt[...,loss_func.slices]
-				est = est[...,loss_func.slices]
+				gt = y_true[...,loss_func.slices]
+				est = y_pred[...,loss_func.slices]
+			else:
+				gt = y_true
+				est = y_pred
 			
 			if 'reshape' in loss_func:
 				reshape = Reshape(loss_func.reshape)
