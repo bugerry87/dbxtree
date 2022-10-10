@@ -8,6 +8,10 @@ def normalize(X):
 	X = tf.math.divide_no_nan(X, n)
 	return X
 
+@tf.function
+def gather(X, indices, **kwargs):
+	return tf.gather(X, indices, **kwargs)
+
 def batching(db, window_size, batch_size=1):
 	@tf.function
 	def padding(*args):

@@ -7,7 +7,7 @@ from tensorflow.keras.layers import Reshape, Dense, Conv1D
 from tensorflow.python.keras.engine import data_adapter
 
 ## Local
-from . import normalize, batching
+from . import normalize
 from .. import bitops, dbxtree2 as dbxtree, spatial
 from ... import utils, lidar
 
@@ -54,8 +54,8 @@ class DynamicTree2(Model):
 				**kwargs
 			) for i in range(dense)),
 			Dense(
-				self.flag_size,
-				activation='sigmoid',
+				2,
+				activation='softmax',
 				dtype=self.dtype,
 				name='flags_head',
 				**kwargs
@@ -92,6 +92,8 @@ class DynamicTree2(Model):
 				name='symbols_head',
 				**kwargs
 			)]
+		
+		self.reshape = Reshape((-1, self.flag_size))
 		pass
 	
 	@property
@@ -179,7 +181,7 @@ class DynamicTree2(Model):
 		def encode():
 			for X, filename in parser:
 				v = tf.math.logical_and(X[...,:-1,1] < 0, X[...,1:,1] >= 0)
-				v = tf.cast(v, tf.int32)
+				v = tf.cast(v, tf.int64)
 				v = tf.cumsum(v, axis=-1)
 				v = tf.pad(v, [(1,0)])
 
@@ -208,22 +210,25 @@ class DynamicTree2(Model):
 				U = tf.stack([u, tf.cast(v, u.dtype), d - dmax * 0.5], axis=1)
 				absU = tf.math.abs(U)
 
-				nodes = v
-				inv = v
+				nodes = tf.cast(v, tf.int64)
+				inv = nodes
+				r = tf.constant(radius)[None,...]
 				pos = tf.range(vmax, dtype=U.dtype)[...,None] * (0.0, 1.0, 0.0)
 				bbox = tf.math.unsorted_segment_max(absU, nodes, vmax) * (1.0, 0.0, 1.0)
 				dims = tf.math.reduce_sum(bbox, axis=-1)
-				#means = tf.zeros_like(bbox)
-				r = tf.constant(radius)[None,...]
+				uids = tf.zeros(vmax, dtype=tf.int64)
 				u = U
 
 				layer = 0
 				while np.any(dims.numpy()) and (max_layers == 0 or max_layers > layer):
 					layer += 1
-					u, nodes, inv, _bbox, flags, dims, means, _pos, uids = dbxtree.encode(u, nodes, inv, bbox, r, None, pos)
+					features, labels = self.featurize(self, flags, means, uids, pos, bbox)
+					means = self.predict_on_batch(features) #(0.5 - tf.random.uniform(bbox.shape)) * bbox
+					u, nodes, inv, _bbox, flags, dims, means, _pos, _uids = dbxtree.encode(u, nodes, inv, bbox, r, means, pos)
 					yield flags, means, uids, pos, bbox, layer, U, filename
 					pos = _pos
 					bbox = _bbox
+					uids = _uids
 					pass
 				pass
 			pass
@@ -256,6 +261,42 @@ class DynamicTree2(Model):
 				)
 			)
 		return encoder, meta
+	
+	@tf.function
+	def featurize(self, flags, means, uids, pos, bbox, *args):
+		pos = tf.repeat(pos[...,None,:], self.flag_size, axis=-2)
+
+		if 'org' in self.features:
+			self.features['org'].feature = tf.reshape(pos, (-1, self.meta.dim))
+
+		if 'pos' in self.features:
+			sign = 0.5 - tf.cast(sign, self.dtype)
+			pos = pos - sign * bbox[...,None,:]
+			pos = tf.reshape(pos, (-1, self.meta.dim))
+			self.features['pos'].feature = pos
+
+		if 'uids' in self.features:
+			uids = bitops.left_shift(uids[...,None], self.dims)
+			uids = bitops.bitwise_or(uids, tf.range(self.flag_size, dtype=uids.dtype))
+			uids = tf.reshape(uids, (-1,1))
+			uids = bitops.right_shift(uids, tf.range(63, dtype=uids.dtype))
+			uids = bitops.bitwise_and(uids, 1)
+			mask = tf.math.reduce_max(uids, axis=0)
+			uids = mask - uids * 2
+			self.features['uids'].feature = tf.cast(uids, self.dtype)
+		
+		index = tf.argsort(pos, axis=-2)
+		index = tf.cast(pos, pos.dtype)
+		feature = tf.concat([*(f.feature for f in self.features.values()), index], axis=-1)
+		bits = bitops.right_shift(flags[...,None], tf.range(self.flag_size, dtype=flags.dtype))
+		bits = bitops.bitwise_and(bits, 1)
+		bits = tf.cast(bits, feature.dtype)
+		labels = tf.concat([
+			bits,
+			tf.one_hot(flags, self.bins, dtype=self.dtype)
+		], axis=-1)
+		#sample_weight = tf.cast(dim, self.dtype)
+		return feature, labels #, sample_weight
 
 	def trainer(self, *args, 
 		encoder=None,
@@ -264,45 +305,12 @@ class DynamicTree2(Model):
 		):
 		"""
 		"""
-		@tf.function
-		def features(flags, means, uids, pos, bbox, sign, *args):
-			sign = 0.5 - tf.cast(sign, self.dtype)
-			pos = tf.repeat(pos[...,None,:], self.flag_size, axis=-2)
-
-			if 'org' in self.features:
-				self.features['org'].feature = tf.reshape(pos, (-1, meta.dim))
-
-			if 'pos' in self.features:
-				pos = pos - sign * bbox[...,None,:]
-				self.features['pos'].feature = tf.reshape(pos, (-1, meta.dim))
-
-			if 'uids' in self.features:
-				uids = bitops.left_shift(uids[...,None], self.dims)
-				uids = bitops.bitwise_or(uids, tf.range(self.flag_size, dtype=uids.dtype))
-				uids = tf.reshape(uids, (-1,1))
-				uids = bitops.right_shift(uids, tf.range(63, dtype=uids.dtype))
-				uids = bitops.bitwise_and(uids, 1)
-				mask = tf.math.reduce_max(uids, axis=0)
-				uids = mask - uids * 2
-				self.features['uids'].feature = tf.cast(uids, self.dtype)
-
-			feature = tf.concat([f.feature for f in self.features.values()], axis=-1)
-			bits = bitops.right_shift(flags[...,None], tf.range(self.flag_size, dtype=flags.dtype))
-			bits = bitops.bitwise_and(bits, 1)
-			bits = tf.cast(bits, feature.dtype)
-			labels = tf.concat([
-				bits,
-				tf.one_hot(flags, self.bins, dtype=self.dtype)
-			], axis=-1)
-			#sample_weight = tf.cast(dim, self.dtype)
-			return feature, labels #, sample_weight
-		
 		if encoder is None:
 			encoder, meta = self.encoder(*args, **kwargs)
 		else:
 			meta = meta if meta else self.meta
 		meta.features = self.features
-		trainer = encoder.map(features)
+		trainer = encoder.map(self.featurize)
 		trainer = trainer.prefetch(2)
 		trainer = trainer.batch(1)
 		return trainer, encoder, meta
@@ -334,56 +342,39 @@ class DynamicTree2(Model):
 			size = self.features[k].feature.shape[-1]
 			self.features[k].size = size
 			self.features[k].offsets = (incr(0), incr(size))
-		feature_size = sum([f.size for f in self.features.values()])
+		feature_size = sum([f.size for f in self.features.values()]) + self.meta.dim
 		#self.shape2d = tf.cast((*self.meta.shape[:2], feature_size), tf.int64)
 		super(DynamicTree2, self).build(tf.TensorShape((None, None, feature_size)))
 	
 	def call(self, inputs, *args):
-		"""
-		def umap(X, layer_iter):
-			try:
-				layer = next(layer_iter)
-				x = tf.stop_gradient(X)
-				X = layer.conv(X)
-				X = layer.maxpool(X)
-				X = umap(X, layer_iter)
-				X = layer.deconv(X)
-				return tf.concat([x,X], axis=-1)
-			except:
-				return X
-		"""
-		
-		offsets = self.features['pos'].offsets
-		pos = inputs[..., offsets[0]:offsets[1]-1]
-		sort = tf.argsort(pos, axis=-2)
-		X = tf.gather(inputs, sort[...,1], batch_dims=1)
+		sort = tf.cast(inputs[..., -3:], tf.int32)
+		X = tf.gather(inputs, sort[...,1], batch_dims=1)[...,:-self.meta.dim]
 
 		x = tf.stop_gradient(X)
 		for conv in self.conv:
 			X = conv(X)
-			X = tf.concat([x,X], axis=-1)
+			#X = normalize(X)
+			#X = tf.concat([x,X], axis=-1)
 		
-		X = tf.concat([X, tf.gather(inputs, sort[...,0], batch_dims=1)], axis=-1)
+		X = tf.concat([tf.gather(inputs, sort[...,0], batch_dims=1), X], axis=-1)
 		F = X
 		for layer in self.flags:
 			F = layer(F)
+			#F = normalize(F)
 		
 		S = tf.concat([F, X], axis=-1)
 		S = tf.stop_gradient(S)
 		for layer in self.symbols:
 			S = layer(S)
+			#S = normalize(S)
 
 		F = F[...,0] - F[...,1]
-		F = Reshape((-1, self.flag_size))(F)
-		
-		'''
-		M = tf.transpose([
-			[-1,-1,1,1],
-			[-1,1,-1,1]
-		])
-		M = tf.keras.activation.softmax(F, axis=-1) @ tf.cast(M, F.dtype)
-		'''
+		F = self.reshape(F)
 
-		return tf.concat([F,S], axis=-1)
+		M = tf.transpose([[-1.0,-1,1,1],[-1.0,1,-1,1]])
+		M = F @ M
+
+		X = tf.concat([F,S,M], axis=-1)
+		return X
 
 __all__ = [DynamicTree2]

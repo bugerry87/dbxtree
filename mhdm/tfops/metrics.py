@@ -12,19 +12,19 @@ def focal_loss(y_true, y_pred,
 	"""
 	"""
 	pt = (1.0 - y_true) - y_pred * (1.0 - y_true * 2.0)
-	loss = -(1 - pt) ** gamma * tf.math.log2(pt)
-	return tf.math.reduce_mean(loss)
+	loss = tf.math.reduce_mean(-(1 - pt) ** gamma * tf.math.log(pt))
+	return loss
 
 
 def combinate(y_true, y_pred, loss_funcs):
 	def parse(loss_funcs):
-		gt = y_true
-		est =y_pred
-
 		for loss_func in loss_funcs:
 			if 'slices' in loss_func:
-				gt = gt[...,loss_func.slices]
-				est = est[...,loss_func.slices]
+				gt = y_true[...,loss_func.slices]
+				est = y_pred[...,loss_func.slices]
+			else:
+				gt = y_true
+				est = y_pred
 			
 			if 'reshape' in loss_func:
 				reshape = Reshape(loss_func.reshape)

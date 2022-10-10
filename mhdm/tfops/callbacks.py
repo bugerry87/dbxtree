@@ -364,7 +364,9 @@ class DynamicTree2Callback(LambdaCallback):
 		count_files = 0
 		self.model.reset_metrics()
 
-		for sample, info in zip(self.samples, self.info):
+		for sample, info in self.samples:
+
+			
 			filename = str(info[-1].numpy())
 			layer = info[-3].numpy()
 			cur_dim = info[-4].numpy()
