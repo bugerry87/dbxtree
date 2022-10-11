@@ -217,14 +217,6 @@ def init_main_args(parents=[]):
 		)
 	
 	main_args.add_argument(
-		'--activation',
-		metavar='STR',
-		type=str,
-		default='softmax',
-		help="The final activation function"
-		)
-	
-	main_args.add_argument(
 		'--range_encoder',
 		metavar='CODER',
 		default='tfc',
@@ -299,7 +291,6 @@ def main(
 	convolutions=2,
 	branches=('uids', 'pos', 'pivots'),
 	dense=0,
-	activation='softmax',
 	floor=0.0,
 	log_dir='logs',
 	verbose=2,
@@ -343,7 +334,7 @@ def main(
 		convolutions=convolutions,
 		branches=branches,
 		dense=dense,
-		activation=activation,
+		activation='softmax',
 		name=name,
 		**kwargs
 		)
