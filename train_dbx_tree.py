@@ -38,7 +38,7 @@ def init_main_args(parents=[]):
 		'--train_index', '-X',
 		metavar='PATH',
 		nargs='*',
-		default='data/train_index.txt',
+		default=None,
 		help='A index file to training data'
 		)
 	
