@@ -12,7 +12,7 @@ def focal_loss(y_true, y_pred,
 	"""
 	"""
 	pt = (1.0 - y_true) - y_pred * (1.0 - y_true * 2.0)
-	loss = -(1 - pt) ** gamma * tf.math.log2(pt)
+	loss = -(1 - pt) ** gamma * tf.math.log(pt)
 	return tf.math.reduce_sum(loss)
 
 
