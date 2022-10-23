@@ -3,7 +3,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Reshape, Dense, Conv1D
+from tensorflow.keras.layers import Reshape, Dense, Conv1D, Dropout, Conv1DTranspose as Deconv1D
 from tensorflow.python.keras.engine import data_adapter
 
 ## Local
@@ -24,7 +24,7 @@ class DynamicTree2(Model):
 		features=('org', 'pos', 'uids'),
 		kernels=128,
 		pre_conv=2,
-		post_conv=4,
+		post_conv=2,
 		dense=0,
 		dtype=tf.float32,
 		name=None,
@@ -36,14 +36,43 @@ class DynamicTree2(Model):
 		self.kernels = kernels
 		self.features = { f: utils.Prototype() for f in features }
 
-		self.conv = [Conv1D(
-			self.kernels, 3, 1,
-			padding='same',
-			activation='relu',
-			dtype=self.dtype,
-			name='pre_conv_{}'.format(i),
-			**kwargs
-			) for i in range(pre_conv)]
+		self.pre_conv = [(
+			Conv1D(
+				self.kernels, 3, 1,
+				padding='same',
+				activation='relu',
+				dtype=self.dtype,
+				name='pre_conv_{}'.format(i),
+				**kwargs
+			),
+		) for i in range(pre_conv)]
+		
+		self.post_conv = [(
+			Conv1D(
+				self.kernels, self.flag_size, self.flag_size,
+				padding='valid',
+				activation='relu',
+				dtype=self.dtype,
+				name='merge',
+				**kwargs
+			),
+			Conv1D(
+				self.kernels, 3, 1,
+				padding='same',
+				activation='relu',
+				dtype=self.dtype,
+				name='post_conv_{}'.format(i),
+				**kwargs
+			),
+			Deconv1D(
+				self.kernels, self.flag_size, self.flag_size,
+				padding='valid',
+				activation='relu',
+				dtype=self.dtype,
+				name='post_deconv_{}'.format(i),
+				**kwargs
+			)
+		) for i in range(post_conv)]
 		
 		self.flags = [
 			*(Dense(
@@ -59,7 +88,33 @@ class DynamicTree2(Model):
 				dtype=self.dtype,
 				name='flags_head',
 				**kwargs
-			)]
+			)
+		]
+
+		self.means = [
+			Conv1D(
+				self.kernels, self.flag_size, self.flag_size,
+				padding='valid',
+				activation='relu',
+				dtype=self.dtype,
+				name='merge_means',
+				**kwargs
+			),
+			*(Dense(
+				self.kernels,
+				activation='relu',
+				dtype=self.dtype,
+				name='dense_mean_{}'.format(i),
+				**kwargs
+			) for i in range(dense)),
+			Dense(
+				6,
+				activation='tanh',
+				dtype=self.dtype,
+				name='mean_head',
+				**kwargs
+			)
+		]
 		
 		self.symbols = [
 			Conv1D(
@@ -70,14 +125,6 @@ class DynamicTree2(Model):
 				name='merge_symbols',
 				**kwargs
 			),
-			*[Conv1D(
-				self.kernels, 3, 1,
-				padding='same',
-				activation='relu',
-				dtype=self.dtype,
-				name='post_conv_{}'.format(i),
-				**kwargs
-			) for i in range(post_conv)],
 			*(Dense(
 				self.kernels,
 				activation='relu',
@@ -91,9 +138,12 @@ class DynamicTree2(Model):
 				dtype=self.dtype,
 				name='symbols_head',
 				**kwargs
-			)]
+			)
+		]
 		
-		self.reshape = Reshape((-1, self.flag_size))
+		self.reshape_flags = Reshape((-1, self.flag_size))
+		self.reshape_means = Reshape((-1, 3))
+		self.dropout = Dropout(0.1)
 		pass
 	
 	@property
@@ -222,11 +272,13 @@ class DynamicTree2(Model):
 				layer = 0
 				while np.any(dims.numpy()) and (max_layers == 0 or max_layers > layer):
 					layer += 1
-					features, labels = self.featurize(self, flags, means, uids, pos, bbox)
-					means = self.predict_on_batch(features) #(0.5 - tf.random.uniform(bbox.shape)) * bbox
-					u, nodes, inv, _bbox, flags, dims, means, _pos, _uids = dbxtree.encode(u, nodes, inv, bbox, r, means, pos)
+					#features, labels = self.featurize(self, flags, means, uids, pos, bbox)
+					#means = self.predict_on_batch(features) 
+					means = (0.5 - tf.random.uniform(bbox.shape)) 
+					u, nodes, inv, _bbox, flags, dims, _means, _pos, _uids = dbxtree.encode(u, nodes, inv, bbox, r, means * bbox, pos)
 					yield flags, means, uids, pos, bbox, layer, U, filename
 					pos = _pos
+					means = _means
 					bbox = _bbox
 					uids = _uids
 					pass
@@ -270,7 +322,11 @@ class DynamicTree2(Model):
 			self.features['org'].feature = tf.reshape(pos, (-1, self.meta.dim))
 
 		if 'pos' in self.features:
+			sign = tf.range(self.flag_size)
+			sign = bitops.right_shift(sign[...,None], tf.range(self.meta.dim))
+			sign = bitops.bitwise_and(sign, 1)
 			sign = 0.5 - tf.cast(sign, self.dtype)
+			sign *= (1.0, 0.0, 1.0)
 			pos = pos - sign * bbox[...,None,:]
 			pos = tf.reshape(pos, (-1, self.meta.dim))
 			self.features['pos'].feature = pos
@@ -286,15 +342,16 @@ class DynamicTree2(Model):
 			self.features['uids'].feature = tf.cast(uids, self.dtype)
 		
 		index = tf.argsort(pos, axis=-2)
-		index = tf.cast(pos, pos.dtype)
-		feature = tf.concat([*(f.feature for f in self.features.values()), index], axis=-1)
+		index = tf.cast(index, pos.dtype)
+		feature = tf.concat([*(f.feature for f in self.features.values()), index], axis=-1, name='concat_features')
 		bits = bitops.right_shift(flags[...,None], tf.range(self.flag_size, dtype=flags.dtype))
 		bits = bitops.bitwise_and(bits, 1)
 		bits = tf.cast(bits, feature.dtype)
 		labels = tf.concat([
 			bits,
-			tf.one_hot(flags, self.bins, dtype=self.dtype)
-		], axis=-1)
+			tf.one_hot(flags, self.bins, dtype=self.dtype),
+			means
+		], axis=-1, name='concat_labels')
 		#sample_weight = tf.cast(dim, self.dtype)
 		return feature, labels #, sample_weight
 
@@ -343,38 +400,43 @@ class DynamicTree2(Model):
 			self.features[k].size = size
 			self.features[k].offsets = (incr(0), incr(size))
 		feature_size = sum([f.size for f in self.features.values()]) + self.meta.dim
-		#self.shape2d = tf.cast((*self.meta.shape[:2], feature_size), tf.int64)
 		super(DynamicTree2, self).build(tf.TensorShape((None, None, feature_size)))
 	
 	def call(self, inputs, *args):
 		sort = tf.cast(inputs[..., -3:], tf.int32)
-		X = tf.gather(inputs, sort[...,1], batch_dims=1)[...,:-self.meta.dim]
-
-		x = tf.stop_gradient(X)
-		for conv in self.conv:
-			X = conv(X)
-			#X = normalize(X)
-			#X = tf.concat([x,X], axis=-1)
+		X = x = tf.gather(inputs, sort[...,1], batch_dims=1)[...,:-self.meta.dim]
+		for conv_layers in self.pre_conv:
+			for layer in conv_layers:
+				X = layer(X)
+				X = self.dropout(X)
+			X = tf.concat([X, x], axis=-1)
 		
-		X = tf.concat([tf.gather(inputs, sort[...,0], batch_dims=1), X], axis=-1)
+		X = tf.gather(X, sort[...,0], batch_dims=1)
+		for conv_layers in self.post_conv:
+			for layer in conv_layers:
+				X = layer(X)
+				X = self.dropout(X)
+			X = tf.concat([X, x], axis=-1)
+		
 		F = X
 		for layer in self.flags:
 			F = layer(F)
-			#F = normalize(F)
 		
-		S = tf.concat([F, X], axis=-1)
-		S = tf.stop_gradient(S)
+		X = tf.concat([F, X], axis=-1)
+		M = S = tf.stop_gradient(X)
+		for layer in self.means:
+			M = layer(M)
+		
 		for layer in self.symbols:
 			S = layer(S)
-			#S = normalize(S)
+		
+		M = M[...,::2] - M[...,1::2]
+		M = self.reshape_means(M)
 
-		F = F[...,0] - F[...,1]
-		F = self.reshape(F)
+		F = F[...,::2] - F[...,1::2]
+		F = self.reshape_flags(F)
 
-		M = tf.transpose([[-1.0,-1,1,1],[-1.0,1,-1,1]])
-		M = F @ M
-
-		X = tf.concat([F,S,M], axis=-1)
+		X = tf.concat([F,S,M], axis=-1, name='concat_estimation')
 		return X
 
 __all__ = [DynamicTree2]
