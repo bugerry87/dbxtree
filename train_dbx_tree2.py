@@ -40,7 +40,7 @@ def init_main_args(parents=[]):
 		'--train_index', '-X',
 		metavar='PATH',
 		nargs='*',
-		default='data/train_index.txt',
+		default='./data/train_index.txt',
 		help='A index file to training data'
 		)
 	
@@ -173,7 +173,7 @@ def init_main_args(parents=[]):
 		'--radius', '-r',
 		metavar='Float',
 		type=float,
-		default=0.003,
+		default=0.1,
 		help="Radius of voxel precision"
 		)
 	
@@ -230,7 +230,7 @@ def init_main_args(parents=[]):
 		'--floor',
 		metavar='FLOAT',
 		type=float,
-		default=0.0001,
+		default=0.001,
 		help='Probability floor, added to the estimated probabilities'
 		)
 	
@@ -375,6 +375,10 @@ def main(
 		utils.Prototype(
 			loss = FocalLoss(),
 			slices = slice(model.flag_size, model.flag_size + model.bins)
+		),
+		utils.Prototype(
+			loss = MSLE(),
+			slices = slice(model.flag_size + model.bins, model.flag_size + model.bins + model.meta.dim)
 		)
 	])
 	
