@@ -16,7 +16,7 @@ from tensorflow.keras.losses import MeanSquaredLogarithmicError as MSLE, BinaryC
 ## Local
 from mhdm.tfops.models import DynamicTree2 as DynamicTree
 from mhdm.tfops.metrics import FocalLoss, CombinedLoss
-from mhdm.tfops.callbacks import DynamicTreeCallback, SaveOptimizerCallback, LogCallback
+from mhdm.tfops.callbacks import DynamicTree2Callback, SaveOptimizerCallback, LogCallback
 from mhdm import utils
 
 
@@ -347,18 +347,18 @@ def main(
 		xtype=xtype
 		)
 	
-	trainer, train_encoder, train_meta = model.trainer(train_index, 
+	trainer, train_meta = model.trainer(train_index, 
 		take=steps_per_epoch,
 		shuffle=shuffle,
 		augmentation=True,
-		**meta_args) if train_index else (None, None, None)
-	validator, val_encoder, val_meta = model.validator(val_index,
+		**meta_args) if train_index else (None, None)
+	validator, val_meta = model.validator(val_index,
 		take=validation_steps,
-		**meta_args) if val_index else (None, None, None)
-	tester, test_encoder, test_meta = model.tester(test_index,
+		**meta_args) if val_index else (None, None)
+	tester, test_meta = model.tester(test_index,
 		take=test_steps,
 		max_layers=max_layers,
-		**meta_args) if test_index else (None, None, None)
+		**meta_args) if test_index else (None, None)
 	master_meta = train_meta or val_meta or test_meta
 	steps_per_epoch = steps_per_epoch if steps_per_epoch * max_layers else master_meta.num_of_files * max_layers
 
@@ -429,12 +429,11 @@ def main(
 			patience=stop_patience
 		))
 	
-	if test_encoder is not None:
+	if tester is not None:
 		writer = tf.summary.create_file_writer(os.path.join(log_dir, 'test'))
 		when = ['on_test_end' if trainer is None else 'on_epoch_end']
-		test_callback = DynamicTreeCallback(
+		test_callback = DynamicTree2Callback(
 			samples=tester,
-			info=test_encoder,
 			meta=test_meta,
 			freq=test_freq,
 			steps=test_steps,

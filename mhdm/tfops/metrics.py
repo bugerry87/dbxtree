@@ -39,7 +39,7 @@ def combinate(y_true, y_pred, loss_funcs):
 			else:
 				yield loss_func(gt, est, **kwargs) * weights
 		pass
-
+	
 	loss = tf.math.reduce_sum([*parse(loss_funcs)])
 	return loss
 

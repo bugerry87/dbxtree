@@ -317,7 +317,7 @@ class DynamicTreeCallback(LambdaCallback):
 class DynamicTree2Callback(LambdaCallback):
 	"""
 	"""
-	def __init__(self, samples, info, meta,
+	def __init__(self, samples, meta,
 		freq=1,
 		steps=0,
 		when=['on_epoch_end'],
@@ -330,7 +330,6 @@ class DynamicTree2Callback(LambdaCallback):
 		"""
 		super(DynamicTree2Callback, self).__init__(**{w:self for w in when})
 		self.samples = samples
-		self.info = info
 		self.meta = meta
 		self.steps = steps or meta.num_of_files
 		self.freq = freq
@@ -364,29 +363,29 @@ class DynamicTree2Callback(LambdaCallback):
 		count_files = 0
 		self.model.reset_metrics()
 
-		for sample, info in self.samples:
-			filename = str(info[-1].numpy())
-			layer = info[-3].numpy()
-			dims = info[-4].numpy()
+		for sample in self.samples:
+			metrics = self.model.test_on_batch(*sample[:2], reset_metrics=False, return_dict=True)
+			filename = str(sample[-1].numpy())
+			layer = sample[-3].numpy()
+			dims = sample[-4].numpy()
 			tree_start = layer == 1
 			early_stop = self.model.meta.max_layers != 0 and self.model.meta.max_layers == layer
 			tree_end = np.any(dims) or early_stop
-
-			flags = info[0]
-			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
-			probs = self.model.predict_on_batch(sample[0])[0,...,self.model.flag_size:self.model.flag_size + self.model.bins]
-			probs = tf.clip_by_value(self.probs, self.floor, 1.0)
+			flags = sample[3]
+			
+			probs = sample[0][...,self.model.flag_size:self.model.flag_size+self.model.bins]
+			probs = tf.clip_by_value(probs, self.floor, 1.0)
 			mask = tf.range(self.model.bins)
 			mask = tf.repeat(mask[None,...], len(dims), axis=0)
-			mask = tf.cast(mask < dims, probs.dtype)
+			mask = tf.cast(mask < 2**dims, probs.dtype)
 			probs *= mask[None,...]
 
 			if tree_start:
 				count_files += 1
 				self.probs = probs
 				self.flags = flags
-				points = float(info[-2].shape[-2])
-				bbox = tf.math.reduce_max(tf.math.abs(info[-2]), axis=-2).numpy()
+				points = float(sample[-2].shape[-2])
+				bbox = np.abs(sample[-2].numpy()).max(axis=-2)
 				bit_count = 0
 				filename = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx2.bin')
 
@@ -406,39 +405,23 @@ class DynamicTree2Callback(LambdaCallback):
 			if tree_end:
 				if self.range_encoder is not None:
 					self.range_encoder.updates(self.flags.numpy(), probs=np.squeeze(self.probs.numpy()))
+					self.range_encoder.finalize()
+					bit_count = len(self.range_encoder)
+					self.range_encoder.close()
 				elif self.buffer is not None and tfc:
 					code = range_encode(self.probs, self.flags).numpy()
 					for c in code:
 						self.buffer.write(c, 8, soft_flush=True)
 					bit_count += len(code)*8.0
-
-					if not tree_end:
-						self.probs = self.model.predict_on_batch(sample[0])
-						self.flags = flags
 				elif not tree_start:
 					self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
 					self.flags = tf.concat([self.flags, flags], axis=-1)
-				dim = cur_dim
-
-			if tree_end:
-				if self.range_encoder is not None:
-					self.range_encoder.finalize()
-					bit_count = len(self.range_encoder)
-					self.range_encoder.close()
-				elif self.buffer is not None:
-					self.buffer.close()
 				bpp = bit_count / points
 				bpp_min = min(bpp_min, bpp)
 				bpp_max = max(bpp_max, bpp)
 				bpp_sum += bpp
 				if self.steps and self.steps == count_files:
 					break
-
-		if self.range_encoder is not None:
-			self.range_encoder.finalize()
-			self.range_encoder.close()
-		elif self.buffer is not None:
-			self.buffer.close()
 		
 		metrics['bpp'] = bpp_sum / count_files
 		metrics['bpp_min'] = bpp_min

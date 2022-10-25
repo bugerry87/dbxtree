@@ -142,7 +142,6 @@ class DynamicTree2(Model):
 		]
 		
 		self.reshape_flags = Reshape((-1, self.flag_size))
-		self.reshape_means = Reshape((-1, 3))
 		self.dropout = Dropout(0.1)
 		pass
 	
@@ -264,7 +263,7 @@ class DynamicTree2(Model):
 				inv = nodes
 				r = tf.constant(radius)[None,...]
 				pos = tf.range(vmax, dtype=U.dtype)[...,None] * (0.0, 1.0, 0.0)
-				means = pos
+				means = tf.math.unsorted_segment_mean(U, nodes, vmax) * (1.0, 0.0, 1.0)
 				bbox = tf.math.unsorted_segment_max(absU, nodes, vmax) * (1.0, 0.0, 1.0)
 				dims = tf.math.reduce_sum(bbox, axis=-1)
 				uids = tf.zeros(vmax, dtype=tf.int64)
@@ -273,12 +272,12 @@ class DynamicTree2(Model):
 				layer = 0
 				while np.any(dims.numpy()) and (max_layers == 0 or max_layers > layer):
 					layer += 1
-					means = tf.math.divide_no_nan(means, bbox)
-					features = self.featurize(self, uids, pos, bbox)
-					pred = self.predict_on_batch(features)
-					means = pred[0,...,:-3] * bbox
-					u, nodes, inv, bbox, flags, dims, means, pos, uids = dbxtree.encode(u, nodes, inv, bbox, r, means, pos)
-					labels = self.labelize(flags, means)
+					features = self.featurize(uids, pos, bbox)
+					pred = self.predict_on_batch(features[None,...])[0]
+					pred_means = pred[...,-self.meta.dim:] * bbox
+					gt_means = tf.math.divide_no_nan(means, bbox)
+					u, nodes, inv, bbox, flags, dims, means, pos, uids = dbxtree.encode(u, nodes, inv, bbox, r, pred_means, pos)
+					labels = self.labelize(flags, gt_means)
 					yield features, labels, pred, flags, pos, dims, layer, U, filename
 				pass
 			pass
@@ -288,14 +287,15 @@ class DynamicTree2(Model):
 		meta.radius = radius
 		meta.max_layers = max_layers
 		meta.augmentation = augmentation
-		meta.feature_size = 3 * self.meta.dim + 63
-		meta.label_size = 4 + self.bins + 3
+		meta.feature_size = self.meta.dim * self.meta.dim + 63
+		meta.label_size = 4 + self.bins + self.meta.dim
 		encoder = tf.data.Dataset.from_generator(encode,
 			output_types=(
 				tf.float32,
 				tf.float32,
 				tf.float32,
 				tf.int32,
+				tf.float32,
 				tf.int32,
 				tf.int32,
 				tf.float32,
@@ -303,10 +303,11 @@ class DynamicTree2(Model):
 				),
 			output_shapes=(
 				tf.TensorShape([None, meta.feature_size]),
-				tf.TensorShape([None, meta.dim]),
+				tf.TensorShape([None, meta.label_size]),
+				tf.TensorShape([None, meta.label_size]),
 				tf.TensorShape([None]),
 				tf.TensorShape([None, meta.dim]),
-				tf.TensorShape([None, meta.dim]),
+				tf.TensorShape([None, 1]),
 				tf.TensorShape([]),
 				tf.TensorShape([None, meta.dim]),
 				tf.TensorShape([])
@@ -314,8 +315,12 @@ class DynamicTree2(Model):
 			)
 		return encoder, meta
 	
-	@tf.function
-	def featurize(self, uids, pos, bbox, *args):
+	@tf.function(input_signature=[
+		tf.TensorSpec(shape=[None], dtype=tf.int64),
+		tf.TensorSpec(shape=[None, 3], dtype=tf.float32),
+		tf.TensorSpec(shape=[None, 3], dtype=tf.float32)
+	])
+	def featurize(self, uids, pos, bbox):
 		pos = tf.repeat(pos[...,None,:], self.flag_size, axis=-2)
 
 		if 'org' in self.features:
@@ -346,8 +351,11 @@ class DynamicTree2(Model):
 		feature = tf.concat([*(f.feature for f in self.features.values()), index], axis=-1, name='concat_features')
 		return feature
 	
-	@tf.function
-	def labelize(self, flags, means, *args):
+	@tf.function(input_signature=[
+		tf.TensorSpec(shape=[None], dtype=tf.int32),
+		tf.TensorSpec(shape=[None, 3], dtype=tf.float32)
+	])
+	def labelize(self, flags, means):
 		bits = bitops.right_shift(flags[...,None], tf.range(self.flag_size, dtype=flags.dtype))
 		bits = bitops.bitwise_and(bits, 1)
 		bits = tf.cast(bits, means.dtype)
@@ -356,6 +364,7 @@ class DynamicTree2(Model):
 			tf.one_hot(flags, self.bins, dtype=self.dtype),
 			means
 		], axis=-1, name='concat_labels')
+		return labels
 
 	def trainer(self, *args, 
 		encoder=None,
@@ -373,7 +382,7 @@ class DynamicTree2(Model):
 		trainer = encoder.map(lambda feature, labels, *args: (feature, labels))
 		trainer = trainer.prefetch(2)
 		trainer = trainer.batch(1)
-		return trainer, encoder, meta
+		return trainer, meta
 	
 	def validator(self, *args,
 		encoder=None,
@@ -394,23 +403,16 @@ class DynamicTree2(Model):
 	def build(self):
 		"""
 		"""
-		def incr(j):
-			incr.i += j
-			return incr.i
-		incr.i = 0
-		for k in self.features:
-			size = self.features[k].feature.shape[-1]
-			self.features[k].size = size
-			self.features[k].offsets = (incr(0), incr(size))
-		feature_size = self.meta.feature_size or sum([f.size for f in self.features.values()]) + self.meta.dim
+		feature_size = self.meta.feature_size # or sum([f.size for f in self.features.values()]) + self.meta.dim
 		super(DynamicTree2, self).build(tf.TensorShape((None, None, feature_size)))
 	
 	def call(self, inputs, *args):
-		sort = tf.cast(inputs[..., -3:], tf.int32)
+		sort = tf.cast(inputs[..., -self.meta.dim:], tf.int32)
 		X = x = tf.gather(inputs, sort[...,1], batch_dims=1)[...,:-self.meta.dim]
 		for conv_layers in self.pre_conv:
 			for layer in conv_layers:
 				X = layer(X)
+				X = normalize(X)
 				X = self.dropout(X)
 			X = tf.concat([X, x], axis=-1)
 		
@@ -418,24 +420,26 @@ class DynamicTree2(Model):
 		for conv_layers in self.post_conv:
 			for layer in conv_layers:
 				X = layer(X)
+				X = normalize(X)
 				X = self.dropout(X)
 			X = tf.concat([X, x], axis=-1)
 		
 		F = X
 		for layer in self.flags:
+			F = normalize(F)
 			F = layer(F)
 		
 		X = tf.concat([F, X], axis=-1)
 		M = S = tf.stop_gradient(X)
 		for layer in self.means:
+			M = normalize(M)
 			M = layer(M)
 		
 		for layer in self.symbols:
+			S = normalize(S)
 			S = layer(S)
 		
 		M = M[...,::2] - M[...,1::2]
-		M = self.reshape_means(M)
-
 		F = F[...,::2] - F[...,1::2]
 		F = self.reshape_flags(F)
 
