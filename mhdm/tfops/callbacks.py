@@ -365,26 +365,30 @@ class DynamicTree2Callback(LambdaCallback):
 		self.model.reset_metrics()
 
 		for sample, info in self.samples:
-
-			
 			filename = str(info[-1].numpy())
 			layer = info[-3].numpy()
-			cur_dim = info[-4].numpy()
+			dims = info[-4].numpy()
 			tree_start = layer == 1
 			early_stop = self.model.meta.max_layers != 0 and self.model.meta.max_layers == layer
-			tree_end = cur_dim == 0 or early_stop
-			do_encode = cur_dim < dim or tree_end
+			tree_end = np.any(dims) or early_stop
+
 			flags = info[0]
 			metrics = self.model.test_on_batch(*sample, reset_metrics=False, return_dict=True)
+			probs = self.model.predict_on_batch(sample[0])[0,...,self.model.flag_size:self.model.flag_size + self.model.bins]
+			probs = tf.clip_by_value(self.probs, self.floor, 1.0)
+			mask = tf.range(self.model.bins)
+			mask = tf.repeat(mask[None,...], len(dims), axis=0)
+			mask = tf.cast(mask < dims, probs.dtype)
+			probs *= mask[None,...]
 
 			if tree_start:
 				count_files += 1
-				self.probs = self.model.predict_on_batch(sample[0])
+				self.probs = probs
 				self.flags = flags
 				points = float(info[-2].shape[-2])
 				bbox = tf.math.reduce_max(tf.math.abs(info[-2]), axis=-2).numpy()
 				bit_count = 0
-				filename = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx.bin')
+				filename = path.join(self.output, path.splitext(path.basename(filename))[0] + '.dbx2.bin')
 
 				if self.range_encoder is not None:
 					self.range_encoder.open(filename)
@@ -395,26 +399,26 @@ class DynamicTree2Callback(LambdaCallback):
 				if self.buffer is not None:
 					self.buffer.write(int.from_bytes(np.array(self.meta.radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
 					self.buffer.write(int.from_bytes(bbox.tobytes(), 'big'), bbox.shape[-1] * 32, soft_flush=True)
-			
-			if do_encode:
-				if dim and early_stop:
-					self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
-					self.flags = tf.concat([self.flags, flags], axis=-1)
-				self.probs = tf.clip_by_value(self.probs, self.floor, 1.0)
+			else:
+				self.probs = tf.concat([self.probs, probs], axis=-2)
+				self.flags = tf.concat([self.flags, flags], axis=-1)
+
+			if tree_end:
 				if self.range_encoder is not None:
 					self.range_encoder.updates(self.flags.numpy(), probs=np.squeeze(self.probs.numpy()))
 				elif self.buffer is not None and tfc:
-					code = range_encode(self.probs[0,...,:1<<(1<<dim)], self.flags).numpy()
+					code = range_encode(self.probs, self.flags).numpy()
 					for c in code:
 						self.buffer.write(c, 8, soft_flush=True)
 					bit_count += len(code)*8.0
-				if not tree_end:
-					self.probs = self.model.predict_on_batch(sample[0])
-					self.flags = flags
-			elif not tree_start:
-				self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
-				self.flags = tf.concat([self.flags, flags], axis=-1)
-			dim = cur_dim
+
+					if not tree_end:
+						self.probs = self.model.predict_on_batch(sample[0])
+						self.flags = flags
+				elif not tree_start:
+					self.probs = tf.concat([self.probs, self.model.predict_on_batch(sample[0])], axis=-2)
+					self.flags = tf.concat([self.flags, flags], axis=-1)
+				dim = cur_dim
 
 			if tree_end:
 				if self.range_encoder is not None:
