@@ -140,7 +140,7 @@ def main(args):
 			X = lidar.load(in_file)[...,:3]
 		
 		if path.splitext(gt_file)[-1] == '.bin':
-			Y = lidar.load(gt_file, (-1,4), np.float32)[...,:3]
+			Y = lidar.load(gt_file, (-1,3), np.float32)[...,:3]
 		else:
 			Y = lidar.load(gt_file)[...,:3]
 		
@@ -198,7 +198,7 @@ def main(args):
 			sym_psnr
 			)
 		report.append(entry)
-		log(("{}:"
+		log(("{} -> {}:"
 			"\n            {:^10}   {:^10}"
 			"\n  points:   {:>10}   {:>10}"
 			"\n  psnr:     {:10.2f}dB {:10.2f}dB"
@@ -210,7 +210,7 @@ def main(args):
 			"\n  peak:     {:10.4f}m"
 			"\n  sym cd:   {:10.4f}m"
 			"\n  sym psnr: {:10.2f}dB"
-			).format(in_file, 'XY', 'YX', *entry))
+			).format(in_file, gt_file, 'XY', 'YX', *entry))
 		del Xtree
 		del Ytree
 	

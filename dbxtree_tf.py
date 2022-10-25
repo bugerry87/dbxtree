@@ -158,8 +158,8 @@ def encode(
 		X = lidar.load(f, xshape, xtype)[...,:oshape[-1]]
 		offset = X.min(axis=-2) + X.max(axis=-2)
 		offset *= 0.5
+		#X -= offset
 		bbox = np.abs(X).astype(np.float32).max(axis=0) + radius * 0.5
-		X -= offset
 
 		buffer.open(outname, 'wb')
 		buffer.write(int.from_bytes(np.array(radius).astype(np.float32).tobytes(), 'big'), 32, soft_flush=True)
@@ -238,12 +238,12 @@ def decode(
 			flags = np.array([buffer.read(1<<dims) for y in range(read)])
 			read = np.sum(flags[...,None] >> np.arange(1<<dims) & 1)
 			flags = tf.constant(flags)
-			Y, keep, bb = dbxtree.decode_fix(flags, bb, r, Y, keep, layer)
+			Y, keep, bb = dbxtree.decode(flags, bb, r, Y, keep)
 			layer += 1
 			dims = np.sum(bb > radius)
 			log(end=".", flush=True)
-		Y *= bbox[i]
-		Y += offset
+		#Y *= bbox[i]
+		#Y += offset
 		buffer.close()
 		lidar.save(Y.numpy()[...,i], outname)
 		log(f" {next(delta)}s")
