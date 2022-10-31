@@ -3,6 +3,7 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Reshape
 from tensorflow.python.keras.losses import LossFunctionWrapper
+from tensorflow.python.keras.metrics import Metric
 
 
 def focal_loss(y_true, y_pred,
@@ -77,3 +78,29 @@ class CombinedLoss(LossFunctionWrapper):
 			**kwargs
 			)
 		pass
+
+
+class SlicedMetric(Metric):
+	"""
+	"""
+	def __init__(self, metric, slices, **kwargs):
+		super(SlicedMetric, self).__init__(name='sliced_' + metric.name, **kwargs)
+		self.slices = slices
+		self.metric = metric
+		pass
+
+	def merge_state(self, metrics):
+		return self.metric.merge_state(metrics)
+
+	def update_state(self, y_true, y_pred, sample_weights=None):
+		return self.metric.update_state(
+			y_true[...,self.slices], 
+			y_pred[...,self.slices], 
+			sample_weights[...,self.slices] if sample_weights is not None else None
+		)
+	
+	def result(self):
+		return self.metric.result()
+	
+	def reset_result(self):
+		return self.metric.reset_result()

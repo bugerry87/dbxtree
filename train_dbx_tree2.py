@@ -12,10 +12,11 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, TerminateOnNaN
 from tensorflow.keras.losses import MeanSquaredLogarithmicError as MSLE, BinaryCrossentropy as BC
+from tensorflow.keras.metrics import BinaryAccuracy, Accuracy, RootMeanSquaredError
 
 ## Local
 from mhdm.tfops.models import DynamicTree2 as DynamicTree
-from mhdm.tfops.metrics import FocalLoss, CombinedLoss
+from mhdm.tfops.metrics import FocalLoss, CombinedLoss, SlicedMetric
 from mhdm.tfops.callbacks import DynamicTreeCallback, SaveOptimizerCallback, LogCallback
 from mhdm import utils
 
@@ -381,12 +382,18 @@ def main(
 			slices = slice(model.flag_size + model.bins, model.flag_size + model.bins + model.meta.dim)
 		)
 	])
+
+	metrics = [
+		SlicedMetric(BinaryAccuracy('flag_acc'), slice(0, model.flag_size)),
+		SlicedMetric(Accuracy('symp_acc'), slice(model.flag_size, model.flag_size + model.bins)),
+		SlicedMetric(RootMeanSquaredError('mean_err'), slice(model.flag_size + model.bins, model.flag_size + model.bins + model.meta.dim)),
+	]
 	
 	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 	model.compile(
 		optimizer=optimizer,
 		loss=loss,
-		metrics=['accuracy'],
+		metrics=metrics,
 		sample_weight_mode='temporal'
 		)
 	model.build()
