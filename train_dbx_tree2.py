@@ -41,7 +41,7 @@ def init_main_args(parents=[]):
 		'--train_index', '-X',
 		metavar='PATH',
 		nargs='*',
-		default='./data/train_index.txt',
+		default=None,
 		help='A index file to training data'
 		)
 	
@@ -174,7 +174,8 @@ def init_main_args(parents=[]):
 		'--radius', '-r',
 		metavar='Float',
 		type=float,
-		default=0.1,
+		nargs='+',
+		default=(np.math.pi / 2048, 1, 0.003),
 		help="Radius of voxel precision"
 		)
 	
@@ -288,7 +289,7 @@ def main(
 	test_steps=0,
 	max_layers=17,
 	shuffle=0,
-	radius=0.003,
+	radius=(np.math.pi / 2048, 1, 0.003),
 	kernels=4,
 	convolutions=2,
 	features=('org', 'pos', 'uids'),
